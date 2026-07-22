@@ -1,12 +1,44 @@
-# content-approval-saas
+# İçerik Onay — content-approval-saas
 
-Sosyal medya içerik onay akışı — küçük ajanslar için. Ajans, müşterisi için hazırladığı postu yükler; müşteri giriş yapmadan, e-postasına gelen tek kullanımlık linkten onaylar veya reddeder. Spec: [issue #1](https://github.com/enesmemduhoglu/content-approval-saas/issues/1).
+Küçük sosyal medya ajansları için **tek tıkla müşteri onay akışı**.
+
+Ajanslar, müşterileri için hazırladıkları postların onayını bugün WhatsApp/e-posta karmaşasında yürütüyor: kaybolan mesajlar, sürüm karışıklığı, "onayladı mı?" belirsizliği. Bu uygulama o akışı tek bir linke indirger:
+
+> Ajans postu yükler → müşteriye e-postayla onay linki gider → müşteri **giriş yapmadan**, telefonundan tek tıkla onaylar veya sebep yazarak reddeder → karar, zaman damgası ve IP ile kayıt altına alınır.
+
+**Canlı:** https://content-approval-saas.vercel.app · Spec: [issue #1](https://github.com/enesmemduhoglu/content-approval-saas/issues/1)
+
+## Özellikler
+
+- **Ajans paneli** — Google ile giriş, müşteri yönetimi, post oluşturma (görsel + caption), durum takibi (taslak / onay bekliyor / onaylandı / reddedildi)
+- **Public onay sayfası** — müşteri için üyelik yok, uygulama yok; mobile-first tek sayfa; onay/red + opsiyonel reddetme sebebi
+- **E-posta bildirimi** — post oluşunca müşteriye "İncele ve Onayla" CTA'lı, text+html multipart e-posta (Resend, SPF/DKIM/DMARC doğrulanmış domain)
+- **Güvenli linkler** — `crypto.randomUUID` tabanlı token, 7 gün geçerlilik, süresi dolan link çalışmaz
+- **Audit** — her onay/red işlemi IP + aksiyon + zaman damgasıyla `ApprovalAudit` tablosuna yazılır
 
 ## Stack
 
-Next.js (App Router) · Postgres + Prisma · NextAuth (Google) · Vercel Blob · Resend
+| Katman | Teknoloji |
+|---|---|
+| Framework | Next.js 15 (App Router, React 19) |
+| Veritabanı | PostgreSQL + Prisma (production: Neon) |
+| Kimlik doğrulama | NextAuth v5 — Google OAuth, JWT session |
+| Görsel depolama | Vercel Blob (yerelde dosya sistemi fallback'i) |
+| E-posta | Resend |
+| Test | Vitest (unit + integration) · Playwright (e2e) |
+| Hosting | Vercel |
+
+## Güvenlik tasarımı
+
+- **IDOR koruması:** Route handler'lar Client/Post için asla ham `db.*` çağırmaz. `getScopedDb(session)` her sorguya oturumdaki ajansın `agencyId` filtresini otomatik enjekte eder (`src/lib/scoped-db.ts`) — yeni endpoint eklerken scoping unutulamaz.
+- **Atomiklik:** Post + ApprovalLink tek `$transaction` içinde oluşur; linksiz yarım post kalmaz.
+- **Yarış koruması:** Onay/red, `WHERE status='pending'` koşullu UPDATE ile yapılır — aynı anda gelen ikinci karar 409 alır, çifte karar imkânsızdır.
+- **Rate limit:** Public onay endpoint'i ve sayfası IP başına dakikada 10 istekle sınırlıdır (token brute-force'a karşı). IP bilinemiyorsa audit'e `"unknown"` yazılır, asla boş değer düşmez.
+- **Test girişi izolasyonu:** E2E testlerin kullandığı Credentials provider'ı yalnızca `ENABLE_TEST_AUTH=1` iken var olur; production'da yoktur.
 
 ## Yerel geliştirme
+
+Gereksinimler: Node 20+, Docker.
 
 ```bash
 # 1. Postgres (Docker)
@@ -14,36 +46,64 @@ docker run -d --name content-approval-pg -e POSTGRES_PASSWORD=postgres \
   -e POSTGRES_DB=content_approval -p 5455:5432 postgres:16
 
 # 2. Ortam değişkenleri
-cp .env.example .env.local   # DATABASE_URL ve AUTH_SECRET doldur
+cp .env.example .env.local   # en az DATABASE_URL ve AUTH_SECRET doldur
 
 # 3. Bağımlılıklar + migration
 npm install
 npx prisma migrate dev
 
 # 4. Çalıştır
-npm run dev
+npm run dev                  # http://localhost:3000
 ```
 
-`ENABLE_TEST_AUTH=1` ile Google OAuth kurmadan test girişi (e-posta + ajans adı) kullanabilirsin — yalnızca yerel geliştirme için. `BLOB_READ_WRITE_TOKEN` boşsa görseller `public/uploads/` altına yazılır; `RESEND_API_KEY` boşsa e-posta gönderimi atlanır (akış çalışmaya devam eder).
+Yerel kolaylıklar (hiçbir dış servis hesabı olmadan tam akış çalışır):
+
+- `ENABLE_TEST_AUTH=1` → Google OAuth kurmadan e-posta + ajans adıyla test girişi
+- `BLOB_READ_WRITE_TOKEN` boş → görseller `public/uploads/` altına yazılır
+- `RESEND_API_KEY` boş → e-posta gönderimi atlanır, akış kesilmez
+
+### Ortam değişkenleri
+
+| Değişken | Zorunlu | Açıklama |
+|---|---|---|
+| `DATABASE_URL` | ✅ | Postgres bağlantısı (pooled) |
+| `DATABASE_URL_UNPOOLED` | prod | Migration'lar için doğrudan bağlantı (Neon) |
+| `AUTH_SECRET` | ✅ | `openssl rand -base64 32` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | prod | Google OAuth (boşsa Google girişi kapalı) |
+| `BLOB_READ_WRITE_TOKEN` | prod | Vercel Blob |
+| `RESEND_API_KEY` / `EMAIL_FROM` | prod | E-posta bildirimi |
+| `APP_URL` | prod | Onay linklerinde kullanılan mutlak URL |
+| `ENABLE_TEST_AUTH` | — | `1` ise test girişi aktif — **production'da asla** |
 
 ## Testler
 
 ```bash
-npm test              # unit + integration (vitest; test DB: content_approval_test)
-npm run test:e2e      # Playwright e2e (kendi dev sunucusunu 3111 portunda açar)
-```
-
-Test ve e2e veritabanları:
-
-```bash
+# Test veritabanları (bir kez)
 docker exec content-approval-pg psql -U postgres \
   -c "CREATE DATABASE content_approval_test;" -c "CREATE DATABASE content_approval_e2e;"
+
+npm test              # vitest: unit + integration (gerçek Postgres'e karşı)
+npm run test:e2e      # Playwright: 3111 portunda kendi dev sunucusunu açar
 ```
 
-## Mimari notlar
+Kapsam: token üretimi/expiry, rate limit eşiği, validasyon, e-posta hata toleransı, cross-agency erişim reddi (403), transaction rollback, çifte karar yarışı, süresi dolmuş/geçersiz token, boş durumlar ve tam e2e akışı (giriş → müşteri → post → incognito onay → dashboard doğrulama, double-submit dahil).
 
-- **Agency scoping (IDOR koruması):** Route handler'lar Client/Post için ham `db.*` çağırmaz; `getScopedDb(session)` her sorguya `agencyId` filtresi enjekte eder (`src/lib/scoped-db.ts`).
-- **Atomiklik:** Post + ApprovalLink `$transaction` içinde oluşur — linksiz yarım post kalmaz.
-- **Yarış koruması:** Onay/red, `WHERE status='pending'` koşullu UPDATE ile yapılır; aynı anda gelen ikinci karar 409 alır.
-- **Rate limit:** Public onay endpoint'i ve sayfası IP başına dakikada 10 istekle sınırlı (in-memory, bkz. TODOS.md).
-- **Audit:** Her onay/red işlemi `ApprovalAudit`'e IP + aksiyon + zaman damgasıyla yazılır; IP bilinmiyorsa `"unknown"`.
+## Deploy (Vercel)
+
+Proje Vercel'e bağlıdır; `vercel deploy --prod` yeterlidir. `vercel-build` script'i her deploy'da önce `prisma migrate deploy` çalıştırır — migration'lar otomatik uygulanır. Postgres, Vercel Marketplace üzerinden Neon'dur (`DATABASE_URL` pooled, `DATABASE_URL_UNPOOLED` migration için).
+
+## Mimari
+
+```
+[Ajans tarayıcısı] ──Google OAuth──▶ [NextAuth v5, JWT]
+[Ajans tarayıcısı] ──▶ /dashboard, /clients          (session + getScopedDb)
+                       /api/clients, /api/posts       (session + getScopedDb + $transaction)
+                                     └─▶ Vercel Blob (görsel) · Resend (e-posta)
+[Müşteri, girişsiz] ──▶ /approve/[token]              (public, rate limit, token+expiry)
+                        /api/approve/[token]          (WHERE status='pending' + audit)
+                                     └─▶ Postgres (Neon)
+```
+
+## Yol haritası
+
+Bkz. [TODOS.md](TODOS.md) — çoklu görsel/carousel, ajans markalama, toplu onay, dağıtık rate limiting (Upstash).
