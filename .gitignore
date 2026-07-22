@@ -1,5 +1,16 @@
 node_modules/
 .next/
+.claude/
 .env
 .env.local
 *.log
+*.tsbuildinfo
+next-env.d.ts
+
+# Yerel geliştirme blob fallback'i
+public/uploads/
+
+# Test çıktıları
+playwright-report/
+test-results/
+tests/e2e/fixtures/
