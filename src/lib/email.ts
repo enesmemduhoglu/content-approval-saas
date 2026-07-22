@@ -20,6 +20,23 @@ export function approvalEmailSubject(agencyName: string): string {
   return `${agencyName} sizin için bir post hazırladı`;
 }
 
+// Düz metin alternatifi: salt-HTML mailler spam filtrelerinde puan kaybeder;
+// multipart (text+html) gönderim teslim edilebilirliği artırır.
+export function renderApprovalEmailText({
+  agencyName,
+  clientName,
+  approvalUrl,
+}: Omit<ApprovalEmailInput, "to">): string {
+  return `Merhaba ${clientName},
+
+${agencyName} sizin için yeni bir sosyal medya postu hazırladı.
+Aşağıdaki bağlantıdan inceleyip tek tıkla onaylayabilir veya reddedebilirsiniz:
+
+${approvalUrl}
+
+Bu bağlantı 7 gün boyunca geçerlidir. Giriş yapmanız gerekmez.`;
+}
+
 export function renderApprovalEmailHtml({
   agencyName,
   clientName,
@@ -56,6 +73,7 @@ export async function sendApprovalRequestEmail(input: ApprovalEmailInput): Promi
       to: input.to,
       subject: approvalEmailSubject(input.agencyName),
       html: renderApprovalEmailHtml(input),
+      text: renderApprovalEmailText(input),
     });
   } catch (error) {
     console.error("[email] Onay e-postası gönderilemedi:", error);
