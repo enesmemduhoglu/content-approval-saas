@@ -45,8 +45,8 @@ Gereksinimler: Node 20+, Docker.
 docker run -d --name content-approval-pg -e POSTGRES_PASSWORD=postgres \
   -e POSTGRES_DB=content_approval -p 5455:5432 postgres:16
 
-# 2. Ortam değişkenleri
-cp .env.example .env.local   # en az DATABASE_URL ve AUTH_SECRET doldur
+# 2. Ortam değişkenleri (.env — hem Next.js hem Prisma CLI okur; .env.local'i Prisma CLI okumaz)
+cp .env.example .env         # en az DATABASE_URL, DATABASE_URL_UNPOOLED ve AUTH_SECRET doldur
 
 # 3. Bağımlılıklar + migration
 npm install
@@ -67,7 +67,7 @@ Yerel kolaylıklar (hiçbir dış servis hesabı olmadan tam akış çalışır)
 | Değişken | Zorunlu | Açıklama |
 |---|---|---|
 | `DATABASE_URL` | ✅ | Postgres bağlantısı (pooled) |
-| `DATABASE_URL_UNPOOLED` | prod | Migration'lar için doğrudan bağlantı (Neon) |
+| `DATABASE_URL_UNPOOLED` | ✅ | Migration/CLI için doğrudan bağlantı (yerelde `DATABASE_URL` ile aynı; production'da Neon unpooled) |
 | `AUTH_SECRET` | ✅ | `openssl rand -base64 32` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | prod | Google OAuth (boşsa Google girişi kapalı) |
 | `BLOB_READ_WRITE_TOKEN` | prod | Vercel Blob |
