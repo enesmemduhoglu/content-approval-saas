@@ -105,6 +105,16 @@ Proje Vercel'e bağlıdır; `vercel deploy --prod` yeterlidir. `vercel-build` sc
                                      └─▶ Postgres (Neon)
 ```
 
+## Operasyon notları
+
+Proje tamamen ücretsiz katmanlarda çalışır (Vercel Hobby · Neon free · Upstash free · Resend free) — boşta dururken ücret üretmez ve kendiliğinden yayından düşmez. Bilinmesi gerekenler:
+
+- **Soğuk başlangıç:** Neon compute boşta uykuya geçer; uzun aradan sonra ilk istek 1-2 sn yavaş açılır. Arıza değildir.
+- **Dayanıklılık:** Resend erişilemezse post oluşturma yine çalışır (e-posta loglanıp atlanır); Upstash erişilemezse rate limit in-memory fallback'e düşer. Çekirdek onay akışı yalnızca Vercel + Neon ile ayakta kalır.
+- **Google OAuth:** Consent screen "Testing" modundayken yalnızca Test users listesindeki hesaplar giriş yapabilir. Gerçek kullanıcılar için Google Cloud Console'dan **Publish app** gerekir (yalnızca e-posta/profil scope'u kullanıldığından doğrulama süreci yoktur).
+- **Domain bağımlılığı:** `enesmemduhoglu.tech` yenilenmezse yalnızca e-posta gönderimi kırılır — site `vercel.app` adresinde yaşamaya devam eder. Resend'in DNS kayıtları (SPF/DKIM/DMARC + `_dmarc`) domain'in DNS'inde durur.
+- **Geliştirmeye geri dönüş:** `docker start content-approval-pg` → `npm run dev`. Deploy: `vercel deploy --prod` (migration'lar `vercel-build` ile otomatik uygulanır).
+
 ## Yol haritası
 
 Bkz. [TODOS.md](TODOS.md) — çoklu görsel/carousel, ajans markalama, toplu onay, dağıtık rate limiting (Upstash).
