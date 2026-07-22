@@ -5,6 +5,9 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Migration'lar pooled (pgbouncer) bağlantı üzerinden güvenilir çalışmaz —
+  // CLI komutları (migrate/db push) bu doğrudan bağlantıyı kullanır.
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model Agency {

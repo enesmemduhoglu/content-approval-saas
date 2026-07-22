@@ -7,6 +7,10 @@ const TEST_DATABASE_URL =
 export default function setup() {
   execSync("npx prisma db push --skip-generate --accept-data-loss", {
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
+    env: {
+      ...process.env,
+      DATABASE_URL: TEST_DATABASE_URL,
+      DATABASE_URL_UNPOOLED: TEST_DATABASE_URL,
+    },
   });
 }

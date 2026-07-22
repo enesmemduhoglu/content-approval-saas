@@ -11,7 +11,11 @@ const TINY_PNG_BASE64 =
 export default async function globalSetup() {
   execSync("npx prisma db push --skip-generate --accept-data-loss", {
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL: E2E_DATABASE_URL },
+    env: {
+      ...process.env,
+      DATABASE_URL: E2E_DATABASE_URL,
+      DATABASE_URL_UNPOOLED: E2E_DATABASE_URL,
+    },
   });
 
   const db = new PrismaClient({ datasourceUrl: E2E_DATABASE_URL });
