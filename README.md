@@ -10,8 +10,9 @@ Ajanslar, müşterileri için hazırladıkları postların onayını bugün What
 
 ## Özellikler
 
-- **Ajans paneli** — Google ile giriş, müşteri yönetimi, post oluşturma (görsel + caption), durum takibi (taslak / onay bekliyor / onaylandı / reddedildi)
-- **Public onay sayfası** — müşteri için üyelik yok, uygulama yok; mobile-first tek sayfa; onay/red + opsiyonel reddetme sebebi
+- **Ajans paneli** — Google ile giriş, müşteri yönetimi, post oluşturma (1-10 görsel + caption), durum takibi (taslak / onay bekliyor / onaylandı / reddedildi)
+- **Public onay sayfası** — müşteri için üyelik yok, uygulama yok; mobile-first tek sayfa; onay/red + opsiyonel reddetme sebebi; çoklu görselde kaydırmalı carousel; bekleyen diğer postları listeler ve **toplu onay** sunar
+- **Ajans markalama** — `/settings`'ten logo + marka rengi; onay sayfası ve e-postalar ajansın kimliğiyle görünür
 - **E-posta bildirimi** — post oluşunca müşteriye "İncele ve Onayla" CTA'lı, text+html multipart e-posta (Resend, SPF/DKIM/DMARC doğrulanmış domain)
 - **Güvenli linkler** — `crypto.randomUUID` tabanlı token, 7 gün geçerlilik, süresi dolan link çalışmaz
 - **Audit** — her onay/red işlemi IP + aksiyon + zaman damgasıyla `ApprovalAudit` tablosuna yazılır
@@ -33,7 +34,7 @@ Ajanslar, müşterileri için hazırladıkları postların onayını bugün What
 - **IDOR koruması:** Route handler'lar Client/Post için asla ham `db.*` çağırmaz. `getScopedDb(session)` her sorguya oturumdaki ajansın `agencyId` filtresini otomatik enjekte eder (`src/lib/scoped-db.ts`) — yeni endpoint eklerken scoping unutulamaz.
 - **Atomiklik:** Post + ApprovalLink tek `$transaction` içinde oluşur; linksiz yarım post kalmaz.
 - **Yarış koruması:** Onay/red, `WHERE status='pending'` koşullu UPDATE ile yapılır — aynı anda gelen ikinci karar 409 alır, çifte karar imkânsızdır.
-- **Rate limit:** Public onay endpoint'i ve sayfası IP başına dakikada 10 istekle sınırlıdır (token brute-force'a karşı). IP bilinemiyorsa audit'e `"unknown"` yazılır, asla boş değer düşmez.
+- **Rate limit:** Public onay endpoint'i ve sayfası IP başına dakikada 10 istekle sınırlıdır (token brute-force'a karşı). Upstash Redis env değişkenleri varsa sayaç dağıtıktır; yoksa in-memory fallback devrededir. IP bilinemiyorsa audit'e `"unknown"` yazılır, asla boş değer düşmez.
 - **Test girişi izolasyonu:** E2E testlerin kullandığı Credentials provider'ı yalnızca `ENABLE_TEST_AUTH=1` iken var olur; production'da yoktur.
 
 ## Yerel geliştirme
