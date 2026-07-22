@@ -14,3 +14,11 @@ public/uploads/
 playwright-report/
 test-results/
 tests/e2e/fixtures/
+
+.vercel
+.env*
+!.env.example
+
+# Vercel CLI'ın kurduğu yerel agent skill dosyaları
+.agents/
+skills-lock.json
