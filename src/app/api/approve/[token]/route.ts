@@ -8,7 +8,15 @@ type RouteParams = { params: Promise<{ token: string }> };
 function findLink(token: string) {
   return db.approvalLink.findUnique({
     where: { token },
-    include: { post: { include: { client: true, agency: true } } },
+    include: {
+      post: {
+        include: {
+          client: true,
+          agency: true,
+          images: { orderBy: { sortOrder: "asc" } },
+        },
+      },
+    },
   });
 }
 
@@ -33,7 +41,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   const { post } = link;
   return NextResponse.json({
     post: {
-      imageUrl: post.imageUrl,
+      imageUrls: post.images.map((image) => image.url),
       caption: post.caption,
       status: post.status,
       rejectionReason: post.rejectionReason,

@@ -43,12 +43,16 @@ function makeImage() {
 function postRequest(fields: {
   caption?: string;
   clientId?: string;
-  image?: File;
+  image?: File | File[];
 }) {
   const formData = new FormData();
   if (fields.caption !== undefined) formData.set("caption", fields.caption);
   if (fields.clientId !== undefined) formData.set("clientId", fields.clientId);
-  if (fields.image !== undefined) formData.set("image", fields.image);
+  if (fields.image !== undefined) {
+    for (const file of Array.isArray(fields.image) ? fields.image : [fields.image]) {
+      formData.append("image", file);
+    }
+  }
   return new Request("http://localhost/api/posts", {
     method: "POST",
     body: formData,
@@ -79,10 +83,11 @@ describe("POST /api/posts", () => {
 
     const post = await db.post.findUnique({
       where: { id: data.post.id },
-      include: { approvalLink: true },
+      include: { approvalLink: true, images: true },
     });
     expect(post?.status).toBe("pending");
     expect(post?.approvalLink).not.toBeNull();
+    expect(post?.images).toHaveLength(1);
     expect(data.approvalUrl).toContain(post!.approvalLink!.token);
 
     // ApprovalLink 7 gün geçerli
@@ -94,6 +99,52 @@ describe("POST /api/posts", () => {
     const emailArg = mockSendEmail.mock.calls[0][0];
     expect(emailArg.to).toBe("musteri@ornek.com");
     expect(emailArg.agencyName).toBe("Parlak Ajans");
+  });
+
+  it("çoklu görsel: 3 dosya sıralı PostImage kayıtlarına dönüşür (D3.3)", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+    mockUpload
+      .mockResolvedValueOnce("/uploads/1.png")
+      .mockResolvedValueOnce("/uploads/2.png")
+      .mockResolvedValueOnce("/uploads/3.png");
+
+    const res = await POST(
+      postRequest({
+        caption: "Carousel",
+        clientId: client.id,
+        image: [makeImage(), makeImage(), makeImage()],
+      })
+    );
+    expect(res.status).toBe(201);
+    const data = await res.json();
+
+    const images = await db.postImage.findMany({
+      where: { postId: data.post.id },
+      orderBy: { sortOrder: "asc" },
+    });
+    expect(images.map((i) => i.url)).toEqual([
+      "/uploads/1.png",
+      "/uploads/2.png",
+      "/uploads/3.png",
+    ]);
+  });
+
+  it("11 görsel 400 ile reddedilir", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(
+      postRequest({
+        caption: "Fazla görsel",
+        clientId: client.id,
+        image: Array.from({ length: 11 }, makeImage),
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(await db.post.count()).toBe(0);
   });
 
   it("cross-agency clientId 403 ile reddedilir, DB'ye yazılmaz (T1)", async () => {
@@ -190,18 +241,18 @@ describe("GET /api/posts", () => {
       data: {
         agencyId: agencyA.id,
         clientId: clientA.id,
-        imageUrl: "/a.png",
         caption: "A",
         status: "pending",
+        images: { create: [{ url: "/a.png", sortOrder: 0 }] },
       },
     });
     await db.post.create({
       data: {
         agencyId: agencyB.id,
         clientId: clientB.id,
-        imageUrl: "/b.png",
         caption: "B",
         status: "pending",
+        images: { create: [{ url: "/b.png", sortOrder: 0 }] },
       },
     });
 

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { ClientNotOwnedError, getScopedDb } from "@/lib/scoped-db";
 import { InvalidImageError, uploadPostImage } from "@/lib/blob";
 import { sendApprovalRequestEmail } from "@/lib/email";
-import { validateCaption } from "@/lib/validation";
+import { MAX_IMAGES_PER_POST, validateCaption } from "@/lib/validation";
 
 export async function GET() {
   const session = await auth();
@@ -33,7 +33,8 @@ export async function POST(request: Request) {
 
   const caption = formData.get("caption");
   const clientId = formData.get("clientId");
-  const image = formData.get("image");
+  // Çoklu görsel (D3.3): aynı "image" alanında 1..MAX dosya
+  const images = formData.getAll("image").filter((f): f is File => f instanceof File);
 
   const captionError = validateCaption(caption);
   if (captionError) {
@@ -45,9 +46,15 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (!(image instanceof File)) {
+  if (images.length === 0) {
     return NextResponse.json(
-      { error: "Görsel seçmelisin", field: "image" },
+      { error: "En az bir görsel seçmelisin", field: "image" },
+      { status: 400 }
+    );
+  }
+  if (images.length > MAX_IMAGES_PER_POST) {
+    return NextResponse.json(
+      { error: `En fazla ${MAX_IMAGES_PER_POST} görsel yükleyebilirsin`, field: "image" },
       { status: 400 }
     );
   }
@@ -62,9 +69,12 @@ export async function POST(request: Request) {
     );
   }
 
-  let imageUrl: string;
+  let imageUrls: string[];
   try {
-    imageUrl = await uploadPostImage(image);
+    imageUrls = [];
+    for (const image of images) {
+      imageUrls.push(await uploadPostImage(image));
+    }
   } catch (error) {
     if (error instanceof InvalidImageError) {
       return NextResponse.json({ error: error.message, field: "image" }, { status: 400 });
@@ -79,7 +89,7 @@ export async function POST(request: Request) {
   try {
     const { post, approvalLink } = await scoped.posts.createWithApprovalLink({
       clientId,
-      imageUrl,
+      imageUrls,
       caption: (caption as string).trim(),
     });
 

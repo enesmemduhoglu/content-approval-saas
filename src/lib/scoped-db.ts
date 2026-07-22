@@ -30,24 +30,28 @@ export function getScopedDb(session: ScopedSession) {
       findMany: (
         args: { orderBy?: Prisma.PostOrderByWithRelationInput } = {}
       ) => db.post.findMany({ ...args, where: { agencyId } }),
-      /** Dashboard listesi: `client` + `approvalLink` eager-load edilir — N+1 yok (T4). */
+      /** Dashboard listesi: `client` + `approvalLink` + `images` eager-load edilir — N+1 yok (T4). */
       findManyWithRelations: (
         args: { orderBy?: Prisma.PostOrderByWithRelationInput } = {}
       ) =>
         db.post.findMany({
           ...args,
           where: { agencyId },
-          include: { client: true, approvalLink: true },
+          include: {
+            client: true,
+            approvalLink: true,
+            images: { orderBy: { sortOrder: "asc" } },
+          },
         }),
       findById: (id: string) => db.post.findFirst({ where: { id, agencyId } }),
       /**
-       * Post + ApprovalLink'i tek transaction'da oluşturur — ikinci yazma başarısız
-       * olursa ilki geri alınır, approval linki olmayan yarım post kalmaz (T2).
-       * clientId bu ajansa ait değilse ClientNotOwnedError fırlatır (T1).
+       * Post + görseller + ApprovalLink'i tek transaction'da oluşturur — herhangi
+       * bir yazma başarısız olursa tümü geri alınır (T2). clientId bu ajansa ait
+       * değilse ClientNotOwnedError fırlatır (T1).
        */
       createWithApprovalLink: async (input: {
         clientId: string;
-        imageUrl: string;
+        imageUrls: string[];
         caption: string;
       }) => {
         const client = await db.client.findFirst({
@@ -63,10 +67,16 @@ export function getScopedDb(session: ScopedSession) {
             data: {
               agencyId,
               clientId: input.clientId,
-              imageUrl: input.imageUrl,
               caption: input.caption,
               status: "pending",
             },
+          });
+          await tx.postImage.createMany({
+            data: input.imageUrls.map((url, index) => ({
+              postId: post.id,
+              url,
+              sortOrder: index,
+            })),
           });
           const approvalLink = await tx.approvalLink.create({
             data: { postId: post.id, token, expiresAt },

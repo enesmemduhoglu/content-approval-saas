@@ -33,14 +33,19 @@ export default async function DashboardPage() {
           <ul className="post-list">
             {posts.map((post) => (
               <li key={post.id} className="post-row">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={post.imageUrl}
-                  alt=""
-                  className="post-thumb"
-                  width={64}
-                  height={64}
-                />
+                <div className="post-thumb-wrap">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={post.images[0]?.url}
+                    alt=""
+                    className="post-thumb"
+                    width={64}
+                    height={64}
+                  />
+                  {post.images.length > 1 && (
+                    <span className="post-thumb-count">+{post.images.length - 1}</span>
+                  )}
+                </div>
                 <div className="post-info">
                   <strong>{post.client.name}</strong>
                   <p className="post-caption">{post.caption}</p>

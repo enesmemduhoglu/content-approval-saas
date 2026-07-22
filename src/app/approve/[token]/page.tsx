@@ -36,7 +36,11 @@ export default async function ApprovePage({
 
   const link = await db.approvalLink.findUnique({
     where: { token },
-    include: { post: { include: { agency: true } } },
+    include: {
+      post: {
+        include: { agency: true, images: { orderBy: { sortOrder: "asc" } } },
+      },
+    },
   });
 
   if (!link) {
@@ -72,8 +76,33 @@ export default async function ApprovePage({
         )}
         <span>{post.agency.name ?? "Ajansın"}</span>
       </header>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={post.imageUrl} alt="Onay bekleyen post görseli" className="approve-image" />
+      {/* Çoklu görsel (D3.3): tek görsel eskisi gibi, birden çoksa yatay
+          scroll-snap carousel (JS gerektirmez) */}
+      {post.images.length > 1 ? (
+        <>
+          <div className="approve-carousel" role="group" aria-label="Post görselleri">
+            {post.images.map((image, index) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={image.id}
+                src={image.url}
+                alt={`Post görseli ${index + 1}/${post.images.length}`}
+                className="approve-image approve-carousel-item"
+              />
+            ))}
+          </div>
+          <p className="approve-carousel-hint">
+            {post.images.length} görsel — kaydırarak gör
+          </p>
+        </>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={post.images[0]?.url}
+          alt="Onay bekleyen post görseli"
+          className="approve-image"
+        />
+      )}
       <p className="approve-caption">{post.caption}</p>
       {post.status === "pending" ? (
         <ApprovalActions token={token} />
