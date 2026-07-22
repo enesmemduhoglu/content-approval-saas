@@ -29,11 +29,23 @@ export function resetRateLimiter(): void {
   windows.clear();
 }
 
+// Vercel Marketplace'in Upstash KV entegrasyonu KV_REST_API_* adlarını kullanır;
+// doğrudan Upstash kurulumu UPSTASH_REDIS_REST_* verir. İkisi de desteklenir.
+function upstashConfig(): { baseUrl: string; token: string } | null {
+  const baseUrl =
+    process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
+  return baseUrl && token ? { baseUrl, token } : null;
+}
+
 // Upstash Redis REST ile sabit pencere: INCR + ilk istekte EXPIRE.
 // Bağımlılık eklememek için @upstash/redis yerine REST pipeline kullanılır.
-async function isRateLimitedUpstash(ip: string, now: number): Promise<boolean> {
-  const baseUrl = process.env.UPSTASH_REDIS_REST_URL!;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN!;
+async function isRateLimitedUpstash(
+  ip: string,
+  now: number,
+  { baseUrl, token }: { baseUrl: string; token: string }
+): Promise<boolean> {
   const windowId = Math.floor(now / RATE_LIMIT_WINDOW_MS);
   const key = `rl:${ip}:${windowId}`;
   const ttlSeconds = Math.ceil(RATE_LIMIT_WINDOW_MS / 1000);
@@ -64,9 +76,10 @@ async function isRateLimitedUpstash(ip: string, now: number): Promise<boolean> {
  * instance'lık korumaya düşer.
  */
 export async function checkRateLimit(ip: string, now: number = Date.now()): Promise<boolean> {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const config = upstashConfig();
+  if (config) {
     try {
-      return await isRateLimitedUpstash(ip, now);
+      return await isRateLimitedUpstash(ip, now, config);
     } catch (error) {
       console.error("[rate-limit] Upstash hatası, in-memory fallback:", error);
     }
