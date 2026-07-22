@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
-import { getClientIp, isRateLimited } from "@/lib/rate-limit";
+import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
 import { isExpired } from "@/lib/tokens";
 import { ApprovalActions } from "@/components/approval-actions";
 
@@ -25,7 +25,7 @@ export default async function ApprovePage({
   // Public sayfa da API ile aynı rate limiter'ı paylaşır — token brute-force
   // sayfa üzerinden de yapılamaz.
   const requestHeaders = await headers();
-  if (isRateLimited(getClientIp(requestHeaders))) {
+  if (await checkRateLimit(getClientIp(requestHeaders))) {
     return (
       <FullPageMessage
         title="Çok fazla istek"

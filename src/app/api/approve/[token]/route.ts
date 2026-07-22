@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getClientIp, isRateLimited } from "@/lib/rate-limit";
+import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
 import { isExpired } from "@/lib/tokens";
 
 type RouteParams = { params: Promise<{ token: string }> };
@@ -14,7 +14,7 @@ function findLink(token: string) {
 
 export async function GET(request: Request, { params }: RouteParams) {
   const ip = getClientIp(request.headers);
-  if (isRateLimited(ip)) {
+  if (await checkRateLimit(ip)) {
     return NextResponse.json(
       { error: "Çok fazla istek, biraz sonra tekrar deneyin" },
       { status: 429 }
@@ -45,7 +45,7 @@ export async function GET(request: Request, { params }: RouteParams) {
 
 export async function POST(request: Request, { params }: RouteParams) {
   const ip = getClientIp(request.headers);
-  if (isRateLimited(ip)) {
+  if (await checkRateLimit(ip)) {
     return NextResponse.json(
       { error: "Çok fazla istek, biraz sonra tekrar deneyin" },
       { status: 429 }
