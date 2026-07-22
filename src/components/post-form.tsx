@@ -69,11 +69,12 @@ export function PostForm({ clients }: { clients: { id: string; name: string }[] 
       </label>
       {error?.field === "clientId" && <p className="field-error">{error.message}</p>}
       <label>
-        Görsel (JPEG/PNG/WebP, maks 10MB)
+        Görseller (JPEG/PNG/WebP, görsel başına maks 10MB, en fazla 10 görsel)
         <input
           type="file"
           name="image"
           accept="image/jpeg,image/png,image/webp"
+          multiple
           required
         />
       </label>

@@ -11,13 +11,15 @@ datasource db {
 }
 
 model Agency {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  googleId  String   @unique
-  createdAt DateTime @default(now())
-  clients   Client[]
-  posts     Post[]
+  id         String   @id @default(cuid())
+  email      String   @unique
+  name       String?
+  googleId   String   @unique
+  logoUrl    String?
+  brandColor String? // "#rrggbb" — onay sayfası ve e-postada accent olarak kullanılır
+  createdAt  DateTime @default(now())
+  clients    Client[]
+  posts      Post[]
 }
 
 model Client {
@@ -45,16 +47,27 @@ model Post {
   agency          Agency        @relation(fields: [agencyId], references: [id])
   clientId        String
   client          Client        @relation(fields: [clientId], references: [id])
-  imageUrl        String
   caption         String
   status          PostStatus    @default(draft)
   rejectionReason String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   approvalLink    ApprovalLink?
+  images          PostImage[]
 
   @@index([agencyId])
   @@index([clientId])
+}
+
+model PostImage {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id])
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([postId])
 }
 
 model ApprovalLink {

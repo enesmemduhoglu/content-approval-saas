@@ -1,4 +1,5 @@
 export const CAPTION_MAX_LENGTH = 2000;
+export const MAX_IMAGES_PER_POST = 10;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

@@ -107,10 +107,6 @@ button {
   color: #fff;
 }
 
-.button-primary:hover,
-.button-approve:hover {
-  background: #16302b;
-}
 
 .button-secondary {
   background: transparent;
@@ -316,6 +312,9 @@ button:disabled {
 }
 
 .approve-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   font-family: var(--font-display), "Fraunces", serif;
   font-size: 15px;
   color: var(--color-text-muted);
@@ -324,10 +323,75 @@ button:disabled {
   margin-bottom: 1rem;
 }
 
+.approve-logo {
+  height: 32px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+}
+
+.settings-logo-preview {
+  height: 40px;
+  width: auto;
+  max-width: 160px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin-left: 0.5rem;
+}
+
+.settings-hint {
+  color: var(--color-text-muted);
+  margin-top: 0;
+}
+
+.button-approve:hover,
+.button-primary:hover {
+  filter: brightness(0.92);
+}
+
 .approve-image {
   width: 100%;
   border-radius: 8px;
   background: var(--color-accent-soft);
+}
+
+/* Çoklu görsel carousel'i: yatay scroll-snap, JS yok */
+.approve-carousel {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+
+.approve-carousel-item {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+}
+
+.approve-carousel-hint {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+  margin: 0.35rem 0 0;
+}
+
+/* Dashboard: çoklu görselde adet rozeti */
+.post-thumb-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.post-thumb-count {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
 }
 
 .approve-caption {
@@ -358,6 +422,57 @@ button:disabled {
   border-radius: 8px;
   text-align: center;
   font-weight: 600;
+}
+
+/* Toplu onay: bekleyen diğer postlar */
+.sibling-posts {
+  margin-top: 2rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 1.25rem;
+}
+
+.sibling-posts h2 {
+  font-size: 17px;
+}
+
+.sibling-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sibling-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  text-decoration: none;
+  color: var(--color-text);
+  min-height: 44px;
+}
+
+.sibling-row .post-thumb {
+  width: 48px;
+  height: 48px;
+}
+
+.sibling-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.batch-approve-warning {
+  font-weight: 600;
+  margin: 0 0 0.5rem;
 }
 
 .full-page-message {

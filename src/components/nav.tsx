@@ -8,6 +8,7 @@ export function AppNav({ agencyName }: { agencyName: string }) {
       <nav>
         <Link href="/dashboard">Dashboard</Link>
         <Link href="/clients">Müşteriler</Link>
+        <Link href="/settings">Ayarlar</Link>
       </nav>
       <form
         action={async () => {

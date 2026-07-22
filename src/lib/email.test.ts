@@ -59,6 +59,31 @@ describe("renderApprovalEmailHtml", () => {
   it("gövde HTML'i snapshot ile eşleşir", () => {
     expect(renderApprovalEmailHtml(input)).toMatchSnapshot();
   });
+
+  it("markalama: logo ve marka rengi işlenir (D3.4)", () => {
+    const html = renderApprovalEmailHtml({
+      ...input,
+      logoUrl: "https://ornek.com/logo.png",
+      brandColor: "#aa3366",
+    });
+    expect(html).toContain('src="https://ornek.com/logo.png"');
+    expect(html).toContain("background: #aa3366");
+  });
+
+  it("markalama: geçersiz renk varsayılan accent'e düşer, HTML'e gömülmez", () => {
+    const html = renderApprovalEmailHtml({
+      ...input,
+      brandColor: "red; } body { display:none",
+    });
+    expect(html).toContain("background: #1e3a34");
+    expect(html).not.toContain("display:none");
+  });
+
+  it("markalama yoksa varsayılan görünüm değişmez", () => {
+    const html = renderApprovalEmailHtml(input);
+    expect(html).not.toContain("<img");
+    expect(html).toContain("background: #1e3a34");
+  });
 });
 
 describe("renderApprovalEmailText", () => {

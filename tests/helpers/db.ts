@@ -34,15 +34,25 @@ export function createClient(agencyId: string, overrides: { email?: string } = {
 export async function createPendingPostWithLink(
   agencyId: string,
   clientId: string,
-  overrides: { status?: PostStatus; expiresAt?: Date; token?: string } = {}
+  overrides: {
+    status?: PostStatus;
+    expiresAt?: Date;
+    token?: string;
+    imageUrls?: string[];
+  } = {}
 ) {
   const post = await db.post.create({
     data: {
       agencyId,
       clientId,
-      imageUrl: "/uploads/test.png",
       caption: "Test caption",
       status: overrides.status ?? "pending",
+      images: {
+        create: (overrides.imageUrls ?? ["/uploads/test.png"]).map((url, index) => ({
+          url,
+          sortOrder: index,
+        })),
+      },
     },
   });
   const link = await db.approvalLink.create({

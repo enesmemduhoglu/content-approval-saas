@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RATE_LIMIT_MAX,
   RATE_LIMIT_WINDOW_MS,
+  checkRateLimit,
   getClientIp,
   isRateLimited,
   resetRateLimiter,
@@ -9,6 +10,11 @@ import {
 
 beforeEach(() => {
   resetRateLimiter();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("isRateLimited", () => {
@@ -30,6 +36,51 @@ describe("isRateLimited", () => {
     const now = Date.now();
     for (let i = 0; i <= RATE_LIMIT_MAX; i++) isRateLimited("1.2.3.4", now);
     expect(isRateLimited("5.6.7.8", now)).toBe(false);
+  });
+});
+
+describe("checkRateLimit (Upstash)", () => {
+  function stubUpstash(counterValue: number, ok = true) {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://fake.upstash.io");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "fake-token");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok,
+      status: ok ? 200 : 500,
+      json: async () => [{ result: counterValue }, { result: 1 }],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("env yoksa in-memory sayaca düşer", async () => {
+    const now = Date.now();
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) {
+      expect(await checkRateLimit("1.2.3.4", now)).toBe(false);
+    }
+    expect(await checkRateLimit("1.2.3.4", now)).toBe(true);
+  });
+
+  it("Upstash sayacı limitin altındaysa izin verir", async () => {
+    const fetchMock = stubUpstash(3);
+    expect(await checkRateLimit("1.2.3.4")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/pipeline");
+    expect(init.headers.Authorization).toBe("Bearer fake-token");
+  });
+
+  it("Upstash sayacı limiti aşınca reddeder", async () => {
+    stubUpstash(RATE_LIMIT_MAX + 1);
+    expect(await checkRateLimit("1.2.3.4")).toBe(true);
+  });
+
+  it("Upstash hata verirse istek patlatılmaz, in-memory fallback çalışır", async () => {
+    stubUpstash(0, false);
+    expect(await checkRateLimit("1.2.3.4")).toBe(false);
+    const now = Date.now();
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) isRateLimited("9.9.9.9", now);
+    stubUpstash(0, false);
+    expect(await checkRateLimit("9.9.9.9", now)).toBe(true);
   });
 });
 
