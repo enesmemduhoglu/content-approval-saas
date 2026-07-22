@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Agency {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  googleId  String   @unique
+  createdAt DateTime @default(now())
+  clients   Client[]
+  posts     Post[]
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  agencyId  String
+  agency    Agency   @relation(fields: [agencyId], references: [id])
+  name      String
+  email     String
+  createdAt DateTime @default(now())
+  posts     Post[]
+
+  @@index([agencyId])
+}
+
+enum PostStatus {
+  draft
+  pending
+  approved
+  rejected
+}
+
+model Post {
+  id              String        @id @default(cuid())
+  agencyId        String
+  agency          Agency        @relation(fields: [agencyId], references: [id])
+  clientId        String
+  client          Client        @relation(fields: [clientId], references: [id])
+  imageUrl        String
+  caption         String
+  status          PostStatus    @default(draft)
+  rejectionReason String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  approvalLink    ApprovalLink?
+
+  @@index([agencyId])
+  @@index([clientId])
+}
+
+model ApprovalLink {
+  id        String   @id @default(cuid())
+  postId    String   @unique
+  post      Post     @relation(fields: [postId], references: [id])
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model ApprovalAudit {
+  id        String   @id @default(cuid())
+  postId    String
+  action    String // "approved" | "rejected"
+  ip        String
+  createdAt DateTime @default(now())
+
+  @@index([postId])
+}
