@@ -11,6 +11,7 @@ vi.mock("resend", () => ({
 import {
   approvalEmailSubject,
   renderApprovalEmailHtml,
+  renderApprovalEmailText,
   sendApprovalRequestEmail,
 } from "./email";
 
@@ -60,14 +61,25 @@ describe("renderApprovalEmailHtml", () => {
   });
 });
 
+describe("renderApprovalEmailText", () => {
+  it("düz metin alternatifi linki ve ajans adını içerir", () => {
+    const text = renderApprovalEmailText(input);
+    expect(text).toContain(input.approvalUrl);
+    expect(text).toContain("Parlak Ajans");
+    expect(text).not.toContain("<");
+  });
+});
+
 describe("sendApprovalRequestEmail", () => {
-  it("başarılı gönderimde doğru konu ve alıcıyla çağrılır", async () => {
+  it("başarılı gönderimde doğru konu ve alıcıyla, text+html multipart çağrılır", async () => {
     sendMock.mockResolvedValue({ id: "email-1" });
     await sendApprovalRequestEmail(input);
     expect(sendMock).toHaveBeenCalledOnce();
     const arg = sendMock.mock.calls[0][0];
     expect(arg.to).toBe(input.to);
     expect(arg.subject).toContain("Parlak Ajans");
+    expect(arg.html).toContain("İncele ve Onayla");
+    expect(arg.text).toContain(input.approvalUrl);
   });
 
   it("Resend hatası akışı DURDURMAZ — asla throw etmez (fire-and-forget)", async () => {
