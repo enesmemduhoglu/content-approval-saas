@@ -5,7 +5,14 @@ export type ApprovalEmailInput = {
   agencyName: string;
   clientName: string;
   approvalUrl: string;
+  // Ajans markalama (D3.4) — opsiyonel; yoksa varsayılan görünüm kullanılır
+  logoUrl?: string | null;
+  brandColor?: string | null;
 };
+
+const DEFAULT_ACCENT = "#1e3a34";
+// E-postaya yalnızca doğrulanmış hex renk gömülür — CSS injection engeli
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 function escapeHtml(value: string): string {
   return value
@@ -41,18 +48,25 @@ export function renderApprovalEmailHtml({
   agencyName,
   clientName,
   approvalUrl,
+  logoUrl,
+  brandColor,
 }: Omit<ApprovalEmailInput, "to">): string {
   const agency = escapeHtml(agencyName);
   const client = escapeHtml(clientName);
   const url = escapeHtml(approvalUrl);
+  const accent =
+    brandColor && HEX_COLOR_RE.test(brandColor) ? brandColor : DEFAULT_ACCENT;
+  const logoHtml = logoUrl
+    ? `<img src="${escapeHtml(logoUrl)}" alt="${agency}" style="height: 40px; max-width: 160px; object-fit: contain; margin-bottom: 16px;" />\n    `
+    : "";
   return `<div style="font-family: 'Public Sans', Arial, sans-serif; background: #fafaf8; color: #1a1a1a; padding: 32px 16px;">
   <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 32px;">
-    <p style="font-size: 16px; margin: 0 0 8px;">Merhaba ${client},</p>
+    ${logoHtml}<p style="font-size: 16px; margin: 0 0 8px;">Merhaba ${client},</p>
     <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
       <strong>${agency}</strong> sizin i&ccedil;in yeni bir sosyal medya postu hazırladı.
       Aşağıdaki bağlantıdan inceleyip tek tıkla onaylayabilir veya reddedebilirsiniz.
     </p>
-    <a href="${url}" style="display: inline-block; background: #1e3a34; color: #ffffff; text-decoration: none; font-size: 16px; padding: 14px 28px; border-radius: 6px;">İncele ve Onayla</a>
+    <a href="${url}" style="display: inline-block; background: ${accent}; color: #ffffff; text-decoration: none; font-size: 16px; padding: 14px 28px; border-radius: 6px;">İncele ve Onayla</a>
     <p style="font-size: 13px; color: #6b6b6b; margin: 24px 0 0;">Bu bağlantı 7 g&uuml;n boyunca ge&ccedil;erlidir. Giriş yapmanız gerekmez.</p>
   </div>
 </div>`;

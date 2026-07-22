@@ -107,10 +107,6 @@ button {
   color: #fff;
 }
 
-.button-primary:hover,
-.button-approve:hover {
-  background: #16302b;
-}
 
 .button-secondary {
   background: transparent;
@@ -316,12 +312,41 @@ button:disabled {
 }
 
 .approve-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   font-family: var(--font-display), "Fraunces", serif;
   font-size: 15px;
   color: var(--color-text-muted);
   padding: 1rem 0;
   border-bottom: 1px solid var(--color-border);
   margin-bottom: 1rem;
+}
+
+.approve-logo {
+  height: 32px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+}
+
+.settings-logo-preview {
+  height: 40px;
+  width: auto;
+  max-width: 160px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin-left: 0.5rem;
+}
+
+.settings-hint {
+  color: var(--color-text-muted);
+  margin-top: 0;
+}
+
+.button-approve:hover,
+.button-primary:hover {
+  filter: brightness(0.92);
 }
 
 .approve-image {

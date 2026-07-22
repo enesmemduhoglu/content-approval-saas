@@ -92,6 +92,8 @@ export async function POST(request: Request) {
       agencyName: agency?.name ?? "Ajansınız",
       clientName: client.name,
       approvalUrl,
+      logoUrl: agency?.logoUrl,
+      brandColor: agency?.brandColor,
     }).catch((error) => console.error("[posts] e-posta hatası:", error));
 
     return NextResponse.json({ post, approvalUrl }, { status: 201 });

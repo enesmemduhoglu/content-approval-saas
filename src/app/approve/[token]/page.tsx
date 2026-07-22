@@ -57,10 +57,21 @@ export default async function ApprovePage({
   }
 
   const { post } = link;
+  // Ajans markalama (D3.4): brandColor accent değişkenini override eder,
+  // logo başlıkta gösterilir. İkisi de opsiyonel.
+  const accentStyle = post.agency.brandColor
+    ? ({ "--color-accent": post.agency.brandColor } as React.CSSProperties)
+    : undefined;
 
   return (
-    <main className="approve-page">
-      <header className="approve-header">{post.agency.name ?? "Ajansın"}</header>
+    <main className="approve-page" style={accentStyle}>
+      <header className="approve-header">
+        {post.agency.logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={post.agency.logoUrl} alt="" className="approve-logo" />
+        )}
+        <span>{post.agency.name ?? "Ajansın"}</span>
+      </header>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={post.imageUrl} alt="Onay bekleyen post görseli" className="approve-image" />
       <p className="approve-caption">{post.caption}</p>
