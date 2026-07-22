@@ -22,3 +22,4 @@ tests/e2e/fixtures/
 # Vercel CLI'ın kurduğu yerel agent skill dosyaları
 .agents/
 skills-lock.json
+.gstack/
