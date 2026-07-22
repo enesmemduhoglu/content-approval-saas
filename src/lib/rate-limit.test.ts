@@ -74,6 +74,22 @@ describe("checkRateLimit (Upstash)", () => {
     expect(await checkRateLimit("1.2.3.4")).toBe(true);
   });
 
+  it("Vercel KV_REST_API_* env adlarını da tanır", async () => {
+    vi.stubEnv("KV_REST_API_URL", "https://kv.upstash.io");
+    vi.stubEnv("KV_REST_API_TOKEN", "kv-token");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [{ result: RATE_LIMIT_MAX + 1 }, { result: 1 }],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await checkRateLimit("1.2.3.4")).toBe(true);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("kv.upstash.io");
+    expect(init.headers.Authorization).toBe("Bearer kv-token");
+  });
+
   it("Upstash hata verirse istek patlatılmaz, in-memory fallback çalışır", async () => {
     stubUpstash(0, false);
     expect(await checkRateLimit("1.2.3.4")).toBe(false);
