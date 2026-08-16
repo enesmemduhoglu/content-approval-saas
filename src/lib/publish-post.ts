@@ -22,6 +22,23 @@ export type PublishOutcome = {
 
 const GENERIC_ERROR = "Instagram'a yayınlanamadı. Tekrar deneyebilirsin.";
 
+/** Yayın hedefi olan müşteride onay, aynı istekte yayını da tetikler. */
+export type PublishTargetClient = {
+  instagramUserId: string | null;
+  instagramAccessToken: string | null;
+};
+
+/**
+ * "Bu müşterinin postu onaylanınca Instagram'a düşer mi?" sorusunun TEK yeri.
+ * Toplu onay bu postları dışarıda bırakır (yayın tek tek onay yolunda yapılır),
+ * panel de onaylanıp yayınlanmamış postları buna bakarak işaretler.
+ */
+export function isPublishTarget<T extends PublishTargetClient>(
+  client: T
+): client is T & { instagramUserId: string; instagramAccessToken: string } {
+  return Boolean(client.instagramUserId && client.instagramAccessToken);
+}
+
 export async function publishApprovedPost(postId: string): Promise<PublishOutcome> {
   const post = await db.post.findUnique({
     where: { id: postId },
@@ -34,7 +51,7 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   const { client } = post;
   // Instagram bağlı değil → mevcut kullanıcıların davranışı aynen korunur:
   // post onaylanır, hiçbir şey yayınlanmaz.
-  if (!client.instagramUserId || !client.instagramAccessToken) {
+  if (!isPublishTarget(client)) {
     await db.post.updateMany({
       where: { id: postId, publishStatus: "idle" },
       data: { publishStatus: "skipped" },
