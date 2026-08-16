@@ -74,6 +74,7 @@ Yerel kolaylıklar (hiçbir dış servis hesabı olmadan tam akış çalışır)
 | `BLOB_READ_WRITE_TOKEN` | prod | Vercel Blob |
 | `RESEND_API_KEY` / `EMAIL_FROM` | prod | E-posta bildirimi |
 | `APP_URL` | prod | Onay linklerinde kullanılan mutlak URL |
+| `CRON_SECRET` | prod | Günlük Instagram token yenileme cron'unun Bearer sırrı (boşsa cron 401 alır, yenileme çalışmaz) |
 | `ENABLE_TEST_AUTH` | — | `1` ise test girişi aktif — **production'da asla** |
 
 ## Testler
@@ -92,6 +93,17 @@ Kapsam: token üretimi/expiry, rate limit eşiği, validasyon, e-posta hata tole
 ## Deploy (Vercel)
 
 Proje Vercel'e bağlıdır; `vercel deploy --prod` yeterlidir. `vercel-build` script'i her deploy'da önce `prisma migrate deploy` çalıştırır — migration'lar otomatik uygulanır. Postgres, Vercel Marketplace üzerinden Neon'dur (`DATABASE_URL` pooled, `DATABASE_URL_UNPOOLED` migration için).
+
+### Cron: Instagram token yenileme
+
+`vercel.json` her gün 03:00 UTC'de `/api/cron/refresh-instagram-tokens` çağırır ve süresi dolmaya yaklaşan (≤ 20 gün) token'ları uzatır. Çalışması için **`CRON_SECRET`'in Vercel env'ine eklenmesi zorunludur**:
+
+```bash
+openssl rand -base64 32 | vercel env add CRON_SECRET production
+vercel deploy --prod   # cron tanımı deploy ile kaydolur
+```
+
+Sır tanımlı değilse endpoint her isteğe 401 döner (bilerek: sırsız bırakılmış bir token yenileme uç noktası herkese açık olurdu) ve token'lar yenilenmez — dashboard'daki uyarı şeridi ikinci savunma hattı olarak devrede kalır. Cron koşuları Vercel → Project → Cron Jobs ekranından izlenir; `[cron:ig-token]` önekli loglar hangi müşterinin yenilendiğini gösterir.
 
 ## Mimari
 
@@ -113,6 +125,7 @@ Proje tamamen ücretsiz katmanlarda çalışır (Vercel Hobby · Neon free · Up
 - **Dayanıklılık:** Resend erişilemezse post oluşturma yine çalışır (e-posta loglanıp atlanır); Upstash erişilemezse rate limit in-memory fallback'e düşer. Çekirdek onay akışı yalnızca Vercel + Neon ile ayakta kalır.
 - **Google OAuth:** Consent screen "Testing" modundayken yalnızca Test users listesindeki hesaplar giriş yapabilir. Gerçek kullanıcılar için Google Cloud Console'dan **Publish app** gerekir (yalnızca e-posta/profil scope'u kullanıldığından doğrulama süreci yoktur).
 - **Domain bağımlılığı:** `enesmemduhoglu.tech` yenilenmezse yalnızca e-posta gönderimi kırılır — site `vercel.app` adresinde yaşamaya devam eder. Resend'in DNS kayıtları (SPF/DKIM/DMARC + `_dmarc`) domain'in DNS'inde durur.
+- **⚠ Instagram token'ının iki kopyası:** Aynı token hem SaaS'ta (`Client.instagramAccessToken`) hem furi otomasyonunda (ayrı repo, ortam değişkeni) duruyor ve ikisini senkron tutan bir mekanizma **yok**. Günlük cron SaaS kopyasını yenileyince furi'nin kopyası bayatlar; furi tarafı sessizce kırılabilir. Yenileme sonrası furi env'i elle güncellenmeli — ya da kalıcı çözüm olarak token tek kaynaktan (SaaS API'si) dağıtılmalı.
 - **Geliştirmeye geri dönüş:** `docker start content-approval-pg` → `npm run dev`. Deploy: `vercel deploy --prod` (migration'lar `vercel-build` ile otomatik uygulanır).
 
 ## Yol haritası
