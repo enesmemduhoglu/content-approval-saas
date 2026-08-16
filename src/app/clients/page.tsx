@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getScopedDb } from "@/lib/scoped-db";
 import { AppNav } from "@/components/nav";
 import { ClientForm } from "@/components/client-form";
+import { InstagramForm } from "@/components/instagram-form";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,15 @@ export default async function ClientsPage() {
                 <div className="post-info">
                   <strong>{client.name}</strong>
                   <p className="post-caption">{client.email}</p>
+                  {/* `clients.findMany` ClientView döner — token prop olarak geçmez. */}
+                  <InstagramForm
+                    clientId={client.id}
+                    clientName={client.name}
+                    connected={client.instagramConnected}
+                    instagramUserId={client.instagramUserId}
+                    tokenHint={client.instagramTokenHint}
+                    tokenExpiry={client.instagramTokenExpiry?.toISOString() ?? null}
+                  />
                 </div>
               </li>
             ))}
