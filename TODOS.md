@@ -1,73 +1,121 @@
 # TODOS
 
-Plan review'da (D3/D4 kararları) v1 kapsamı dışına ertelenen işler — v2'de kapatıldı:
+Son güncelleme: 2026-08-17. Canlı: https://content-approval-saas.vercel.app
 
-- [x] **Çoklu görsel / carousel desteği (D3.3)** — 2026-07-22: `PostImage` tablosu (veri taşıma migration'ıyla), post başına 10 görsele kadar yükleme, onay sayfasında scroll-snap carousel, dashboard'da adet rozeti.
-- [x] **Ajans markalama (D3.4)** — 2026-07-22: `/settings` sayfasından logo + marka rengi; onay sayfası ve e-postada uygulanıyor (hex doğrulamalı, injection korumalı).
-- [x] **Toplu onay** — 2026-07-22: onay sayfası aynı müşterinin bekleyen diğer postlarını listeler; "Tümünü onayla" tek istekte post başına audit kaydıyla onaylar.
-- [x] **Upstash Redis rate limiting (D4)** — 2026-07-22: `checkRateLimit` Upstash REST env değişkenleri varsa dağıtık sayaç kullanır, yoksa/hatada in-memory fallback. Not: Vercel'de Upstash entegrasyonunun kurulup env değişkenlerinin eklenmesi gerekir; eklenene kadar in-memory davranış sürer.
-- [x] **Vercel Blob + Resend production kurulumu (T7)** — 2026-07-22 tamamlandı: Blob store `content-approval-images` canlıda, Resend `enesmemduhoglu.tech` doğrulanmış domain'iyle (SPF/DKIM/DMARC) gönderiyor.
+---
 
-## Yeni ertelenenler
+## Açık işler
 
-- [ ] **Toplu reddetme** — bilinçli kapsam dışı: reddetme sebebi post başına anlamlı olduğu için toplu onayın simetriği yapılmadı.
+### Doğruluk
 
-## Instagram yayını sonrası (2026-08-16)
+- [ ] **Aynı içerik Instagram'a iki kez yayınlanabiliyor** — `externalRef` üzerinde mükerrer
+      yayın koruması yok. Kanıt prod'da duruyor: `externalRef='dizi/long-story-short'` iki ayrı
+      posta bağlı, **ikisi de** `publishStatus='published'`, farklı permalink'lerle
+      (`cmsvyzi1w0001ju04qoih8gjp` 15:38 ve `cmsw1t4mv0001ky046csgssb5` 16:57).
+      furi aynı içeriği iki kez gönderirse Instagram'a iki kez düşüyor — gözetimsiz cron'da
+      bu sessizce tekrarlanır.
+      *Yapılacak:* `(agencyId, externalRef)` için benzersizlik kısıtı, ya da yayın öncesi
+      "bu ref zaten yayınlanmış mı" kontrolü. Kısıt tercih edilirse mevcut çift kayıt önce
+      temizlenmeli, yoksa migration patlar.
 
-Instagram yayını PR #12 + #13 ile canlıya alındı (onay→yayın prod'da 11.29 sn ölçüldü).
-Aşağıdakiler bilinçli olarak o kapsamın dışında bırakıldı, ayrı bir oturumda yapılacak.
+### Güvenlik
 
-- [x] **Token süresi uyarısı** — 2026-08-16: dashboard'da proaktif uyarı şeridi.
-      `src/lib/instagram-token.ts` tek doğruluk kaynağı (`IG_TOKEN_WARNING_DAYS = 10`);
-      `publish-post.ts`'deki süre kontrolü de aynı yardımcıyı kullanıyor. Şerit iki tonlu:
-      "yakında doluyor" (sarı) ve "doldu → yayın durmuş" (kırmızı, `role="alert"`).
-      Token'ın kendisi `select` edilmiyor, prop'a da girmiyor — yalnızca ad + kalan gün.
-      Mevcut prod token'ı **2026-10-15**'te doluyor, yani uyarı 2026-10-05'te çıkacak.
-      *Hâlâ açık:* otomatik yenileme yok. `GET /refresh_access_token` çağrısını bir cron'a
-      bağlayıp `instagramTokenExpiry`'yi güncellemek ayrı iş (furi'deki `scripts/ig_token.py`
-      örnek). Bugün ajans uyarıyı görüp token'ı elle yenilemek zorunda.
+- [ ] **Apps Script'te canlı GitHub token'ı duruyor** — script.google.com'daki proje hâlâ
+      etkin olabilir ve `FURI_GITHUB_TOKEN` property'sinde gerçek bir token tutuyor.
+      Zincir furi PR #2 ile emekliye ayrıldı, yani token artık gereksiz ama açıkta.
+      *Yapılacak:* tetikleyiciyi ve property'yi elle sil, sonra token'ı GitHub'dan iptal et.
+      Adımlar `furi/emekli/README.md` içinde. **Repo bunu yapamaz, elle yapılmalı.**
 
-- [x] **Prod'daki test kayıtlarını temizle** — 2026-08-16 tamamlandı. `Client`
-      `testclientnoig0000000000000000` ve ona bağlı post, doğru sırada (`ApprovalAudit`,
-      `ApprovalLink`, `PostImage`, `Post`, `Client`) tek transaction içinde silindi.
-      "Duman testi" postunun 404 veren `igPermalink`'i `NULL`'landı; `publishStatus` ve
-      `igMediaId` bilinçli olarak korundu (post gerçekten yayınlanmıştı).
-      **Dikkat — `.env.local` tuzağı:** `DATABASE_URL` **localhost**'a (Docker) bakıyor,
-      prod Neon adresi **`POSTGRES_URL`** altında. Prisma varsayılanıyla bağlanan bir betik
-      prod'a değil yerel DB'ye düşer. Prod'a yazmadan önce bağlandığın hostu doğrula.
+### Takvimli
 
-- [x] **Toplu onay yayın yapmıyor** — 2026-08-16: yayın hedefi olan postlar toplu onaydan
-      çıkarıldı. Instagram bağlı müşteride `POST /api/approve/[token]/batch` hiçbir postu
-      onaylamıyor (409 + "tek tek onaylaman gerekiyor"), onay sayfasında "Tümünü onayla"
-      butonu yerine sebebini anlatan açıklama çıkıyor, panelde onaylanmış ama yayınlanmamış
-      postlar "Yayınlanmadı" rozetiyle görünüyor. Toplu yayın bilinçli olarak yapılmadı:
-      slayt container'ı başına ~8.5 sn, 60 sn Vercel tavanı.
-      Bu durumda sıkışmış eski postlar onay linkindeki "Instagram'a yayınla" butonuyla
-      kurtarılabiliyor (karar yeniden verilmiyor, yalnızca yayın çalışıyor).
-      *Kalan elle iş:* prod panelinde "Yayınlanmadı" rozetli post varsa linki müşteriye
-      gönderilip yayınlanmalı.
+- [ ] **Instagram token'ı 2026-10-15'te doluyor** — dolduğunda yayın durur
+      (`publishStatus='failed'`). Dashboard uyarısı 2026-10-05'te çıkacak.
+      *Dikkat:* token'ın **iki kopyası** var — SaaS'ta `Client.instagramAccessToken`,
+      furi tarafında ortam değişkeni. Senkron tutan bir mekanizma yok, yenilerken
+      **ikisini birden** güncelle.
+      Yenileme: `GET /refresh_access_token?grant_type=ig_refresh_token&access_token=<mevcut>`
 
-- [x] **Instagram bağlama arayüzü** — 2026-08-16: `/clients` sayfasındaki her müşteri satırında
-      bağlama alanı var (`POST`/`DELETE /api/clients/[id]/instagram`). Token `type="password"`
-      ile girilir, `GET /me?fields=user_id` ile doğrulanıp `instagramUserId` otomatik doldurulur.
-      Client okumaları artık `ClientView` döner — `instagramAccessToken` hiçbir yanıtta ham
-      geçmez, yerine "bağlı mı" + son 4 karakterlik ipucu çıkar.
-      *Not:* `GET /api/clients` token'ı bu değişikliğe kadar ham dönüyordu, kapandı.
+- [ ] **Otomatik token yenileme yok** — bugün ajans uyarıyı görüp elle yeniliyor.
+      Yenileme çağrısını bir cron'a bağlayıp `instagramTokenExpiry`'yi de güncellemek gerek
+      (furi'deki `scripts/ig_token.py` örnek). Yukarıdaki maddeyi kalıcı olarak kapatır.
 
-## Prod temizliği sırasında fark edilenler (2026-08-16)
-
-- [ ] **Aynı içerik Instagram'a iki kez yayınlanmış** — `externalRef='dizi/long-story-short'`
-      iki ayrı posta bağlı ve **ikisi de** `publishStatus='published'`, farklı permalink'lerle:
-      `cmsvyzi1w0001ju04qoih8gjp` (15:38) ve `cmsw1t4mv0001ky046csgssb5` (16:57).
-      `externalRef` üzerinde mükerrer yayın koruması yok görünüyor — furi tarafı aynı içeriği
-      iki kez gönderirse Instagram'a iki kez düşüyor. *Yapılacak:* `externalRef` için
-      benzersizlik kısıtı ya da yayın öncesi "bu ref zaten yayınlanmış mı" kontrolü.
+### Temizlik
 
 - [ ] **22 Temmuz'dan kalma çöp veri** — `Enes Memduh` / `enes can` ajansları altında
-      `"asd"`, `"gfh"`, `"as"`, `"sdf"` başlıklı 6 test postu duruyor. Zararsız ama prod'u
-      kirletiyor. Bu turda bilinçli olarak kapsam dışı bırakıldı.
+      `"asd"`, `"gfh"`, `"as"`, `"sdf"` başlıklı 6 test postu prod'da duruyor. Zararsız
+      ama prod'u kirletiyor. Silme sırası: `ApprovalAudit`, `ApprovalLink`, `PostImage`,
+      `Post`, `Client`.
 
-### Bu listede olmayan, ayrı repo
+### Bilinçli kapsam dışı
 
-`furi` tarafındaki Faz 2 değişikliği (SKILL.md'nin SaaS'a POST atması, Gmail/apps-script
-zincirinin emekliye ayrılması) yapılmadı. Uçtan uca otomasyon ancak o repo güncellenince tamamlanır.
+- [ ] **Toplu reddetme** — reddetme sebebi post başına anlamlı olduğu için toplu onayın
+      simetriği yapılmadı. Yeniden değerlendirilirse "ortak sebep" alanı gerekir.
+
+---
+
+## Bilinmesi gerekenler
+
+**`.env.local` iki ayrı adres tutuyor.** `DATABASE_URL` → **localhost** (Docker, port 5455);
+prod Neon adresi **`POSTGRES_URL`** altında. Prisma varsayılanıyla bağlanan bir betik prod'a
+değil yerel DB'ye düşer. Prod'a yazmadan önce bağlandığın hostu **doğrula** —
+bu tuzak 2026-08-16'da prod temizliği sırasında bir kez yakalandı.
+
+**Yayın süresi.** Instagram `POST /{ig}/media` görseli senkron indirdiği için slayt başına
+~8.5 sn. Karusel container'ları bu yüzden paralel oluşturuluyor; sıralı yapılırsa 60 sn
+Vercel tavanı aşılır. Toplu yayının yapılmama sebebi de bu.
+
+**Deploy.** Proje GitHub'a bağlı (2026-08-17'de bağlandı): master'a merge → production,
+PR → preview. Elle deploy gerekmiyor.
+
+---
+
+## Tamamlananlar
+
+### 2026-08-16 / 17 — Instagram yayını sonrası tur
+
+- [x] **Instagram bağlama arayüzü** — `/clients` satırlarında bağlama alanı
+      (`POST`/`DELETE /api/clients/[id]/instagram`). Token `type="password"`,
+      `GET /me?fields=user_id` ile doğrulanıp `instagramUserId` otomatik doluyor. (PR #16)
+
+- [x] **Token sızıntısı kapatıldı** — `GET /api/clients` ve `GET /api/posts`
+      `instagramAccessToken`'ı ham JSON'da döndürüyordu (ajans kendi müşterisinin token'ını
+      tarayıcıda görüyordu; `agencyId` kapsamı olduğu için ajanslar arası sızıntı değildi).
+      Client okumaları artık `ClientView`, post ilişkisinde türetilmiş `publishTarget`
+      bayrağı var. Canlıda doğrulandı. (PR #16)
+
+- [x] **Token süresi uyarısı** — dashboard'da proaktif şerit. `src/lib/instagram-token.ts`
+      tek doğruluk kaynağı (`IG_TOKEN_WARNING_DAYS = 10`); `publish-post.ts` de aynı
+      yardımcıyı kullanıyor. İki tonlu: "yakında doluyor" / "doldu → yayın durmuş". (PR #15)
+
+- [x] **Toplu onay yayın yapmıyordu** — yayın hedefli postlar toplu onaydan çıkarıldı.
+      Instagram bağlı müşteride batch 409 + "tek tek onaylaman gerekiyor" döner, onay
+      sayfasında sebebi açıklanır, panelde onaylanmış-yayınlanmamış postlar "Yayınlanmadı"
+      rozetiyle görünür. Sıkışmış eski postlar onay linkindeki "Instagram'a yayınla"
+      butonuyla kurtarılabiliyor. (PR #18)
+
+- [x] **Prod test kayıtları temizlendi** — `testclientnoig...` müşterisi ve postu tek
+      transaction'da silindi; "Duman testi" postunun 404 veren `igPermalink`'i `NULL`'landı
+      (`publishStatus` ve `igMediaId` korundu, post gerçekten yayınlanmıştı). (PR #17)
+
+- [x] **furi Faz 2** — apps-script zinciri `emekli/` altına alınıp `EMEKLI = true` ile devre
+      dışı bırakıldı; caption limiti SaaS'ın 2000 sınırına göre düzeltildi; tek bozuk postun
+      kuyruğu tıkaması giderildi; `aday_yok` / `uygun_aday_yok` ayrıldı.
+      (furi PR #2 — SKILL.md'nin SaaS'a POST atması zaten yapılmıştı)
+
+- [x] **Deploy zinciri onarıldı** — proje 25 gündür GitHub'a bağlı değildi, bütün
+      deployment'lar elle alınıyordu; bu yüzden #11–#18 merge edildiği hâlde canlı 22 Temmuz
+      kodunda kalmıştı. Bağlantı kuruldu ve webhook preview üreterek doğrulandı.
+
+### 2026-07-22 — v2 kapsamı
+
+- [x] **Çoklu görsel / carousel (D3.3)** — `PostImage` tablosu (veri taşıma migration'ıyla),
+      post başına 10 görsele kadar, onay sayfasında scroll-snap carousel, panelde adet rozeti.
+- [x] **Ajans markalama (D3.4)** — `/settings`'ten logo + marka rengi; onay sayfası ve
+      e-postada uygulanıyor (hex doğrulamalı, injection korumalı).
+- [x] **Toplu onay** — onay sayfası aynı müşterinin bekleyen postlarını listeler, tek istekte
+      post başına audit kaydıyla onaylar.
+- [x] **Upstash Redis rate limiting (D4)** — env değişkenleri varsa dağıtık sayaç,
+      yoksa/hatada in-memory fallback.
+- [x] **Vercel Blob + Resend production kurulumu (T7)** — Blob store
+      `content-approval-images` canlıda, Resend `enesmemduhoglu.tech` doğrulanmış
+      domain'iyle (SPF/DKIM/DMARC) gönderiyor.
