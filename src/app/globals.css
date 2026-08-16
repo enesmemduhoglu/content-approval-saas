@@ -486,6 +486,13 @@ button:disabled {
   -webkit-box-orient: vertical;
 }
 
+/* Yayın hedefli postlarda toplu onay yok — sebebi burada anlatılır */
+.sibling-note {
+  margin: 0 0 1rem;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
 .batch-approve-warning {
   font-weight: 600;
   margin: 0 0 0.5rem;
