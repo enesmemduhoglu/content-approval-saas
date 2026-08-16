@@ -160,6 +160,54 @@ export async function fetchInstagramAccount(accessToken: string): Promise<Instag
   };
 }
 
+/**
+ * Bir medyanın Instagram'da hâlâ durup durmadığının sonucu.
+ *
+ * "unknown" bilinçli olarak ayrı bir değer: ağ hatası ya da beklenmeyen API
+ * cevabı "silinmiş" ile aynı şey DEĞİL, ama "canlı" ile de aynı şey değil.
+ * Çağıran taraf bu üçünü ayırt edemezse ya kurtarma yolunu kırar ya da
+ * mükerrer yayına göz yumar.
+ */
+export type MediaLiveness = "live" | "deleted" | "unknown";
+
+/**
+ * Instagram'da bir medya hâlâ duruyor mu? (GET /{media-id}?fields=id)
+ *
+ * `fields=id` bilinçli olarak en ucuz alan: `permalink` ya da `media_url`
+ * istemek Instagram tarafında ek iş çıkarır, burada tek merak ettiğimiz
+ * nesnenin var olup olmadığı.
+ *
+ * Silinmiş medya için Graph API tutarlı bir 404 döndürmez; tipik cevap
+ * HTTP 400 + `code=100` (çoğu zaman `error_subcode=33`) ve "does not exist /
+ * cannot be loaded" metnidir. Bu kalıba UYMAYAN her hata — token süresi dolmuş
+ * (code=190), rate limit, 5xx, ağ kesintisi — "unknown" sayılır.
+ */
+export async function checkMediaLiveness(
+  mediaId: string,
+  accessToken: string
+): Promise<MediaLiveness> {
+  try {
+    const body = await call(mediaId, { fields: "id" }, accessToken, "GET");
+    // Kimlik dönmediyse "var" diyemeyiz; emin olamadığımız durum unknown'dır.
+    return body.id ? "live" : "unknown";
+  } catch (error) {
+    if (error instanceof IGError && isMissingObjectError(error)) return "deleted";
+    return "unknown";
+  }
+}
+
+/** "Bu nesne yok" hatası mı, yoksa başka bir arıza mı? */
+function isMissingObjectError(error: IGError): boolean {
+  if (error.http === 404) return true;
+  const detail = error.detail.error as Record<string, unknown> | undefined;
+  const code = detail?.code;
+  if (code !== 100 && code !== "100") return false;
+  const subcode = detail?.error_subcode;
+  if (subcode === 33 || subcode === "33") return true;
+  const message = typeof detail?.message === "string" ? detail.message : error.message;
+  return /does not exist|cannot be loaded|Unsupported get request/i.test(message);
+}
+
 /** POST /{ig-user-id}/media → container id */
 async function createContainer(
   igUserId: string,
