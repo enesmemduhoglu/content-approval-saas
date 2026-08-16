@@ -27,12 +27,14 @@ Aşağıdakiler bilinçli olarak o kapsamın dışında bırakıldı, ayrı bir 
       bağlayıp `instagramTokenExpiry`'yi güncellemek ayrı iş (furi'deki `scripts/ig_token.py`
       örnek). Bugün ajans uyarıyı görüp token'ı elle yenilemek zorunda.
 
-- [ ] **Prod'daki test kayıtlarını temizle** — 2026-08-16 doğrulamasından kalanlar:
-      - `Client` id `testclientnoig0000000000000000` ("Regresyon Testi (Instagramsiz)")
-      - Ona bağlı "Regresyon testi" postu (`publishStatus='skipped'`)
-      - "Duman testi" postu — Instagram'daki karşılığı elle silindi, ama `igPermalink`
-        DB'de duruyor; panelde "Instagram'da gör" linki artık 404 veriyor.
-      *Not:* silme sırası önemli — `ApprovalAudit`, `ApprovalLink`, `PostImage`, sonra `Post`, `Client`.
+- [x] **Prod'daki test kayıtlarını temizle** — 2026-08-16 tamamlandı. `Client`
+      `testclientnoig0000000000000000` ve ona bağlı post, doğru sırada (`ApprovalAudit`,
+      `ApprovalLink`, `PostImage`, `Post`, `Client`) tek transaction içinde silindi.
+      "Duman testi" postunun 404 veren `igPermalink`'i `NULL`'landı; `publishStatus` ve
+      `igMediaId` bilinçli olarak korundu (post gerçekten yayınlanmıştı).
+      **Dikkat — `.env.local` tuzağı:** `DATABASE_URL` **localhost**'a (Docker) bakıyor,
+      prod Neon adresi **`POSTGRES_URL`** altında. Prisma varsayılanıyla bağlanan bir betik
+      prod'a değil yerel DB'ye düşer. Prod'a yazmadan önce bağlandığın hostu doğrula.
 
 - [ ] **Toplu onay yayın yapmıyor** — `POST /api/approve/[token]/batch` yalnızca onaylıyor;
       Instagram bağlı bir müşteride toplu onaylanan postlar `publishStatus='idle'` kalıp
@@ -49,6 +51,19 @@ Aşağıdakiler bilinçli olarak o kapsamın dışında bırakıldı, ayrı bir 
       Client okumaları artık `ClientView` döner — `instagramAccessToken` hiçbir yanıtta ham
       geçmez, yerine "bağlı mı" + son 4 karakterlik ipucu çıkar.
       *Not:* `GET /api/clients` token'ı bu değişikliğe kadar ham dönüyordu, kapandı.
+
+## Prod temizliği sırasında fark edilenler (2026-08-16)
+
+- [ ] **Aynı içerik Instagram'a iki kez yayınlanmış** — `externalRef='dizi/long-story-short'`
+      iki ayrı posta bağlı ve **ikisi de** `publishStatus='published'`, farklı permalink'lerle:
+      `cmsvyzi1w0001ju04qoih8gjp` (15:38) ve `cmsw1t4mv0001ky046csgssb5` (16:57).
+      `externalRef` üzerinde mükerrer yayın koruması yok görünüyor — furi tarafı aynı içeriği
+      iki kez gönderirse Instagram'a iki kez düşüyor. *Yapılacak:* `externalRef` için
+      benzersizlik kısıtı ya da yayın öncesi "bu ref zaten yayınlanmış mı" kontrolü.
+
+- [ ] **22 Temmuz'dan kalma çöp veri** — `Enes Memduh` / `enes can` ajansları altında
+      `"asd"`, `"gfh"`, `"as"`, `"sdf"` başlıklı 6 test postu duruyor. Zararsız ama prod'u
+      kirletiyor. Bu turda bilinçli olarak kapsam dışı bırakıldı.
 
 ### Bu listede olmayan, ayrı repo
 
