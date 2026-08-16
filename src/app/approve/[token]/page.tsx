@@ -148,21 +148,27 @@ export default async function ApprovePage({
             {post.publishStatus === "published" && " Instagram'da yayınlandı."}
             {post.publishStatus === "failed" &&
               " Instagram'a yayınlanamadı — aşağıdan tekrar deneyebilirsin."}
+            {/* Mükerrer: aynı içerik zaten canlıda olduğu için yayın atlandı.
+                "Tekrar dene" butonu bilerek çıkmaz — tekrar denemek tam da
+                engellenmek istenen şeyi yapar. */}
+            {post.publishStatus === "duplicate" &&
+              " Bu içerik zaten Instagram'da yayında olduğu için tekrar yayınlanmadı."}
             {publishTargeted &&
               post.status === "approved" &&
               post.publishStatus === "idle" &&
               " Instagram'a henüz yayınlanmadı — aşağıdan yayınlayabilirsin."}
           </p>
-          {post.publishStatus === "published" && post.igPermalink && (
-            <a
-              className="button-secondary"
-              href={post.igPermalink}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Instagram&apos;da gör
-            </a>
-          )}
+          {(post.publishStatus === "published" || post.publishStatus === "duplicate") &&
+            post.igPermalink && (
+              <a
+                className="button-secondary"
+                href={post.igPermalink}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Instagram&apos;da gör
+              </a>
+            )}
           {/* Onay yerinde duruyor; buton yalnızca yayını çalıştırır. "idle"
               eski toplu onaylardan kalan, yayını hiç denenmemiş postlardır. */}
           {post.status === "approved" && post.publishStatus === "failed" && (

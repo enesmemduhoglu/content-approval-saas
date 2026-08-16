@@ -23,4 +23,12 @@ describe("PublishBadge", () => {
     const { container } = render(<PublishBadge status="skipped" awaitingPublish />);
     expect(container.innerHTML).toBe("");
   });
+
+  it("mükerrer yayın engellenmiş postu 'Zaten yayında' diye işaretler", async () => {
+    const { container } = render(<PublishBadge status="duplicate" />);
+    expect(screen.getByText("Zaten yayında")).toBeTruthy();
+    expect(container.querySelector(".publish-duplicate")).toBeTruthy();
+    // Hata değil: "Yayınlanamadı" rozetiyle karıştırılmamalı.
+    expect(screen.queryByText("Yayınlanamadı")).toBeNull();
+  });
 });

@@ -74,7 +74,11 @@ export function ApprovalActions({
         ? "Instagram'da yayınlandı."
         : result.publishStatus === "publishing"
           ? "Yayın sürüyor."
-          : "";
+          : // Mükerrer: aynı içerik zaten canlıda. Hata gibi gösterilmez ve
+            // "tekrar dene" butonu çıkmaz — tekrarlamak sorunun kendisi.
+            result.publishStatus === "duplicate"
+            ? (result.publishError ?? "Bu içerik zaten Instagram'da yayında.")
+            : "";
 
     return (
       <div className="approve-actions">
@@ -83,16 +87,18 @@ export function ApprovalActions({
             {[decisionText, publishText].filter(Boolean).join(" ")}
           </p>
         )}
-        {result.publishStatus === "published" && result.igPermalink && (
-          <a
-            className="button-secondary"
-            href={result.igPermalink}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Instagram&apos;da gör
-          </a>
-        )}
+        {(result.publishStatus === "published" ||
+          result.publishStatus === "duplicate") &&
+          result.igPermalink && (
+            <a
+              className="button-secondary"
+              href={result.igPermalink}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Instagram&apos;da gör
+            </a>
+          )}
         {result.publishStatus === "failed" && (
           <>
             <p className="field-error">

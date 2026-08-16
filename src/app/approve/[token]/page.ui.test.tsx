@@ -33,10 +33,12 @@ function seedPage({
   instagramConnected,
   status = "pending",
   publishStatus = "idle",
+  igPermalink = null,
 }: {
   instagramConnected: boolean;
   status?: string;
   publishStatus?: string;
+  igPermalink?: string | null;
 }) {
   const client = {
     id: "client-1",
@@ -54,7 +56,7 @@ function seedPage({
       caption: "Ana post",
       status,
       publishStatus,
-      igPermalink: null,
+      igPermalink,
       client,
       agency: { name: "Ajans", logoUrl: null, brandColor: null },
       images: [{ id: "img-1", url: "/uploads/a.png" }],
@@ -96,5 +98,29 @@ describe("Onay sayfası — yayın hedefli müşteride toplu onay", () => {
 
     expect(screen.getByText(/Instagram'a henüz yayınlanmadı/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Instagram'a yayınla" })).toBeTruthy();
+  });
+});
+
+describe("Onay sayfası — mükerrer yayın engellenmiş post", () => {
+  it("neden yayınlanmadığını söyler ve canlı gönderiye link verir", async () => {
+    seedPage({
+      instagramConnected: true,
+      status: "approved",
+      publishStatus: "duplicate",
+      igPermalink: "https://instagram.com/p/CANLI/",
+    });
+    render(await ApprovePage({ params: Promise.resolve({ token: "tok" }) }));
+
+    expect(screen.getByText(/zaten Instagram'da yayında/)).toBeTruthy();
+    const link = screen.getByText("Instagram'da gör") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("https://instagram.com/p/CANLI/");
+  });
+
+  it("'tekrar dene' butonu ÇIKMAZ — tekrarlamak sorunun kendisi", async () => {
+    seedPage({ instagramConnected: true, status: "approved", publishStatus: "duplicate" });
+    render(await ApprovePage({ params: Promise.resolve({ token: "tok" }) }));
+
+    expect(screen.queryByRole("button", { name: /tekrar dene/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Instagram'a yayınla" })).toBeNull();
   });
 });

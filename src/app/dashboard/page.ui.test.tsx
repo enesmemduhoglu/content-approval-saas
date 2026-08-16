@@ -47,12 +47,15 @@ function postKaydi(overrides: {
   status: string;
   publishStatus: string;
   publishTarget: boolean;
+  igPermalink?: string | null;
+  publishError?: string | null;
 }) {
   return {
     id: "p1",
     caption: "Test postu",
     createdAt: new Date(),
     igPermalink: null,
+    publishError: null,
     approvalLink: null,
     images: [{ id: "i1", url: "https://example.com/1.jpg", altText: null }],
     ...overrides,
@@ -93,6 +96,41 @@ describe("Dashboard 'yayınlanmadı' rozeti", () => {
     posts = [postKaydi({ status: "pending", publishStatus: "idle", publishTarget: true })];
     render(await DashboardPage());
     expect(screen.queryByText("Yayınlanmadı")).toBeNull();
+  });
+});
+
+describe("Dashboard mükerrer yayın rozeti", () => {
+  it("'duplicate' postu 'Zaten yayında' rozeti ve açıklamasıyla gösterir", async () => {
+    posts = [
+      postKaydi({
+        status: "approved",
+        publishStatus: "duplicate",
+        publishTarget: true,
+        publishError:
+          "Bu içerik zaten Instagram'da yayında (referans: dizi/long-story-short) — tekrar yayınlanmadı.",
+      }),
+    ];
+    render(await DashboardPage());
+
+    expect(screen.getByText("Zaten yayında")).toBeTruthy();
+    expect(screen.getByText(/tekrar yayınlanmadı/)).toBeTruthy();
+    // Hata öneki kullanılmaz — ortada hata yok.
+    expect(screen.queryByText(/Yayın hatası/)).toBeNull();
+  });
+
+  it("engellenen postta canlı gönderinin linki verilir", async () => {
+    posts = [
+      postKaydi({
+        status: "approved",
+        publishStatus: "duplicate",
+        publishTarget: true,
+        igPermalink: "https://instagram.com/p/CANLI/",
+      }),
+    ];
+    render(await DashboardPage());
+
+    const link = screen.getByText("Yayındaki gönderiyi gör") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("https://instagram.com/p/CANLI/");
   });
 });
 
