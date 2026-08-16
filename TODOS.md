@@ -14,9 +14,17 @@ Son güncelleme: 2026-08-17. Canlı: https://content-approval-saas.vercel.app
       (`cmsvyzi1w0001ju04qoih8gjp` 15:38 ve `cmsw1t4mv0001ky046csgssb5` 16:57).
       furi aynı içeriği iki kez gönderirse Instagram'a iki kez düşüyor — gözetimsiz cron'da
       bu sessizce tekrarlanır.
-      *Yapılacak:* `(agencyId, externalRef)` için benzersizlik kısıtı, ya da yayın öncesi
-      "bu ref zaten yayınlanmış mı" kontrolü. Kısıt tercih edilirse mevcut çift kayıt önce
-      temizlenmeli, yoksa migration patlar.
+      **Dikkat — basit benzersizlik kısıtı ÇÖZÜM DEĞİL.** 2026-08-17 elle testinde ortaya
+      çıktı: furi'nin `esitle.py`'si "yayınlandı ama sonra Instagram'dan silindi" durumunda
+      içeriği bilerek havuza geri döndürüyor (`yayinlandi_sonra_silindi`). Yani aynı
+      `externalRef`'in ikinci kez gönderilmesi **meşru bir kurtarma yolu**. `(agencyId,
+      externalRef)` üzerine `@@unique` koymak bu yolu kırar, "bu ref zaten yayınlanmış mı"
+      kontrolü de aynı şekilde.
+      *Yapılacak:* ayrım gözeten bir kontrol gerek — ör. yalnızca **canlıda duran**
+      (`publishStatus='published'` ve permalink hâlâ erişilebilir) bir ref için tekrar
+      gönderimi engellemek, ya da furi'nin `esitle.py`'de silinen postun SaaS kaydını da
+      kapatması (`publishStatus`'ü geri alması) böylece ref serbest kalması.
+      Kısıt yine de tercih edilirse mevcut çift kayıt önce temizlenmeli, yoksa migration patlar.
 
 ### Güvenlik
 
