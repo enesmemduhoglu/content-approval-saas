@@ -4,55 +4,70 @@ Son güncelleme: 2026-08-17. Canlı: https://content-approval-saas.vercel.app
 
 ---
 
+## İnceleme bekleyen PR'lar
+
+Üçü de açık ve master'a karşı `MERGEABLE`. **Ama #21 ile #23 birbirine değiyor** —
+ikisi de `src/lib/instagram.ts` ve `src/lib/instagram.test.ts` dosyasına aynı bölgeye
+(`fetchInstagramAccount` sonrası) fonksiyon ekliyor. Test birleştirmesi yapıldı:
+hangisi ikinci merge edilirse **çakışacak**. Sıralı merge et, ikincisinde
+`git merge master` ile çakışmayı çöz — iki fonksiyon da korunmalı, biri diğerinin
+yerine geçmiyor.
+
+- **#23 — mükerrer yayın koruması** (`fix/mukerrer-yayin-korumasi`)
+- **#21 — otomatik token yenileme** (`feat/otomatik-token-yenileme`)
+- **#22 — prod temizlik betiği** (`chore/prod-test-verisi-temizligi`) — diğer ikisiyle
+  dosya kesişimi yok, bağımsız merge edilebilir.
+
+---
+
 ## Açık işler
 
-### Doğruluk
-
-- [ ] **Aynı içerik Instagram'a iki kez yayınlanabiliyor** — `externalRef` üzerinde mükerrer
-      yayın koruması yok. Kanıt prod'da duruyor: `externalRef='dizi/long-story-short'` iki ayrı
-      posta bağlı, **ikisi de** `publishStatus='published'`, farklı permalink'lerle
-      (`cmsvyzi1w0001ju04qoih8gjp` 15:38 ve `cmsw1t4mv0001ky046csgssb5` 16:57).
-      furi aynı içeriği iki kez gönderirse Instagram'a iki kez düşüyor — gözetimsiz cron'da
-      bu sessizce tekrarlanır.
-      **Dikkat — basit benzersizlik kısıtı ÇÖZÜM DEĞİL.** 2026-08-17 elle testinde ortaya
-      çıktı: furi'nin `esitle.py`'si "yayınlandı ama sonra Instagram'dan silindi" durumunda
-      içeriği bilerek havuza geri döndürüyor (`yayinlandi_sonra_silindi`). Yani aynı
-      `externalRef`'in ikinci kez gönderilmesi **meşru bir kurtarma yolu**. `(agencyId,
-      externalRef)` üzerine `@@unique` koymak bu yolu kırar, "bu ref zaten yayınlanmış mı"
-      kontrolü de aynı şekilde.
-      *Yapılacak:* ayrım gözeten bir kontrol gerek — ör. yalnızca **canlıda duran**
-      (`publishStatus='published'` ve permalink hâlâ erişilebilir) bir ref için tekrar
-      gönderimi engellemek, ya da furi'nin `esitle.py`'de silinen postun SaaS kaydını da
-      kapatması (`publishStatus`'ü geri alması) böylece ref serbest kalması.
-      Kısıt yine de tercih edilirse mevcut çift kayıt önce temizlenmeli, yoksa migration patlar.
-
-### Güvenlik
+### Elle yapılması gerekenler (repo yapamaz)
 
 - [ ] **Apps Script'te canlı GitHub token'ı duruyor** — script.google.com'daki proje hâlâ
       etkin olabilir ve `FURI_GITHUB_TOKEN` property'sinde gerçek bir token tutuyor.
       Zincir furi PR #2 ile emekliye ayrıldı, yani token artık gereksiz ama açıkta.
-      *Yapılacak:* tetikleyiciyi ve property'yi elle sil, sonra token'ı GitHub'dan iptal et.
-      Adımlar `furi/emekli/README.md` içinde. **Repo bunu yapamaz, elle yapılmalı.**
+      *Doğrulandı (2026-08-17):* token furi1 reposunda **hiçbir yerde hardcode değil**,
+      yalnızca Apps Script property'sinde. Yani tek çözüm elle silmek.
+      *Adımlar:* script.google.com → `furi-onay-tetikleyici` → **Triggers** → `onayKontrol`
+      tetikleyicisini sil → **Project Settings → Script Properties** → `FURI_GITHUB_TOKEN`
+      sil → GitHub'da token'ı iptal et (github.com/settings/tokens) → tetikleyici issue #1
+      kapatılabilir. Ayrıntı: `furi1/.claude/skills/insta-yayinla/emekli/README.md`.
 
-### Takvimli
+- [ ] **`CRON_SECRET` Vercel env'e eklenmeli** — #21 merge edilmeden ya da hemen sonra.
+      Eklenmezse cron endpoint'i her gece 401 döner ve **yenileme hiç çalışmaz**;
+      sistem sessizce eski (elle yenileme + uyarı şeridi) davranışına düşer.
+      Cron tanımı yalnızca deploy ile kaydolur — merge production deploy'u tetikliyor,
+      elle `vercel deploy` gerekmiyor. Sonra Vercel → Settings → Cron Jobs'tan listelendiğini
+      doğrula ve ilk koşuda `[cron:ig-token]` loglarına bak.
+      *Son tarih:* "Furkan Teacher" müşterisinin token'ı **2026-10-15'te doluyor**;
+      dolarsa yayın durur (`publishStatus='failed'`). Cron çalışır hâle gelirse bu tarih
+      kalıcı olarak sorun olmaktan çıkar — çıkmazsa 2026-10-05'te dashboard uyarısı gelecek
+      ve elle yenilemek gerekecek (SaaS **ve** furi kopyası, ikisi birden).
 
-- [ ] **Instagram token'ı 2026-10-15'te doluyor** — dolduğunda yayın durur
-      (`publishStatus='failed'`). Dashboard uyarısı 2026-10-05'te çıkacak.
-      *Dikkat:* token'ın **iki kopyası** var — SaaS'ta `Client.instagramAccessToken`,
-      furi tarafında ortam değişkeni. Senkron tutan bir mekanizma yok, yenilerken
-      **ikisini birden** güncelle.
-      Yenileme: `GET /refresh_access_token?grant_type=ig_refresh_token&access_token=<mevcut>`
+- [ ] **Prod çöp verisini gerçekten sil** — #22'nin betiği yazıldı ve dry-run'ı prod'a karşı
+      çalıştırıldı, ama **silme yapılmadı**. Dry-run sonucu: 6 post, 8 görsel, 6 approval
+      link, 6 audit, 2 müşteri; 0 ajans. Yayın izi (`published` / `igMediaId` / `igPermalink`)
+      olan **hiçbir** aday çıkmadı, yani koruma filtresi bu turda bir şey elemedi.
+      *Çalıştır:* `node scripts/prod-test-verisi-temizligi.mjs --apply`
+      Transaction hatası gelirse `DB_URL_ENV=POSTGRES_URL_NON_POOLING` ile tekrarla —
+      varsayılan `POSTGRES_URL` pooled (pgbouncer) adres.
 
-- [ ] **Otomatik token yenileme yok** — bugün ajans uyarıyı görüp elle yeniliyor.
-      Yenileme çağrısını bir cron'a bağlayıp `instagramTokenExpiry`'yi de güncellemek gerek
-      (furi'deki `scripts/ig_token.py` örnek). Yukarıdaki maddeyi kalıcı olarak kapatır.
+- [ ] **Prod'daki mevcut çift yayın hâlâ duruyor** — `externalRef='dizi/long-story-short'`
+      için Instagram'da **iki ayrı post canlıda** (`cmsvyzi1w0001ju04qoih8gjp` 15:38 ve
+      `cmsw1t4mv0001ky046csgssb5` 16:57). #23 tekrarı önlüyor ama geçmişi temizlemiyor —
+      ikisi de `published` kalıyor. Birini Instagram'dan elle silmek gerek.
 
-### Temizlik
+### Doğruluk
 
-- [ ] **22 Temmuz'dan kalma çöp veri** — `Enes Memduh` / `enes can` ajansları altında
-      `"asd"`, `"gfh"`, `"as"`, `"sdf"` başlıklı 6 test postu prod'da duruyor. Zararsız
-      ama prod'u kirletiyor. Silme sırası: `ApprovalAudit`, `ApprovalLink`, `PostImage`,
-      `Post`, `Client`.
+- [ ] **furi'nin token kopyası bayatlayacak** — #21'in yan etkisi, yeni iş.
+      Instagram token'ının iki kopyası var: SaaS'ta `Client.instagramAccessToken`,
+      furi'de ayrı bir ortam değişkeni. Senkron mekanizması yok. Cron SaaS kopyasını
+      yenileyince Instagram eskisini kısa süre sonra geçersiz kılıyor → **furi sessizce
+      kırılır**. Bugünkü hâliyle cron her yenilediğinde furi env'ini elle güncellemek
+      gerekiyor; bu tekrar eden bir angarya.
+      *Kalıcı çözüm:* tek kaynak — furi token'ı SaaS API'sinden çeksin, ya da yenileme
+      sonrası furi env'i de programatik güncellensin. furi ayrı repo.
 
 ### Bilinçli kapsam dışı
 
@@ -67,6 +82,8 @@ Son güncelleme: 2026-08-17. Canlı: https://content-approval-saas.vercel.app
 prod Neon adresi **`POSTGRES_URL`** altında. Prisma varsayılanıyla bağlanan bir betik prod'a
 değil yerel DB'ye düşer. Prod'a yazmadan önce bağlandığın hostu **doğrula** —
 bu tuzak 2026-08-16'da prod temizliği sırasında bir kez yakalandı.
+`scripts/prod-test-verisi-temizligi.mjs` (#22) bu doğrulamayı zorunlu adım hâline getirdi:
+prod olmayan hosta bağlanılırsa tek sorgu açılmadan `exit 2`.
 
 **Yayın süresi.** Instagram `POST /{ig}/media` görseli senkron indirdiği için slayt başına
 ~8.5 sn. Karusel container'ları bu yüzden paralel oluşturuluyor; sıralı yapılırsa 60 sn
@@ -75,9 +92,42 @@ Vercel tavanı aşılır. Toplu yayının yapılmama sebebi de bu.
 **Deploy.** Proje GitHub'a bağlı (2026-08-17'de bağlandı): master'a merge → production,
 PR → preview. Elle deploy gerekmiyor.
 
+**Mükerrer yayın kontrolü neden benzersizlik kısıtı değil.** furi'nin `esitle.py`'si
+"yayınlandı ama sonra Instagram'dan silindi" durumunda içeriği bilerek havuza geri
+döndürüyor (`yayinlandi_sonra_silindi`). Yani aynı `externalRef`'in ikinci kez gönderilmesi
+**meşru bir kurtarma yolu**. `(agencyId, externalRef)` üzerine `@@unique` koymak ya da
+"bu ref daha önce yayınlandı mı" diye bakmak bu yolu kalıcı olarak kırar. #23 bu yüzden
+tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
+
 ---
 
 ## Tamamlananlar
+
+### 2026-08-17 — açık işler turu (PR #21, #22, #23)
+
+- [x] **Mükerrer Instagram yayını koruması** — `externalRef` aynı olan kardeş postun
+      Instagram'da hâlâ durup durmadığı kontrol ediliyor (`GET /{media-id}?fields=id`).
+      Yalnızca **kesin canlı** kardeş varsa yayın durur; silinmişse yayın yapılır
+      (kurtarma yolu korunur); kontrol **belirsiz** kalırsa (rate limit, 5xx, ağ) yayına
+      izin verilip uyarı loglanır — bu bir emniyet ağı, kapı değil. Yeni `PublishStatus`
+      değeri `duplicate` (`failed` değil: `failed` "tekrar dene" yolunu açıyor, oysa
+      engellemek istediğimiz tam olarak o). Panelde "Zaten yayında" rozeti ve canlı posta
+      link. Ajans izolasyonu korunuyor. (PR #23)
+
+- [x] **Otomatik Instagram token yenileme** — günlük Vercel cron (`vercel.json`, 03:00)
+      → `/api/cron/refresh-instagram-tokens`. `CRON_SECRET` ile Bearer + sabit zamanlı
+      karşılaştırma (`api-key.ts`'deki mevcut yardımcı export edildi, kopyalanmadı).
+      Yenileme penceresi `IG_TOKEN_REFRESH_DAYS = 20` — uyarı eşiğinin (10) iki katı,
+      böylece cron ajans hiçbir uyarı görmeden işini bitiriyor ve ~20 deneme hakkı oluyor.
+      Süresi zaten dolmuş token ayrı durum: Instagram uzatmıyor, elle yeniden bağlama
+      gerekiyor. Bir müşterinin hatası diğerlerini durdurmuyor. Yanıt yalnızca sayı
+      taşıyor, `IGError.detail` içinde `access_token` redakte ediliyor. (PR #21)
+
+- [x] **Prod temizlik betiği** — `scripts/prod-test-verisi-temizligi.mjs`, varsayılan
+      dry-run, silme yalnızca `--apply` ile. Zorunlu host doğrulaması, tam caption
+      eşleşmesi (kör `LIKE` yok), yayınlanmış post asla silinmez, tarih koruması,
+      `Agency` asla silinmez. Dry-run prod'a karşı çalıştırıldı, TODOS'taki "6 post"
+      iddiası doğrulandı. **Silme henüz yapılmadı.** (PR #22)
 
 ### 2026-08-16 / 17 — Instagram yayını sonrası tur
 
