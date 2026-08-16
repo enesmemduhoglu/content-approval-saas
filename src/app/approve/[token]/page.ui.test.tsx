@@ -29,7 +29,15 @@ vi.mock("@/lib/db", () => ({
 
 import ApprovePage from "./page";
 
-function seedPage({ instagramConnected }: { instagramConnected: boolean }) {
+function seedPage({
+  instagramConnected,
+  status = "pending",
+  publishStatus = "idle",
+}: {
+  instagramConnected: boolean;
+  status?: string;
+  publishStatus?: string;
+}) {
   const client = {
     id: "client-1",
     name: "Müşteri",
@@ -44,8 +52,8 @@ function seedPage({ instagramConnected }: { instagramConnected: boolean }) {
       id: "post-1",
       clientId: client.id,
       caption: "Ana post",
-      status: "pending",
-      publishStatus: "idle",
+      status,
+      publishStatus,
       igPermalink: null,
       client,
       agency: { name: "Ajans", logoUrl: null, brandColor: null },
@@ -79,5 +87,14 @@ describe("Onay sayfası — yayın hedefli müşteride toplu onay", () => {
 
     expect(screen.getByText(/Tümünü onayla/)).toBeTruthy();
     expect(screen.queryByText(/tek tek onaylaman gerekiyor/)).toBeNull();
+  });
+
+  it("onaylanmış ama yayınlanmamış post için yayınlama butonu çıkar", async () => {
+    // Eski toplu onaylardan kalan postların kurtarma yolu.
+    seedPage({ instagramConnected: true, status: "approved", publishStatus: "idle" });
+    render(await ApprovePage({ params: Promise.resolve({ token: "tok" }) }));
+
+    expect(screen.getByText(/Instagram'a henüz yayınlanmadı/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Instagram'a yayınla" })).toBeTruthy();
   });
 });

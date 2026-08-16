@@ -13,12 +13,15 @@ export function ApprovalActions({
   token,
   instagramConnected = false,
   retryOnly = false,
+  retryLabel = "Yayını tekrar dene",
 }: {
   token: string;
   /** Müşteride Instagram bağlıysa onay aynı istekte yayını da tetikler. */
   instagramConnected?: boolean;
-  /** Karar zaten verilmiş, yalnızca başarısız yayını tekrar deneme butonu. */
+  /** Karar zaten verilmiş, yalnızca yayını çalıştıran buton. */
   retryOnly?: boolean;
+  /** Yayın hiç denenmemişse "tekrar dene" demek yanıltıcı olur. */
+  retryLabel?: string;
 }) {
   const [mode, setMode] = useState<"idle" | "rejecting">("idle");
   const [submitting, setSubmitting] = useState(false);
@@ -120,7 +123,7 @@ export function ApprovalActions({
           disabled={submitting}
           onClick={() => decide("approve", true)}
         >
-          {submitting ? "Yayınlanıyor…" : "Yayını tekrar dene"}
+          {submitting ? "Yayınlanıyor…" : retryLabel}
         </button>
       </div>
     );

@@ -93,12 +93,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Link süresi doldu" }, { status: 410 });
   }
   if (link.post.status !== "pending") {
-    // "Tekrar dene": onay yerinde duruyor ama yayın başarısız olmuş. Karar
-    // yeniden verilmez, yalnızca yayın tekrarlanır (kilit publishStatus'ta).
+    // "Tekrar dene": onay yerinde duruyor ama yayın başarısız olmuş ya da hiç
+    // denenmemiş ("idle" — eski toplu onaylardan kalan postlar böyle). Karar
+    // yeniden verilmez, yalnızca yayın çalıştırılır (kilit publishStatus'ta).
     if (
       action === "approve" &&
       link.post.status === "approved" &&
-      link.post.publishStatus === "failed"
+      (link.post.publishStatus === "failed" || link.post.publishStatus === "idle")
     ) {
       const outcome = await publishApprovedPost(link.postId);
       return NextResponse.json({ status: "approved", ...outcome });

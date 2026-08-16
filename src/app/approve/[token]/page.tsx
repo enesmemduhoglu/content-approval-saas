@@ -148,6 +148,10 @@ export default async function ApprovePage({
             {post.publishStatus === "published" && " Instagram'da yayınlandı."}
             {post.publishStatus === "failed" &&
               " Instagram'a yayınlanamadı — aşağıdan tekrar deneyebilirsin."}
+            {publishTargeted &&
+              post.status === "approved" &&
+              post.publishStatus === "idle" &&
+              " Instagram'a henüz yayınlanmadı — aşağıdan yayınlayabilirsin."}
           </p>
           {post.publishStatus === "published" && post.igPermalink && (
             <a
@@ -159,9 +163,18 @@ export default async function ApprovePage({
               Instagram&apos;da gör
             </a>
           )}
-          {/* Onay yerinde duruyor; buton yalnızca yayını tekrar dener. */}
+          {/* Onay yerinde duruyor; buton yalnızca yayını çalıştırır. "idle"
+              eski toplu onaylardan kalan, yayını hiç denenmemiş postlardır. */}
           {post.status === "approved" && post.publishStatus === "failed" && (
             <ApprovalActions token={token} instagramConnected retryOnly />
+          )}
+          {publishTargeted && post.status === "approved" && post.publishStatus === "idle" && (
+            <ApprovalActions
+              token={token}
+              instagramConnected
+              retryOnly
+              retryLabel="Instagram'a yayınla"
+            />
           )}
         </div>
       )}

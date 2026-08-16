@@ -389,6 +389,27 @@ describe("POST /api/approve/[token] — Instagram yayını", () => {
     expect(updated?.publishError).toBeNull();
   });
 
+  it("onaylanmış ama yayını hiç denenmemiş ('idle') post sonradan yayınlanabilir", async () => {
+    // Toplu onaydan kalan eski postların kurtarma yolu — karar yeniden verilmez.
+    const { post, link } = await seedWithInstagram();
+    await db.post.update({ where: { id: post.id }, data: { status: "approved" } });
+    mockPublish.mockResolvedValue({
+      mediaId: "media-9",
+      permalink: "https://instagram.com/p/D/",
+    });
+
+    const res = await POST(postRequest({ action: "approve" }), makeParams(link.token));
+    expect(res.status).toBe(200);
+    expect((await res.json()).publishStatus).toBe("published");
+
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.publishStatus).toBe("published");
+    expect(updated?.igMediaId).toBe("media-9");
+
+    const audits = await db.approvalAudit.findMany({ where: { postId: post.id } });
+    expect(audits).toHaveLength(0);
+  });
+
   it("zaten yayınlanmış post 409 döner, ikinci kez yayınlanmaz", async () => {
     const { post, link } = await seedWithInstagram();
     await db.post.update({
