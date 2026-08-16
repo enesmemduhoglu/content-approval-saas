@@ -89,7 +89,11 @@ export function getScopedDb(session: ScopedSession) {
       findMany: (
         args: { orderBy?: Prisma.PostOrderByWithRelationInput } = {}
       ) => db.post.findMany({ ...args, where: { agencyId } }),
-      /** Dashboard listesi: `client` + `approvalLink` + `images` eager-load edilir — N+1 yok (T4). */
+      /**
+       * Dashboard listesi: `client` + `approvalLink` + `images` eager-load edilir — N+1 yok (T4).
+       * `client` bilerek `select`li: tam kayıt eager-load edilirse
+       * `instagramAccessToken` de GET /api/posts yanıtına düşer.
+       */
       findManyWithRelations: (
         args: { orderBy?: Prisma.PostOrderByWithRelationInput } = {}
       ) =>
@@ -97,7 +101,7 @@ export function getScopedDb(session: ScopedSession) {
           ...args,
           where: { agencyId },
           include: {
-            client: true,
+            client: { select: { id: true, name: true, email: true } },
             approvalLink: true,
             images: { orderBy: { sortOrder: "asc" } },
           },
