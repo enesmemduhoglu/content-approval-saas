@@ -26,11 +26,15 @@ export const IG_MAX_CAROUSEL_ITEMS = 10;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * Tüm yayın akışının varsayılan bütçesi. Vercel fonksiyon süresi (maxDuration
- * 60sn) aşılırsa süreç ortada kesilir ve `publishStatus` "publishing"de takılı
- * kalır — bütçe, hatayı DB'ye yazacak kadar payı bilinçli olarak bırakır.
+ * Container oluşturma + bekleme adımlarının toplam bütçesi. Vercel fonksiyon
+ * süresi (maxDuration 60sn) aşılırsa süreç ortada kesilir ve `publishStatus`
+ * "publishing"de takılı kalır; bütçe bunu önler.
+ *
+ * 40sn nereden: canlı ölçümde tek görsel uçtan uca 23.9sn, 6 slaytlık karusel
+ * 34.2sn sürdü. Bütçe dolduktan sonra `media_publish` + permalink çağrıları
+ * için ~15sn daha gerekebildiğinden, 60sn tavanına pay kalsın diye 40'ta tutulur.
  */
-export const IG_DEFAULT_BUDGET_MS = 45_000;
+export const IG_DEFAULT_BUDGET_MS = 40_000;
 
 /** Container hazır olma yoklaması: 2sn'den başlar, 10sn'ye kadar büyür. */
 const POLL_START_MS = 2_000;
@@ -218,18 +222,20 @@ export async function publishToInstagram(input: PublishInput): Promise<PublishRe
       alt_text: altText(0) ?? undefined,
     });
   } else {
-    const children: string[] = [];
-    for (const [index, url] of imageUrls.entries()) {
-      children.push(
-        await createContainer(igUserId, accessToken, {
+    // Container oluşturma çağrısı Instagram görseli İNDİRDİĞİ için yavaştır —
+    // ölçüldü: slayt başına ~8.5 sn. Sırayla yapılırsa 6 slayt tek başına ~52 sn
+    // eder ve Vercel'in 60 sn tavanını aşar. Paralel oluşturulur; `Promise.all`
+    // sonuç sırasını koruduğu için slayt sırası bozulmaz.
+    const children = await Promise.all(
+      imageUrls.map((url, index) =>
+        createContainer(igUserId, accessToken, {
           image_url: url,
           is_carousel_item: "true",
           alt_text: altText(index) ?? undefined,
         })
-      );
-    }
+      )
+    );
     // Slaytlar birbirinden bağımsız indirilir — sırayla değil paralel beklenir.
-    // (Python referansı sırayla bekliyor; burada süre bütçesi kritik.)
     await Promise.all(children.map((child) => waitForContainer(child, accessToken, deadline)));
 
     containerId = await createContainer(igUserId, accessToken, {
