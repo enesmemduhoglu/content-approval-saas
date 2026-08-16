@@ -58,6 +58,8 @@ export async function createPendingPostWithLink(
     expiresAt?: Date;
     token?: string;
     imageUrls?: string[];
+    /** Dış sistemin (furi) tanımlayıcısı — mükerrer yayın koruması testleri için. */
+    externalRef?: string;
   } = {}
 ) {
   const post = await db.post.create({
@@ -66,6 +68,7 @@ export async function createPendingPostWithLink(
       clientId,
       caption: "Test caption",
       status: overrides.status ?? "pending",
+      externalRef: overrides.externalRef ?? null,
       images: {
         create: (overrides.imageUrls ?? ["/uploads/test.png"]).map((url, index) => ({
           url,
@@ -82,4 +85,37 @@ export async function createPendingPostWithLink(
     },
   });
   return { post, link };
+}
+
+/**
+ * Instagram'a yayınlanmış post — mükerrer yayın korumasının baktığı "kardeş"
+ * kaydın ta kendisi. Onay linki yok: yayın kontrolü linkten değil,
+ * (agencyId, externalRef) çiftinden gidiyor.
+ */
+export function createPublishedPost(
+  agencyId: string,
+  clientId: string,
+  overrides: {
+    externalRef?: string;
+    igMediaId?: string | null;
+    igPermalink?: string | null;
+  } = {}
+) {
+  return db.post.create({
+    data: {
+      agencyId,
+      clientId,
+      caption: "Yayınlanmış caption",
+      status: "approved",
+      publishStatus: "published",
+      externalRef: overrides.externalRef ?? null,
+      igMediaId: overrides.igMediaId === undefined ? "media-eski" : overrides.igMediaId,
+      igPermalink:
+        overrides.igPermalink === undefined
+          ? "https://instagram.com/p/ESKI/"
+          : overrides.igPermalink,
+      publishedAt: new Date(),
+      images: { create: [{ url: "/uploads/eski.png", sortOrder: 0 }] },
+    },
+  });
 }
