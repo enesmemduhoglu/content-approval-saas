@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  IG_TOKEN_REFRESH_DAYS,
   IG_TOKEN_WARNING_DAYS,
   daysUntilExpiry,
   instagramTokenAlerts,
+  instagramTokenRefreshDecision,
   isInstagramTokenExpired,
   type TokenAlertClient,
+  type TokenRefreshClient,
 } from "./instagram-token";
 
 const NOW = new Date("2026-08-16T12:00:00Z");
@@ -51,6 +54,84 @@ describe("daysUntilExpiry", () => {
 
   it("süresi dolmuşsa negatif döner", () => {
     expect(daysUntilExpiry(inDays(-2), NOW)).toBe(-2);
+  });
+});
+
+describe("instagramTokenRefreshDecision", () => {
+  function refreshClient(overrides: Partial<TokenRefreshClient> = {}): TokenRefreshClient {
+    return {
+      instagramUserId: "17841400000000000",
+      instagramAccessToken: "IGAA-test-token",
+      instagramTokenExpiry: inDays(30),
+      ...overrides,
+    };
+  }
+
+  it("yenileme penceresi uyarı eşiğinden GENİŞ — cron uyarı çıkmadan iş görür", () => {
+    expect(IG_TOKEN_REFRESH_DAYS).toBeGreaterThan(IG_TOKEN_WARNING_DAYS);
+  });
+
+  it("pencerenin dışındaki token'a dokunmaz", () => {
+    expect(
+      instagramTokenRefreshDecision(
+        refreshClient({ instagramTokenExpiry: inDays(IG_TOKEN_REFRESH_DAYS + 1) }),
+        NOW
+      )
+    ).toBe("skip");
+  });
+
+  it("sınır durumu: tam 20 gün kala yeniler", () => {
+    expect(
+      instagramTokenRefreshDecision(
+        refreshClient({ instagramTokenExpiry: inDays(IG_TOKEN_REFRESH_DAYS) }),
+        NOW
+      )
+    ).toBe("refresh");
+  });
+
+  it("uyarı eşiğine düşmüş token da yenilenir", () => {
+    expect(
+      instagramTokenRefreshDecision(
+        refreshClient({ instagramTokenExpiry: inDays(IG_TOKEN_WARNING_DAYS) }),
+        NOW
+      )
+    ).toBe("refresh");
+  });
+
+  it("son bir saat kalmışsa hâlâ yenilenir", () => {
+    expect(
+      instagramTokenRefreshDecision(
+        refreshClient({ instagramTokenExpiry: new Date(NOW.getTime() + 3600_000) }),
+        NOW
+      )
+    ).toBe("refresh");
+  });
+
+  it("süresi ZATEN dolmuş token yenilenmez — ayrı işaretlenir", () => {
+    expect(
+      instagramTokenRefreshDecision(refreshClient({ instagramTokenExpiry: inDays(-1) }), NOW)
+    ).toBe("expired");
+  });
+
+  it("sınır durumu: tam şu an dolan token yenilenemez sayılır", () => {
+    expect(
+      instagramTokenRefreshDecision(refreshClient({ instagramTokenExpiry: new Date(NOW) }), NOW)
+    ).toBe("expired");
+  });
+
+  it("Instagram bağlı olmayan müşteriyi atlar", () => {
+    expect(
+      instagramTokenRefreshDecision(refreshClient({ instagramAccessToken: null }), NOW)
+    ).toBe("skip");
+    expect(instagramTokenRefreshDecision(refreshClient({ instagramUserId: null }), NOW)).toBe(
+      "skip"
+    );
+  });
+
+  it("bitiş tarihi bilinmiyorsa atlar (uyarı şeridiyle aynı davranış)", () => {
+    expect(
+      instagramTokenRefreshDecision(refreshClient({ instagramTokenExpiry: null }), NOW)
+    ).toBe("skip");
   });
 });
 

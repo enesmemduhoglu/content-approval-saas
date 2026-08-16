@@ -66,10 +66,21 @@ export class IGError extends Error {
   }
 }
 
+function apiHost(): string {
+  return process.env.IG_API_HOST || DEFAULT_HOST;
+}
+
 function apiBase(): string {
-  const host = process.env.IG_API_HOST || DEFAULT_HOST;
   const version = process.env.IG_API_VERSION || DEFAULT_VERSION;
-  return `https://${host}/${version}`;
+  return `https://${apiHost()}/${version}`;
+}
+
+/**
+ * Sürüm segmenti OLMAYAN kök. Token yenileme uç noktası (`refresh_access_token`)
+ * Graph'ın sürümlü ağacında değil, host'un kökünde durur.
+ */
+function unversionedBase(): string {
+  return `https://${apiHost()}`;
 }
 
 type Params = Record<string, string | undefined>;
@@ -78,7 +89,8 @@ async function call(
   path: string,
   params: Params,
   token: string,
-  method: "GET" | "POST"
+  method: "GET" | "POST",
+  base: string = apiBase()
 ): Promise<Record<string, unknown>> {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -86,7 +98,7 @@ async function call(
   }
   search.set("access_token", token);
 
-  const url = `${apiBase()}/${path.replace(/^\//, "")}`;
+  const url = `${base}/${path.replace(/^\//, "")}`;
   const init: RequestInit = {
     method,
     headers: { "User-Agent": "content-approval-saas/1.0" },
@@ -206,6 +218,56 @@ function isMissingObjectError(error: IGError): boolean {
   if (subcode === 33 || subcode === "33") return true;
   const message = typeof detail?.message === "string" ? detail.message : error.message;
   return /does not exist|cannot be loaded|Unsupported get request/i.test(message);
+}
+
+export type RefreshedInstagramToken = {
+  /** Yeni long-lived token. Eskisi kısa süre daha geçerli kalır ama artık kullanılmaz. */
+  accessToken: string;
+  /** `expires_in` (saniye) şu ana eklenmiş hâli — doğrudan `instagramTokenExpiry`'ye yazılır. */
+  expiresAt: Date;
+};
+
+/**
+ * Long-lived token'ı 60 gün daha uzatır (GET /refresh_access_token).
+ *
+ * Instagram'ın iki şartı var: token HÂLÂ geçerli olmalı (süresi dolmuşsa
+ * yenileme yolu kapanır, hesabın elle yeniden bağlanması gerekir) ve en az
+ * 24 saat eski olmalı. İkincisini çağrı öncesi kontrol edemiyoruz — ihraç
+ * tarihini saklamıyoruz — ama yenileme penceresi (bkz. `IG_TOKEN_REFRESH_DAYS`)
+ * 60 günlük bir token'ın ömrünün sonuna denk geldiğinden pratikte hep sağlanır.
+ *
+ * Hata hâlinde her zaman `IGError` fırlatır; çağıran taraf (cron) tek tek
+ * yakalayıp diğer müşterilere devam eder.
+ */
+export async function refreshInstagramToken(
+  accessToken: string
+): Promise<RefreshedInstagramToken> {
+  const body = await call(
+    "refresh_access_token",
+    { grant_type: "ig_refresh_token" },
+    accessToken,
+    "GET",
+    unversionedBase()
+  );
+
+  // Hata ayrıntısına ham token KOYULMAZ: `IGError.detail` log'a ve `publishError`
+  // alanına düşebiliyor, yanıt gövdesi de `access_token` taşıyor.
+  const safeDetail = { ...body, access_token: body.access_token ? "[gizlendi]" : undefined };
+
+  const refreshed = body.access_token;
+  if (typeof refreshed !== "string" || refreshed.trim() === "") {
+    throw new IGError("Instagram yanıtında yeni token ('access_token') yok", safeDetail);
+  }
+
+  const expiresIn = Number(body.expires_in);
+  if (!Number.isFinite(expiresIn) || expiresIn <= 0) {
+    throw new IGError(
+      `Instagram yanıtındaki 'expires_in' geçersiz: ${String(body.expires_in)}`,
+      safeDetail
+    );
+  }
+
+  return { accessToken: refreshed, expiresAt: new Date(Date.now() + expiresIn * 1000) };
 }
 
 /** POST /{ig-user-id}/media → container id */
