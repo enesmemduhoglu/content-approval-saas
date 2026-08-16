@@ -30,13 +30,17 @@ function configured(): { key: string; agencyId: string } | null {
  * Timing-safe karşılaştırma. Uzunluk farkı `timingSafeEqual`'ı patlattığı ve
  * uzunluğun kendisi de bilgi sızdırdığı için iki taraf da önce SHA-256'dan
  * geçirilir — karşılaştırma her zaman sabit 32 bayt üzerinde yapılır.
+ *
+ * Dışa açık: Vercel cron endpoint'i (`CRON_SECRET`) de aynı Bearer + sabit
+ * zamanlı karşılaştırma desenini kullanır. İkinci bir kopya yazılmaz.
  */
-function secretsMatch(a: string, b: string): boolean {
+export function secretsMatch(a: string, b: string): boolean {
   const digest = (value: string) => createHash("sha256").update(value, "utf8").digest();
   return timingSafeEqual(digest(a), digest(b));
 }
 
-function bearerToken(request: Request): string | null {
+/** `Authorization: Bearer <sır>` başlığındaki sırrı çıkarır. */
+export function bearerToken(request: Request): string | null {
   const header = request.headers.get("authorization");
   if (!header) return null;
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());

@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IGError, fetchInstagramAccount, publishToInstagram } from "./instagram";
+import {
+  IGError,
+  fetchInstagramAccount,
+  publishToInstagram,
+  refreshInstagramToken,
+} from "./instagram";
 
 /**
  * Instagram'a gerçek istek atılmaz; `fetch` mock'lanıp çağrı sırası
@@ -253,6 +258,83 @@ describe("hata sarmalama", () => {
         imageUrls: ["https://raw.githubusercontent.com/x/1.jpg"],
       })
     ).rejects.toBeInstanceOf(IGError);
+  });
+});
+
+describe("refreshInstagramToken", () => {
+  const SIXTY_DAYS_SEC = 60 * 24 * 3600;
+
+  it("yeni token'ı ve expires_in'den hesaplanan bitiş tarihini döner", async () => {
+    responses = [
+      respond({
+        access_token: "IGAA-yeni-token",
+        token_type: "bearer",
+        expires_in: SIXTY_DAYS_SEC,
+      }),
+    ];
+
+    const result = await refreshInstagramToken("IGAA-eski-token");
+
+    expect(result.accessToken).toBe("IGAA-yeni-token");
+    expect(result.expiresAt.getTime()).toBe(Date.now() + SIXTY_DAYS_SEC * 1000);
+  });
+
+  it("sürümsüz refresh_access_token uç noktasını doğru parametrelerle çağırır", async () => {
+    responses = [respond({ access_token: "IGAA-yeni-token", expires_in: SIXTY_DAYS_SEC })];
+
+    await refreshInstagramToken("IGAA-eski-token");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("GET");
+    // Yenileme uç noktası Graph'ın sürümlü ağacında DEĞİL, host kökünde.
+    expect(calls[0].url).toBe("https://graph.instagram.com/refresh_access_token");
+    expect(calls[0].url).not.toContain("/v23.0/");
+    expect(calls[0].params.get("grant_type")).toBe("ig_refresh_token");
+    expect(calls[0].params.get("access_token")).toBe("IGAA-eski-token");
+  });
+
+  it("Instagram token'ı reddederse IGError fırlatır", async () => {
+    responses = [
+      respond(
+        {
+          error: {
+            message: "Error validating access token: Session has expired",
+            type: "OAuthException",
+            code: 190,
+          },
+        },
+        400
+      ),
+    ];
+
+    const error = await refreshInstagramToken("IGAA-dolmus-token").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(IGError);
+    expect((error as IGError).report()).toContain("code=190");
+  });
+
+  it("yanıtta access_token yoksa IGError fırlatır", async () => {
+    responses = [respond({ token_type: "bearer", expires_in: SIXTY_DAYS_SEC })];
+    await expect(refreshInstagramToken("IGAA-eski-token")).rejects.toBeInstanceOf(IGError);
+  });
+
+  it("expires_in geçersizse IGError fırlatır ve token'ı hata ayrıntısına koymaz", async () => {
+    responses = [respond({ access_token: "IGAA-yeni-token", expires_in: "sonsuz" })];
+
+    const error = await refreshInstagramToken("IGAA-eski-token").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(IGError);
+    // Hata ayrıntısı log'a/DB'ye düşebiliyor — ham token ASLA içinde olmamalı.
+    expect(JSON.stringify((error as IGError).detail)).not.toContain("IGAA-yeni-token");
+  });
+
+  it("ağ hatası da IGError'a sarılır", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNRESET");
+      })
+    );
+
+    await expect(refreshInstagramToken("IGAA-eski-token")).rejects.toBeInstanceOf(IGError);
   });
 });
 
