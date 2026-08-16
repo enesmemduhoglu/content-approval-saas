@@ -6,6 +6,9 @@ import {
   validateClientEmail,
   validateClientName,
   validateImageUrls,
+  validateInstagramAccessToken,
+  validateInstagramTokenExpiry,
+  validateInstagramUserId,
 } from "./validation";
 
 describe("validateImageUrls", () => {
@@ -89,5 +92,53 @@ describe("validateClientEmail", () => {
 
   it("geçerli e-postayı kabul eder", () => {
     expect(validateClientEmail("musteri@ornek.com")).toBeNull();
+  });
+});
+
+describe("validateInstagramAccessToken", () => {
+  const ok = "IGAAtest0000000000000000000000000000token";
+
+  it("boş, kısa ve boşluklu token'ı reddeder", () => {
+    expect(validateInstagramAccessToken("")).not.toBeNull();
+    expect(validateInstagramAccessToken("   ")).not.toBeNull();
+    expect(validateInstagramAccessToken("IGAAkisa")).not.toBeNull();
+    expect(validateInstagramAccessToken(`${ok.slice(0, 20)} ${ok.slice(20)}`)).not.toBeNull();
+    expect(validateInstagramAccessToken(undefined)).not.toBeNull();
+  });
+
+  it("501 karakterlik token'ı reddeder", () => {
+    expect(validateInstagramAccessToken("a".repeat(501))).not.toBeNull();
+  });
+
+  it("makul uzunlukta token'ı kabul eder", () => {
+    expect(validateInstagramAccessToken(ok)).toBeNull();
+    expect(validateInstagramAccessToken(`  ${ok}  `)).toBeNull();
+  });
+});
+
+describe("validateInstagramUserId", () => {
+  it("rakam dışı içeriği reddeder", () => {
+    expect(validateInstagramUserId("abc")).not.toBeNull();
+    expect(validateInstagramUserId("1784140000000000a")).not.toBeNull();
+    expect(validateInstagramUserId("")).not.toBeNull();
+  });
+
+  it("IG hesap kimliğini kabul eder", () => {
+    expect(validateInstagramUserId("17841400000000000")).toBeNull();
+  });
+});
+
+describe("validateInstagramTokenExpiry", () => {
+  it("boş ve anlamsız tarihi reddeder", () => {
+    expect(validateInstagramTokenExpiry("")).not.toBeNull();
+    expect(validateInstagramTokenExpiry("yarin")).not.toBeNull();
+  });
+
+  it("geçmiş tarihi reddeder", () => {
+    expect(validateInstagramTokenExpiry("2020-01-01")).not.toBeNull();
+  });
+
+  it("gelecekteki tarihi kabul eder", () => {
+    expect(validateInstagramTokenExpiry("2099-10-15")).toBeNull();
   });
 });
