@@ -392,6 +392,28 @@ button:disabled {
 .settings-hint {
   color: var(--color-text-muted);
   margin-top: 0;
+  font-size: 14px;
+}
+
+/* --- Müşteri satırındaki Instagram bağlama alanı --- */
+.instagram-connect {
+  margin-top: 0.5rem;
+}
+
+.instagram-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.instagram-status .settings-hint {
+  margin: 0;
+}
+
+/* Form açıkken satır uzar; rozet/ad üstte kalsın */
+.client-row {
+  align-items: flex-start;
 }
 
 .button-approve:hover,

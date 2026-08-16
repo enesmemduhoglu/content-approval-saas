@@ -10,7 +10,7 @@ vi.mock("@/lib/auth", () => ({
 import { GET, POST } from "./route";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { createAgency, createClient, resetDb } from "@tests/helpers/db";
+import { createAgency, createClient, createInstagramClient, resetDb } from "@tests/helpers/db";
 
 const mockAuth = vi.mocked(auth);
 
@@ -46,6 +46,22 @@ describe("GET /api/clients", () => {
     const data = await res.json();
     expect(data.clients).toHaveLength(1);
     expect(data.clients[0].id).toBe(clientA.id);
+  });
+
+  // Sır sızıntısı regresyon testi: `Client` kaydı ham dönerse token da dönerdi.
+  it("Instagram token'ı yanıtta HAM dönmez, maskelenmiş özet döner", async () => {
+    const agency = await createAgency();
+    await createInstagramClient(agency.id);
+
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+    const res = await GET();
+    const raw = await res.text();
+    expect(raw).not.toContain("IGAA-test-token");
+    expect(raw).not.toContain("instagramAccessToken");
+
+    const data = JSON.parse(raw);
+    expect(data.clients[0].instagramConnected).toBe(true);
+    expect(data.clients[0].instagramTokenHint).toBe("…oken");
   });
 });
 

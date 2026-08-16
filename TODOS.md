@@ -43,13 +43,12 @@ Aşağıdakiler bilinçli olarak o kapsamın dışında bırakıldı, ayrı bir 
       En azından `idle` kalan postlar panelde görünür olmalı (şu an `PublishBadge` `idle`'da
       hiçbir şey göstermiyor — bu tekil akış için doğru, batch için yanıltıcı).
 
-- [ ] **Instagram bağlama arayüzü yok** — `instagramUserId` / `instagramAccessToken` /
-      `instagramTokenExpiry` yalnızca elle SQL ile giriliyor; `/clients` ve `POST /api/clients`
-      sadece ad + e-posta alıyor. Bir sonraki müşteride yine prod DB'ye elle yazmak gerekecek.
-      *Yapılacak:* `/clients` (ya da müşteri detay sayfası) üzerinde Instagram bağlama alanı.
-      Token bir sır — form alanı `type="password"`, `GET` yanıtlarında **asla** dönmemeli
-      (bugün `Client` nesnesi hiçbir public endpoint'ten ham dönmüyor, bu korunmalı).
-      Kolaylık: token'dan IG_USER_ID'yi bulmak için `GET /me?fields=user_id`.
+- [x] **Instagram bağlama arayüzü** — 2026-08-16: `/clients` sayfasındaki her müşteri satırında
+      bağlama alanı var (`POST`/`DELETE /api/clients/[id]/instagram`). Token `type="password"`
+      ile girilir, `GET /me?fields=user_id` ile doğrulanıp `instagramUserId` otomatik doldurulur.
+      Client okumaları artık `ClientView` döner — `instagramAccessToken` hiçbir yanıtta ham
+      geçmez, yerine "bağlı mı" + son 4 karakterlik ipucu çıkar.
+      *Not:* `GET /api/clients` token'ı bu değişikliğe kadar ham dönüyordu, kapandı.
 
 ### Bu listede olmayan, ayrı repo
 

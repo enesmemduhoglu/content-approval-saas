@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IGError, publishToInstagram } from "./instagram";
+import { IGError, fetchInstagramAccount, publishToInstagram } from "./instagram";
 
 /**
  * Instagram'a gerçek istek atılmaz; `fetch` mock'lanıp çağrı sırası
@@ -253,5 +253,32 @@ describe("hata sarmalama", () => {
         imageUrls: ["https://raw.githubusercontent.com/x/1.jpg"],
       })
     ).rejects.toBeInstanceOf(IGError);
+  });
+});
+
+describe("fetchInstagramAccount", () => {
+  it("GET /me çağırır ve hesap kimliğini döner", async () => {
+    responses = [respond({ user_id: "17841400000000000", username: "test_hesap" })];
+
+    const account = await fetchInstagramAccount("IGAA-test-token");
+
+    expect(account).toEqual({ userId: "17841400000000000", username: "test_hesap" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("GET");
+    expect(calls[0].url.split("/v23.0/")[1]).toBe("me");
+    expect(calls[0].params.get("fields")).toBe("user_id,username");
+    expect(calls[0].params.get("access_token")).toBe("IGAA-test-token");
+  });
+
+  it("geçersiz token'da IGError fırlatır", async () => {
+    responses = [respond({ error: { message: "Invalid OAuth access token", code: 190 } }, 401)];
+
+    await expect(fetchInstagramAccount("bozuk-token")).rejects.toBeInstanceOf(IGError);
+  });
+
+  it("yanıtta hesap kimliği yoksa IGError fırlatır", async () => {
+    responses = [respond({ username: "test_hesap" })];
+
+    await expect(fetchInstagramAccount("IGAA-test-token")).rejects.toBeInstanceOf(IGError);
   });
 });

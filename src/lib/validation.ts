@@ -68,3 +68,62 @@ export function validateClientEmail(value: unknown): string | null {
   }
   return null;
 }
+
+/** Long-lived Instagram token'ının kabul edilen azami uzunluğu. */
+export const IG_ACCESS_TOKEN_MAX_LENGTH = 500;
+const IG_ACCESS_TOKEN_MIN_LENGTH = 30;
+
+const IG_USER_ID_RE = /^\d{5,25}$/;
+
+/**
+ * Instagram erişim token'ı. Buradaki kontroller yalnızca kaba eleme — token'ın
+ * GERÇEKTEN geçerli olup olmadığı Graph'a sorularak (`fetchInstagramAccount`)
+ * anlaşılır. Amaç, apaçık yanlış girdiyle (boş, yapıştırma artığı boşluklu metin)
+ * Instagram'a istek atmamak.
+ */
+export function validateInstagramAccessToken(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return "Instagram erişim token'ı boş olamaz";
+  }
+  const token = value.trim();
+  if (/\s/.test(token)) {
+    return "Instagram erişim token'ı boşluk içeremez";
+  }
+  if (token.length < IG_ACCESS_TOKEN_MIN_LENGTH) {
+    return "Bu bir Instagram erişim token'ına benzemiyor";
+  }
+  if (token.length > IG_ACCESS_TOKEN_MAX_LENGTH) {
+    return `Instagram erişim token'ı en fazla ${IG_ACCESS_TOKEN_MAX_LENGTH} karakter olabilir`;
+  }
+  return null;
+}
+
+/**
+ * IG professional account id — yalnızca rakam. Arayüzde bu alan boş bırakılabilir;
+ * boşsa token'dan türetilir, doluysa token'ın hesabıyla eşleştiği ayrıca kontrol edilir.
+ */
+export function validateInstagramUserId(value: unknown): string | null {
+  if (typeof value !== "string" || !IG_USER_ID_RE.test(value.trim())) {
+    return "Instagram hesap kimliği yalnızca rakamlardan oluşmalı";
+  }
+  return null;
+}
+
+/**
+ * Token bitiş tarihi ("YYYY-MM-DD" ya da ISO). Boş gönderilirse çağıran taraf
+ * `null` yazar — süre bilinmiyorsa yayın akışı token'ı süresiz kabul eder,
+ * mevcut davranış budur.
+ */
+export function validateInstagramTokenExpiry(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim() === "") {
+    return "Geçerli bir tarih gir";
+  }
+  const date = new Date(value.trim());
+  if (Number.isNaN(date.getTime())) {
+    return "Geçerli bir tarih gir";
+  }
+  if (date.getTime() <= Date.now()) {
+    return "Token bitiş tarihi gelecekte olmalı";
+  }
+  return null;
+}
