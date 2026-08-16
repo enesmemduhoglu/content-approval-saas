@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { getScopedDb } from "@/lib/scoped-db";
 import { AppNav } from "@/components/nav";
 import { PostForm } from "@/components/post-form";
-import { StatusBadge } from "@/components/status-badge";
+import { PublishBadge, StatusBadge } from "@/components/status-badge";
 import { CopyLinkButton } from "@/components/copy-link-button";
 
 export const dynamic = "force-dynamic";
@@ -54,9 +54,25 @@ export default async function DashboardPage() {
                       Reddetme sebebi: {post.rejectionReason}
                     </p>
                   )}
+                  {post.publishStatus === "failed" && post.publishError && (
+                    <p className="rejection-reason">
+                      Yayın hatası: {post.publishError}
+                    </p>
+                  )}
+                  {post.publishStatus === "published" && post.igPermalink && (
+                    <a
+                      className="post-caption"
+                      href={post.igPermalink}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Instagram&apos;da gör
+                    </a>
+                  )}
                 </div>
                 <div className="post-meta">
                   <StatusBadge status={post.status} />
+                  <PublishBadge status={post.publishStatus} />
                   <time className="post-date">
                     {post.createdAt.toLocaleDateString("tr-TR")}
                   </time>

@@ -53,6 +53,10 @@ export function getScopedDb(session: ScopedSession) {
         clientId: string;
         imageUrls: string[];
         caption: string;
+        /** Instagram alt_text'leri — `imageUrls` ile aynı sırada, opsiyonel. */
+        altTexts?: (string | null | undefined)[];
+        /** Dış sistemin kendi tanımlayıcısı (furi slug'ı). */
+        externalRef?: string | null;
       }) => {
         const client = await db.client.findFirst({
           where: { id: input.clientId, agencyId },
@@ -69,12 +73,14 @@ export function getScopedDb(session: ScopedSession) {
               clientId: input.clientId,
               caption: input.caption,
               status: "pending",
+              externalRef: input.externalRef ?? null,
             },
           });
           await tx.postImage.createMany({
             data: input.imageUrls.map((url, index) => ({
               postId: post.id,
               url,
+              altText: input.altTexts?.[index] ?? null,
               sortOrder: index,
             })),
           });

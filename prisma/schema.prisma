@@ -31,6 +31,12 @@ model Client {
   createdAt DateTime @default(now())
   posts     Post[]
 
+  // Instagram yayını (opt-in): boş bırakılan müşterilerde onay hiçbir şey
+  // yayınlamaz, sadece durumu `approved` yapar — mevcut davranış korunur.
+  instagramUserId      String? // IG professional account id
+  instagramAccessToken String? // long-lived token (60 gün)
+  instagramTokenExpiry DateTime?
+
   @@index([agencyId])
 }
 
@@ -39,6 +45,14 @@ enum PostStatus {
   pending
   approved
   rejected
+}
+
+enum PublishStatus {
+  idle // yayın hedefi yok ya da henüz sıra gelmedi
+  publishing // devam ediyor (çift yayın kilidi)
+  published
+  failed
+  skipped // müşteride Instagram bağlı değil
 }
 
 model Post {
@@ -55,8 +69,19 @@ model Post {
   approvalLink    ApprovalLink?
   images          PostImage[]
 
+  // Onay ≠ yayın: `status` müşterinin kararı, `publishStatus` Instagram tarafı.
+  // Bir post onaylanmış ama yayınlanmamış olabilir (skipped/failed).
+  publishStatus PublishStatus @default(idle)
+  igMediaId     String?
+  igPermalink   String?
+  publishError  String?
+  publishedAt   DateTime?
+  // Dış sistemin (furi) kendi tanımlayıcısı — "bu slug daha önce gönderildi mi"
+  externalRef   String?
+
   @@index([agencyId])
   @@index([clientId])
+  @@index([externalRef])
 }
 
 model PostImage {
@@ -64,6 +89,7 @@ model PostImage {
   postId    String
   post      Post     @relation(fields: [postId], references: [id])
   url       String
+  altText   String? // Instagram alt_text — erişilebilirlik, opsiyonel
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
 

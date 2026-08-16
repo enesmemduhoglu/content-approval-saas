@@ -301,6 +301,22 @@ button:disabled {
   color: var(--color-danger);
 }
 
+/* Yayın rozetleri — onay rozetinden ayrı okunur (onay ≠ yayın) */
+.publish-publishing {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+}
+
+.publish-published {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.publish-failed {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
 /* --- Public onay sayfası (mobile-first) --- */
 .approve-page {
   max-width: 520px;

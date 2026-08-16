@@ -39,7 +39,11 @@ export default async function ApprovePage({
     where: { token },
     include: {
       post: {
-        include: { agency: true, images: { orderBy: { sortOrder: "asc" } } },
+        include: {
+          agency: true,
+          client: true,
+          images: { orderBy: { sortOrder: "asc" } },
+        },
       },
     },
   });
@@ -127,13 +131,35 @@ export default async function ApprovePage({
       )}
       <p className="approve-caption">{post.caption}</p>
       {post.status === "pending" ? (
-        <ApprovalActions token={token} />
+        <ApprovalActions
+          token={token}
+          instagramConnected={Boolean(post.client.instagramUserId)}
+        />
       ) : (
-        <p className="approve-confirmation" role="status">
-          {post.status === "approved"
-            ? "Bu post zaten onaylandı."
-            : "Bu post zaten reddedildi."}
-        </p>
+        <div className="approve-actions">
+          <p className="approve-confirmation" role="status">
+            {post.status === "approved"
+              ? "Bu post zaten onaylandı."
+              : "Bu post zaten reddedildi."}
+            {post.publishStatus === "published" && " Instagram'da yayınlandı."}
+            {post.publishStatus === "failed" &&
+              " Instagram'a yayınlanamadı — aşağıdan tekrar deneyebilirsin."}
+          </p>
+          {post.publishStatus === "published" && post.igPermalink && (
+            <a
+              className="button-secondary"
+              href={post.igPermalink}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Instagram&apos;da gör
+            </a>
+          )}
+          {/* Onay yerinde duruyor; buton yalnızca yayını tekrar dener. */}
+          {post.status === "approved" && post.publishStatus === "failed" && (
+            <ApprovalActions token={token} instagramConnected retryOnly />
+          )}
+        </div>
       )}
       {siblingPosts.length > 0 && (
         <section className="sibling-posts">

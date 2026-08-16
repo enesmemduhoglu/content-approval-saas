@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { publishApprovedPost } from "@/lib/publish-post";
 import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
 import { isExpired } from "@/lib/tokens";
+
+// Instagram yayını isteğin içinde tamamlanır (tasarım kararı 4): karusel için
+// ~10 API çağrısı + container bekleme. Varsayılan 10sn yetmez.
+export const maxDuration = 60;
 
 type RouteParams = { params: Promise<{ token: string }> };
 
@@ -47,6 +52,10 @@ export async function GET(request: Request, { params }: RouteParams) {
       rejectionReason: post.rejectionReason,
       clientName: post.client.name,
       agencyName: post.agency.name,
+      // Onay ≠ yayın: ikisi ayrı alan, ayrı gösterilir.
+      publishStatus: post.publishStatus,
+      igPermalink: post.igPermalink,
+      instagramConnected: Boolean(post.client.instagramUserId),
     },
   });
 }
@@ -84,6 +93,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Link süresi doldu" }, { status: 410 });
   }
   if (link.post.status !== "pending") {
+    // "Tekrar dene": onay yerinde duruyor ama yayın başarısız olmuş. Karar
+    // yeniden verilmez, yalnızca yayın tekrarlanır (kilit publishStatus'ta).
+    if (
+      action === "approve" &&
+      link.post.status === "approved" &&
+      link.post.publishStatus === "failed"
+    ) {
+      const outcome = await publishApprovedPost(link.postId);
+      return NextResponse.json({ status: "approved", ...outcome });
+    }
     return NextResponse.json(
       { error: "Zaten karar verildi", status: link.post.status },
       { status: 409 }
@@ -118,5 +137,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
-  return NextResponse.json({ status: newStatus });
+  if (newStatus !== "approved") {
+    return NextResponse.json({ status: newStatus });
+  }
+
+  // Onay commit oldu; buradan sonrası onayı ETKİLEMEZ. publishApprovedPost
+  // throw etmez, en kötü ihtimalle publishStatus "failed" döner.
+  const outcome = await publishApprovedPost(link.postId);
+  return NextResponse.json({ status: newStatus, ...outcome });
 }

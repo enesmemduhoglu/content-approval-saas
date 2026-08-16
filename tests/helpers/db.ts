@@ -20,14 +20,33 @@ export function createAgency(overrides: { name?: string } = {}) {
   });
 }
 
-export function createClient(agencyId: string, overrides: { email?: string } = {}) {
+export function createClient(
+  agencyId: string,
+  overrides: {
+    email?: string;
+    instagramUserId?: string;
+    instagramAccessToken?: string;
+    instagramTokenExpiry?: Date;
+  } = {}
+) {
   const suffix = randomUUID().slice(0, 8);
   return db.client.create({
     data: {
       agencyId,
       name: `Müşteri ${suffix}`,
       email: overrides.email ?? `client-${suffix}@test.local`,
+      instagramUserId: overrides.instagramUserId ?? null,
+      instagramAccessToken: overrides.instagramAccessToken ?? null,
+      instagramTokenExpiry: overrides.instagramTokenExpiry ?? null,
     },
+  });
+}
+
+/** Instagram bağlı müşteri — yayın akışı testleri için. */
+export function createInstagramClient(agencyId: string) {
+  return createClient(agencyId, {
+    instagramUserId: "17841400000000000",
+    instagramAccessToken: "IGAA-test-token",
   });
 }
 
