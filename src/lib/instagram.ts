@@ -133,6 +133,33 @@ async function call(
   return body;
 }
 
+export type InstagramAccount = {
+  /** IG professional account id — `Client.instagramUserId`'ye yazılan değer. */
+  userId: string;
+  /** @handle; yalnızca arayüzde "doğru hesap mı" teyidi için. */
+  username: string | null;
+};
+
+/**
+ * Token'ın hangi Instagram hesabına ait olduğunu sorar (GET /me?fields=user_id).
+ *
+ * Bağlama arayüzünde iki iş görür: token'ı Graph'a sorarak DOĞRULAR (geçersizse
+ * IGError) ve `instagramUserId`'yi ajansın elle yazmasına gerek kalmadan doldurur.
+ * Yayın akışının aksine bu çağrı ucuz ve tekildir — bütçe/bekleme gerekmez.
+ */
+export async function fetchInstagramAccount(accessToken: string): Promise<InstagramAccount> {
+  const body = await call("me", { fields: "user_id,username" }, accessToken, "GET");
+  // graph.instagram.com `user_id` döner; bazı sürümlerde alan `id` adıyla gelir.
+  const userId = body.user_id ?? body.id;
+  if (!userId) {
+    throw new IGError("Instagram yanıtında hesap kimliği ('user_id') yok", body);
+  }
+  return {
+    userId: String(userId),
+    username: typeof body.username === "string" ? body.username : null,
+  };
+}
+
 /** POST /{ig-user-id}/media → container id */
 async function createContainer(
   igUserId: string,

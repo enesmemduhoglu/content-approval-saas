@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isPublishTarget } from "@/lib/publish-post";
+import { isPublishTarget } from "@/lib/instagram-token";
 import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
 import { isExpired } from "@/lib/tokens";
 

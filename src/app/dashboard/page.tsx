@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { isPublishTarget } from "@/lib/publish-post";
 import { getScopedDb } from "@/lib/scoped-db";
 import { AppNav } from "@/components/nav";
 import { PostForm } from "@/components/post-form";
 import { PublishBadge, StatusBadge } from "@/components/status-badge";
 import { CopyLinkButton } from "@/components/copy-link-button";
+import { TokenAlerts } from "@/components/token-alert";
+import { instagramTokenAlerts } from "@/lib/instagram-token";
 
 export const dynamic = "force-dynamic";
 
@@ -15,15 +16,18 @@ export default async function DashboardPage() {
 
   const scoped = getScopedDb(session);
   // Eager-load `client` — N+1 yok (T4)
-  const [posts, clients] = await Promise.all([
+  const [posts, clients, tokenClients] = await Promise.all([
     scoped.posts.findManyWithRelations({ orderBy: { createdAt: "desc" } }),
     scoped.clients.findMany({ orderBy: { name: "asc" } }),
+    scoped.clients.withInstagramTokenExpiry(),
   ]);
+  const tokenAlerts = instagramTokenAlerts(tokenClients);
 
   return (
     <>
       <AppNav agencyName={session.agencyName ?? "Ajans"} />
       <main className="container">
+        <TokenAlerts alerts={tokenAlerts} />
         <div className="page-head">
           <h1>Postlar</h1>
           <PostForm clients={clients.map(({ id, name }) => ({ id, name }))} />
@@ -76,7 +80,7 @@ export default async function DashboardPage() {
                   <PublishBadge
                     status={post.publishStatus}
                     awaitingPublish={
-                      post.status === "approved" && isPublishTarget(post.client)
+                      post.status === "approved" && post.client.publishTarget
                     }
                   />
                   <time className="post-date">

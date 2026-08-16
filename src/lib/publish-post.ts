@@ -1,17 +1,7 @@
 import type { PublishStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { IGError, publishToInstagram } from "@/lib/instagram";
-
-/**
- * Onaylanmış bir postu Instagram'a yayınlar.
- *
- * Yayın onay transaction'ından SONRA, ayrı adımda yapılır (tasarım kararı 2):
- * onay kaydı ASLA bir Instagram hatası yüzünden kaybolmamalı. Yayın patlarsa
- * onay yerinde durur, `publishStatus = "failed"` olur ve tekrar denenebilir.
- *
- * Bu fonksiyon hiçbir zaman throw etmez — çağıran route her durumda onayın
- * sonucunu döndürebilmelidir.
- */
+import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
 
 export type PublishOutcome = {
   publishStatus: PublishStatus;
@@ -22,23 +12,17 @@ export type PublishOutcome = {
 
 const GENERIC_ERROR = "Instagram'a yayınlanamadı. Tekrar deneyebilirsin.";
 
-/** Yayın hedefi olan müşteride onay, aynı istekte yayını da tetikler. */
-export type PublishTargetClient = {
-  instagramUserId: string | null;
-  instagramAccessToken: string | null;
-};
-
 /**
- * "Bu müşterinin postu onaylanınca Instagram'a düşer mi?" sorusunun TEK yeri.
- * Toplu onay bu postları dışarıda bırakır (yayın tek tek onay yolunda yapılır),
- * panel de onaylanıp yayınlanmamış postları buna bakarak işaretler.
+ * Onaylanmış bir postu Instagram'a yayınlar. Yayın hedefi olan müşteride
+ * onay, aynı istekte yayını da tetikler.
+ *
+ * Yayın onay transaction'ından SONRA, ayrı adımda yapılır (tasarım kararı 2):
+ * onay kaydı ASLA bir Instagram hatası yüzünden kaybolmamalı. Yayın patlarsa
+ * onay yerinde durur, `publishStatus = "failed"` olur ve tekrar denenebilir.
+ *
+ * Bu fonksiyon hiçbir zaman throw etmez — çağıran route her durumda onayın
+ * sonucunu döndürebilmelidir.
  */
-export function isPublishTarget<T extends PublishTargetClient>(
-  client: T
-): client is T & { instagramUserId: string; instagramAccessToken: string } {
-  return Boolean(client.instagramUserId && client.instagramAccessToken);
-}
-
 export async function publishApprovedPost(postId: string): Promise<PublishOutcome> {
   const post = await db.post.findUnique({
     where: { id: postId },
@@ -78,7 +62,8 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   }
 
   // Süresi dolmuş token'la API'ye gitmenin anlamı yok; hata mesajı da net olsun.
-  if (client.instagramTokenExpiry && client.instagramTokenExpiry.getTime() <= Date.now()) {
+  // Aynı eşik dashboard'daki proaktif uyarıda da kullanılır (instagram-token.ts).
+  if (isInstagramTokenExpired(client.instagramTokenExpiry)) {
     return markFailed(
       postId,
       "Instagram erişim token'ının süresi dolmuş — ajansın yenilemesi gerekiyor"

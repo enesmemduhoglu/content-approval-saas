@@ -17,20 +17,24 @@ Plan review'da (D3/D4 kararları) v1 kapsamı dışına ertelenen işler — v2'
 Instagram yayını PR #12 + #13 ile canlıya alındı (onay→yayın prod'da 11.29 sn ölçüldü).
 Aşağıdakiler bilinçli olarak o kapsamın dışında bırakıldı, ayrı bir oturumda yapılacak.
 
-- [ ] **Token süresi uyarısı** — `Client.instagramTokenExpiry` alanı dolu ama hiçbir yerde
-      gösterilmiyor; token dolduğunda yayın sessizce durur (`publishStatus='failed'`,
-      `publishError`'da "süresi dolmuş" yazar ama ajans bunu ancak bir post patlayınca görür).
-      Mevcut prod token'ı **2026-10-15**'te doluyor.
-      *Yapılacak:* dashboard'da son 10 güne girmiş müşteriler için uyarı şeridi.
-      `src/lib/publish-post.ts`'de süre dolmuşsa hızlı hata zaten var, eksik olan proaktif uyarı.
-      Yenileme çağrısı: `GET /refresh_access_token` (furi'deki `scripts/ig_token.py` örneği gösteriyor).
+- [x] **Token süresi uyarısı** — 2026-08-16: dashboard'da proaktif uyarı şeridi.
+      `src/lib/instagram-token.ts` tek doğruluk kaynağı (`IG_TOKEN_WARNING_DAYS = 10`);
+      `publish-post.ts`'deki süre kontrolü de aynı yardımcıyı kullanıyor. Şerit iki tonlu:
+      "yakında doluyor" (sarı) ve "doldu → yayın durmuş" (kırmızı, `role="alert"`).
+      Token'ın kendisi `select` edilmiyor, prop'a da girmiyor — yalnızca ad + kalan gün.
+      Mevcut prod token'ı **2026-10-15**'te doluyor, yani uyarı 2026-10-05'te çıkacak.
+      *Hâlâ açık:* otomatik yenileme yok. `GET /refresh_access_token` çağrısını bir cron'a
+      bağlayıp `instagramTokenExpiry`'yi güncellemek ayrı iş (furi'deki `scripts/ig_token.py`
+      örnek). Bugün ajans uyarıyı görüp token'ı elle yenilemek zorunda.
 
-- [ ] **Prod'daki test kayıtlarını temizle** — 2026-08-16 doğrulamasından kalanlar:
-      - `Client` id `testclientnoig0000000000000000` ("Regresyon Testi (Instagramsiz)")
-      - Ona bağlı "Regresyon testi" postu (`publishStatus='skipped'`)
-      - "Duman testi" postu — Instagram'daki karşılığı elle silindi, ama `igPermalink`
-        DB'de duruyor; panelde "Instagram'da gör" linki artık 404 veriyor.
-      *Not:* silme sırası önemli — `ApprovalAudit`, `ApprovalLink`, `PostImage`, sonra `Post`, `Client`.
+- [x] **Prod'daki test kayıtlarını temizle** — 2026-08-16 tamamlandı. `Client`
+      `testclientnoig0000000000000000` ve ona bağlı post, doğru sırada (`ApprovalAudit`,
+      `ApprovalLink`, `PostImage`, `Post`, `Client`) tek transaction içinde silindi.
+      "Duman testi" postunun 404 veren `igPermalink`'i `NULL`'landı; `publishStatus` ve
+      `igMediaId` bilinçli olarak korundu (post gerçekten yayınlanmıştı).
+      **Dikkat — `.env.local` tuzağı:** `DATABASE_URL` **localhost**'a (Docker) bakıyor,
+      prod Neon adresi **`POSTGRES_URL`** altında. Prisma varsayılanıyla bağlanan bir betik
+      prod'a değil yerel DB'ye düşer. Prod'a yazmadan önce bağlandığın hostu doğrula.
 
 - [x] **Toplu onay yayın yapmıyor** — 2026-08-16: yayın hedefi olan postlar toplu onaydan
       çıkarıldı. Instagram bağlı müşteride `POST /api/approve/[token]/batch` hiçbir postu
@@ -43,13 +47,25 @@ Aşağıdakiler bilinçli olarak o kapsamın dışında bırakıldı, ayrı bir 
       *Kalan elle iş:* prod panelinde "Yayınlanmadı" rozetli post varsa linki müşteriye
       gönderilip yayınlanmalı.
 
-- [ ] **Instagram bağlama arayüzü yok** — `instagramUserId` / `instagramAccessToken` /
-      `instagramTokenExpiry` yalnızca elle SQL ile giriliyor; `/clients` ve `POST /api/clients`
-      sadece ad + e-posta alıyor. Bir sonraki müşteride yine prod DB'ye elle yazmak gerekecek.
-      *Yapılacak:* `/clients` (ya da müşteri detay sayfası) üzerinde Instagram bağlama alanı.
-      Token bir sır — form alanı `type="password"`, `GET` yanıtlarında **asla** dönmemeli
-      (bugün `Client` nesnesi hiçbir public endpoint'ten ham dönmüyor, bu korunmalı).
-      Kolaylık: token'dan IG_USER_ID'yi bulmak için `GET /me?fields=user_id`.
+- [x] **Instagram bağlama arayüzü** — 2026-08-16: `/clients` sayfasındaki her müşteri satırında
+      bağlama alanı var (`POST`/`DELETE /api/clients/[id]/instagram`). Token `type="password"`
+      ile girilir, `GET /me?fields=user_id` ile doğrulanıp `instagramUserId` otomatik doldurulur.
+      Client okumaları artık `ClientView` döner — `instagramAccessToken` hiçbir yanıtta ham
+      geçmez, yerine "bağlı mı" + son 4 karakterlik ipucu çıkar.
+      *Not:* `GET /api/clients` token'ı bu değişikliğe kadar ham dönüyordu, kapandı.
+
+## Prod temizliği sırasında fark edilenler (2026-08-16)
+
+- [ ] **Aynı içerik Instagram'a iki kez yayınlanmış** — `externalRef='dizi/long-story-short'`
+      iki ayrı posta bağlı ve **ikisi de** `publishStatus='published'`, farklı permalink'lerle:
+      `cmsvyzi1w0001ju04qoih8gjp` (15:38) ve `cmsw1t4mv0001ky046csgssb5` (16:57).
+      `externalRef` üzerinde mükerrer yayın koruması yok görünüyor — furi tarafı aynı içeriği
+      iki kez gönderirse Instagram'a iki kez düşüyor. *Yapılacak:* `externalRef` için
+      benzersizlik kısıtı ya da yayın öncesi "bu ref zaten yayınlanmış mı" kontrolü.
+
+- [ ] **22 Temmuz'dan kalma çöp veri** — `Enes Memduh` / `enes can` ajansları altında
+      `"asd"`, `"gfh"`, `"as"`, `"sdf"` başlıklı 6 test postu duruyor. Zararsız ama prod'u
+      kirletiyor. Bu turda bilinçli olarak kapsam dışı bırakıldı.
 
 ### Bu listede olmayan, ayrı repo
 

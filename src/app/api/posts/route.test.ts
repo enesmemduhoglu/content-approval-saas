@@ -27,7 +27,12 @@ import { uploadPostImage } from "@/lib/blob";
 import { sendApprovalRequestEmail } from "@/lib/email";
 import { generateApprovalToken } from "@/lib/tokens";
 import { db } from "@/lib/db";
-import { createAgency, createClient, resetDb } from "@tests/helpers/db";
+import {
+  createAgency,
+  createClient,
+  createInstagramClient,
+  resetDb,
+} from "@tests/helpers/db";
 
 const mockAuth = vi.mocked(auth);
 const mockUpload = vi.mocked(uploadPostImage);
@@ -443,5 +448,26 @@ describe("GET /api/posts", () => {
     const data = await res.json();
     expect(data.posts).toHaveLength(1);
     expect(data.posts[0].caption).toBe("A");
+  });
+
+  // `client` ilişkisi tam kayıt olarak eager-load edilirse token yanıta düşer.
+  it("eager-load edilen müşteride Instagram token'ı dönmez", async () => {
+    const agency = await createAgency();
+    const client = await createInstagramClient(agency.id);
+    await db.post.create({
+      data: {
+        agencyId: agency.id,
+        clientId: client.id,
+        caption: "A",
+        status: "pending",
+        images: { create: [{ url: "/a.png", sortOrder: 0 }] },
+      },
+    });
+
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+    const raw = await (await GET()).text();
+    expect(raw).not.toContain("IGAA-test-token");
+    expect(raw).not.toContain("instagramAccessToken");
+    expect(JSON.parse(raw).posts[0].client.name).toBe(client.name);
   });
 });

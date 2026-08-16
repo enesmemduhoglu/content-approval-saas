@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
-import { isPublishTarget } from "@/lib/publish-post";
+import { isPublishTarget } from "@/lib/instagram-token";
 import { isExpired } from "@/lib/tokens";
 import { ApprovalActions } from "@/components/approval-actions";
 import { BatchApprove } from "@/components/batch-approve";
