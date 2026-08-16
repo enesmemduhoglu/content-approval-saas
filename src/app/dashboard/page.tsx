@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { isPublishTarget } from "@/lib/publish-post";
 import { getScopedDb } from "@/lib/scoped-db";
 import { AppNav } from "@/components/nav";
 import { PostForm } from "@/components/post-form";
@@ -72,7 +73,12 @@ export default async function DashboardPage() {
                 </div>
                 <div className="post-meta">
                   <StatusBadge status={post.status} />
-                  <PublishBadge status={post.publishStatus} />
+                  <PublishBadge
+                    status={post.publishStatus}
+                    awaitingPublish={
+                      post.status === "approved" && isPublishTarget(post.client)
+                    }
+                  />
                   <time className="post-date">
                     {post.createdAt.toLocaleDateString("tr-TR")}
                   </time>

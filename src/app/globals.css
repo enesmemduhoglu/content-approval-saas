@@ -317,6 +317,12 @@ button:disabled {
   color: var(--color-danger);
 }
 
+/* Onaylandı ama Instagram'a hâlâ düşmedi — sessiz kalmaması gereken durum */
+.publish-idle {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+}
+
 /* --- Public onay sayfası (mobile-first) --- */
 .approve-page {
   max-width: 520px;
