@@ -1,5 +1,6 @@
 import type { Client, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import type { TokenAlertClient } from "@/lib/instagram-token";
 import { approvalLinkExpiry, generateApprovalToken } from "@/lib/tokens";
 
 export type ScopedSession = { agencyId: string };
@@ -83,6 +84,26 @@ export function getScopedDb(session: ScopedSession) {
         if (result.count === 0) return null;
         const client = await db.client.findFirst({ where: { id, agencyId } });
         return client ? toClientView(client) : null;
+      },
+      /**
+       * Dashboard token uyarısı için müşteri listesi. Instagram'ı bağlı olmayan
+       * müşteriler SQL'de elenir; erişim token'ının kendisi bilerek `select`
+       * edilmez — sır olduğu için sunucu belleğine de, prop'a da girmemeli.
+       * (`ClientView`'dan ayrı duruyor: o token'ı okuyup maskeliyor, bu hiç okumuyor.)
+       */
+      withInstagramTokenExpiry: async (): Promise<TokenAlertClient[]> => {
+        const rows = await db.client.findMany({
+          where: {
+            agencyId,
+            instagramUserId: { not: null },
+            instagramAccessToken: { not: null },
+            instagramTokenExpiry: { not: null },
+          },
+          select: { id: true, name: true, instagramTokenExpiry: true },
+          orderBy: { instagramTokenExpiry: "asc" },
+        });
+        // `where` zaten bağlı olmayanları eledi.
+        return rows.map((row) => ({ ...row, instagramConnected: true }));
       },
     },
     posts: {

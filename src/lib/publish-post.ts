@@ -1,6 +1,7 @@
 import type { PublishStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { IGError, publishToInstagram } from "@/lib/instagram";
+import { isInstagramTokenExpired } from "@/lib/instagram-token";
 
 /**
  * Onaylanmış bir postu Instagram'a yayınlar.
@@ -61,7 +62,8 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   }
 
   // Süresi dolmuş token'la API'ye gitmenin anlamı yok; hata mesajı da net olsun.
-  if (client.instagramTokenExpiry && client.instagramTokenExpiry.getTime() <= Date.now()) {
+  // Aynı eşik dashboard'daki proaktif uyarıda da kullanılır (instagram-token.ts).
+  if (isInstagramTokenExpired(client.instagramTokenExpiry)) {
     return markFailed(
       postId,
       "Instagram erişim token'ının süresi dolmuş — ajansın yenilemesi gerekiyor"
