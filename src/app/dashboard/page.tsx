@@ -64,16 +64,25 @@ export default async function DashboardPage() {
                       Yayın hatası: {post.publishError}
                     </p>
                   )}
-                  {post.publishStatus === "published" && post.igPermalink && (
-                    <a
-                      className="post-caption"
-                      href={post.igPermalink}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Instagram&apos;da gör
-                    </a>
+                  {/* Mükerrer: hata değil, atlama. "Yayın hatası:" öneki olmadan,
+                      publishError'daki açıklama olduğu gibi gösterilir. */}
+                  {post.publishStatus === "duplicate" && post.publishError && (
+                    <p className="rejection-reason">{post.publishError}</p>
                   )}
+                  {(post.publishStatus === "published" ||
+                    post.publishStatus === "duplicate") &&
+                    post.igPermalink && (
+                      <a
+                        className="post-caption"
+                        href={post.igPermalink}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {post.publishStatus === "duplicate"
+                          ? "Yayındaki gönderiyi gör"
+                          : "Instagram'da gör"}
+                      </a>
+                    )}
                 </div>
                 <div className="post-meta">
                   <StatusBadge status={post.status} />

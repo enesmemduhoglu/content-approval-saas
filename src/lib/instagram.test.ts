@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IGError,
+  checkMediaLiveness,
   fetchInstagramAccount,
   publishToInstagram,
   refreshInstagramToken,
@@ -362,5 +363,91 @@ describe("fetchInstagramAccount", () => {
     responses = [respond({ username: "test_hesap" })];
 
     await expect(fetchInstagramAccount("IGAA-test-token")).rejects.toBeInstanceOf(IGError);
+  });
+});
+
+/**
+ * Mükerrer yayın korumasının dayandığı sorgu. Üç sonucun AYRIMI kritik:
+ * "belirsiz"i "silinmiş" sanmak mükerrer yayına, "canlı" sanmak da silinen-post
+ * kurtarma yolunun sessizce kırılmasına yol açar.
+ */
+describe("checkMediaLiveness", () => {
+  it("medya duruyorsa 'live' döner ve yalnızca 'id' alanını ister", async () => {
+    responses = [respond({ id: "media-1" })];
+
+    await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("live");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("GET");
+    expect(calls[0].url.split("/v23.0/")[1]).toBe("media-1");
+    // Görsel indiren alan (media_url/permalink) istenmez — çağrı ucuz kalmalı.
+    expect(calls[0].params.get("fields")).toBe("id");
+  });
+
+  it("silinmiş medyanın tipik cevabında (400 + code 100/subcode 33) 'deleted' döner", async () => {
+    responses = [
+      respond(
+        {
+          error: {
+            message:
+              "Unsupported get request. Object with ID 'media-1' does not exist, cannot be loaded due to missing permissions, or does not support this operation.",
+            type: "IGApiException",
+            code: 100,
+            error_subcode: 33,
+          },
+        },
+        400
+      ),
+    ];
+
+    await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("deleted");
+  });
+
+  it("subcode gelmese de 'does not exist' metni 'deleted' sayılır", async () => {
+    responses = [
+      respond(
+        { error: { message: "Object with ID 'media-1' does not exist", code: 100 } },
+        400
+      ),
+    ];
+
+    await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("deleted");
+  });
+
+  it("HTTP 404 'deleted' sayılır", async () => {
+    responses = [respond({ error: { message: "Not Found" } }, 404)];
+
+    await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("deleted");
+  });
+
+  it("token hatası (code 190) 'deleted' DEĞİL, 'unknown' döner", async () => {
+    responses = [
+      respond({ error: { message: "Invalid OAuth access token", code: 190 } }, 401),
+    ];
+
+    await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("unknown");
+  });
+
+  it("sunucu hatası (5xx) 'unknown' döner", async () => {
+    responses = [respond({ error: { message: "Please reduce the amount of data" } }, 500)];
+
+    await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("unknown");
+  });
+
+  it("ağ hatasında throw etmez, 'unknown' döner", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNRESET");
+      })
+    );
+
+    await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("unknown");
+  });
+
+  it("200 ama yanıtta 'id' yoksa emin olamayız — 'unknown'", async () => {
+    responses = [respond({})];
+
+    await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("unknown");
   });
 });

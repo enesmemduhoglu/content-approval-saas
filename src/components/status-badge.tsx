@@ -24,6 +24,9 @@ const PUBLISH_LABELS: Partial<Record<PublishStatus, string>> = {
   publishing: "Yayınlanıyor",
   published: "Instagram'da",
   failed: "Yayınlanamadı",
+  // Aynı externalRef'li kardeş post hâlâ canlıdaydı, yayın atlandı. "Yayınlanamadı"
+  // demek yanıltıcı olur — ortada hata yok, içerik zaten yerinde.
+  duplicate: "Zaten yayında",
 };
 
 export function PublishBadge({

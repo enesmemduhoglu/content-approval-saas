@@ -1,6 +1,7 @@
 import type { PublishStatus } from "@prisma/client";
 import { db } from "@/lib/db";
-import { IGError, publishToInstagram } from "@/lib/instagram";
+import type { MediaLiveness } from "@/lib/instagram";
+import { IGError, checkMediaLiveness, publishToInstagram } from "@/lib/instagram";
 import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
 
 export type PublishOutcome = {
@@ -70,6 +71,21 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
     );
   }
 
+  // Mükerrer yayın koruması. Dış otomasyon (furi) aynı içeriği iki kez
+  // gönderirse iki ayrı Post oluşur ve ikisi de onaylanınca Instagram'a İKİ KEZ
+  // düşer — prod'da yaşandı.
+  const liveTwin = post.externalRef
+    ? await findLivePublishedTwin(
+        post.id,
+        post.agencyId,
+        post.externalRef,
+        client.instagramAccessToken
+      )
+    : null;
+  if (liveTwin) {
+    return markDuplicate(postId, post.externalRef!, liveTwin.igPermalink);
+  }
+
   try {
     const result = await publishToInstagram({
       igUserId: client.instagramUserId,
@@ -95,6 +111,95 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
       error instanceof IGError ? error.report() : (error as Error)?.message ?? "bilinmeyen hata";
     return markFailed(postId, detail);
   }
+}
+
+/**
+ * Aynı `externalRef`'i taşıyan, HÂLÂ Instagram'da duran bir kardeş post var mı?
+ *
+ * Neden "daha önce yayınlandı mı" diye bakmıyoruz (ve neden
+ * `@@unique([agencyId, externalRef])` KOYMUYORUZ):
+ * furi'nin `esitle.py`'si "yayınlandı ama sonra Instagram'dan silindi"
+ * durumunda içeriği bilerek havuza geri döndürüyor. Yani aynı ref'in ikinci kez
+ * gönderilmesi MEŞRU bir kurtarma yolu. DB seviyesinde benzersizlik ya da
+ * "bu ref published görmüş mü" kontrolü bu yolu kalıcı olarak kırar.
+ * Bizi ilgilendiren tek soru şu: içerik ŞU AN canlıda mı?
+ *
+ * Ajans izolasyonu: sorgu `agencyId`'ye bağlı. İki farklı ajansın aynı slug'ı
+ * kullanması (ki dış otomasyon slug'ları jenerik) birbirini engellememeli.
+ */
+async function findLivePublishedTwin(
+  postId: string,
+  agencyId: string,
+  externalRef: string,
+  accessToken: string
+): Promise<{ id: string; igPermalink: string | null } | null> {
+  const twins = await db.post.findMany({
+    where: {
+      agencyId,
+      externalRef,
+      id: { not: postId },
+      publishStatus: "published",
+      igMediaId: { not: null },
+    },
+    select: { id: true, igMediaId: true, igPermalink: true },
+    orderBy: { publishedAt: "desc" },
+  });
+
+  for (const twin of twins) {
+    // `checkMediaLiveness` tasarımı gereği throw etmez ama bu kontrol yayının
+    // ÖNÜNDE duruyor — beklenmeyen bir istisna yayını komple düşürmemeli.
+    // Yakalanan her şey "belirsiz" muamelesi görür.
+    let liveness: MediaLiveness;
+    try {
+      liveness = await checkMediaLiveness(twin.igMediaId!, accessToken);
+    } catch {
+      liveness = "unknown";
+    }
+    if (liveness === "live") return { id: twin.id, igPermalink: twin.igPermalink };
+    if (liveness === "deleted") continue;
+
+    // BELİRSİZ (ağ hatası, rate limit, beklenmeyen cevap) → yayına İZİN VERİLİR.
+    //
+    // Tasarım kararı, bilinçli tercih: bu kontrol bir EMNİYET AĞI, bir KAPI
+    // değil. Belirsizde engellersek, Instagram API'si sallandığı her an
+    // silinen-post kurtarma yolu SESSİZCE kırılır ve ajans "neden yayınlanmadı"
+    // sorusunun cevabını hiçbir yerde bulamaz. Aksi yöndeki risk — nadiren bir
+    // mükerrer yayın — görünür ve elle düzeltilebilir; sessizce yayınlanmayan
+    // içerik değil. Onun için sadece uyarı basılır.
+    console.warn(
+      `[instagram] mükerrer kontrolü belirsiz kaldı (externalRef=${externalRef}, ` +
+        `kardeş post=${twin.id}, igMediaId=${twin.igMediaId}) — yayına izin verildi`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Yayın atlandı: içerik zaten canlıda. Hata DEĞİL, bilinçli atlama.
+ *
+ * `publishError` alanı burada teşhis metni değil, ajansın panelde okuyacağı
+ * açıklama olarak kullanılır — "neyin engellendiği" görünsün diye.
+ * `igPermalink`'e canlı kardeşin linki yazılır: `igMediaId` boş kaldığı için
+ * bu satırın kendisinin yayınlandığı sanılmaz, ama ajans tek tıkla "peki o
+ * zaman hangisi yayında" sorusunun cevabına gidebilir.
+ */
+async function markDuplicate(
+  postId: string,
+  externalRef: string,
+  twinPermalink: string | null
+): Promise<PublishOutcome> {
+  const note = `Bu içerik zaten Instagram'da yayında (referans: ${externalRef}) — tekrar yayınlanmadı.`;
+  console.warn(`[instagram] mükerrer yayın engellendi: post=${postId} ref=${externalRef}`);
+  await db.post.update({
+    where: { id: postId },
+    data: {
+      publishStatus: "duplicate",
+      publishError: note,
+      igPermalink: twinPermalink,
+    },
+  });
+  return { publishStatus: "duplicate", publishError: note, igPermalink: twinPermalink };
 }
 
 /**

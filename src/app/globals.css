@@ -323,6 +323,12 @@ button:disabled {
   color: var(--color-warning-text);
 }
 
+/* İçerik zaten canlıda olduğu için yayın atlandı — hata değil, uyarı tonunda */
+.publish-duplicate {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+}
+
 /* --- Instagram token uyarı şeridi --- */
 .token-alerts {
   display: flex;
