@@ -17,13 +17,15 @@ Plan review'da (D3/D4 kararları) v1 kapsamı dışına ertelenen işler — v2'
 Instagram yayını PR #12 + #13 ile canlıya alındı (onay→yayın prod'da 11.29 sn ölçüldü).
 Aşağıdakiler bilinçli olarak o kapsamın dışında bırakıldı, ayrı bir oturumda yapılacak.
 
-- [ ] **Token süresi uyarısı** — `Client.instagramTokenExpiry` alanı dolu ama hiçbir yerde
-      gösterilmiyor; token dolduğunda yayın sessizce durur (`publishStatus='failed'`,
-      `publishError`'da "süresi dolmuş" yazar ama ajans bunu ancak bir post patlayınca görür).
-      Mevcut prod token'ı **2026-10-15**'te doluyor.
-      *Yapılacak:* dashboard'da son 10 güne girmiş müşteriler için uyarı şeridi.
-      `src/lib/publish-post.ts`'de süre dolmuşsa hızlı hata zaten var, eksik olan proaktif uyarı.
-      Yenileme çağrısı: `GET /refresh_access_token` (furi'deki `scripts/ig_token.py` örneği gösteriyor).
+- [x] **Token süresi uyarısı** — 2026-08-16: dashboard'da proaktif uyarı şeridi.
+      `src/lib/instagram-token.ts` tek doğruluk kaynağı (`IG_TOKEN_WARNING_DAYS = 10`);
+      `publish-post.ts`'deki süre kontrolü de aynı yardımcıyı kullanıyor. Şerit iki tonlu:
+      "yakında doluyor" (sarı) ve "doldu → yayın durmuş" (kırmızı, `role="alert"`).
+      Token'ın kendisi `select` edilmiyor, prop'a da girmiyor — yalnızca ad + kalan gün.
+      Mevcut prod token'ı **2026-10-15**'te doluyor, yani uyarı 2026-10-05'te çıkacak.
+      *Hâlâ açık:* otomatik yenileme yok. `GET /refresh_access_token` çağrısını bir cron'a
+      bağlayıp `instagramTokenExpiry`'yi güncellemek ayrı iş (furi'deki `scripts/ig_token.py`
+      örnek). Bugün ajans uyarıyı görüp token'ı elle yenilemek zorunda.
 
 - [ ] **Prod'daki test kayıtlarını temizle** — 2026-08-16 doğrulamasından kalanlar:
       - `Client` id `testclientnoig0000000000000000` ("Regresyon Testi (Instagramsiz)")
