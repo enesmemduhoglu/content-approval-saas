@@ -19,10 +19,12 @@ vi.mock("@/lib/auth", () => ({
 
 /** Token uyarısı testleri bunu değiştirir; varsayılan: uyarı gerektiren müşteri yok. */
 let tokenClients: TokenAlertClient[] = [];
+/** Rozet testleri bunu değiştirir; varsayılan: post yok. */
+let posts: unknown[] = [];
 
 vi.mock("@/lib/scoped-db", () => ({
   getScopedDb: () => ({
-    posts: { findManyWithRelations: vi.fn().mockResolvedValue([]) },
+    posts: { findManyWithRelations: vi.fn(async () => posts) },
     clients: {
       findMany: vi.fn().mockResolvedValue([]),
       withInstagramTokenExpiry: vi.fn(async () => tokenClients),
@@ -34,7 +36,29 @@ import DashboardPage from "./page";
 
 beforeEach(() => {
   tokenClients = [];
+  posts = [];
 });
+
+/**
+ * `findManyWithRelations`'ın döndürdüğü şekle sadık post kaydı: `client`
+ * üzerinde ham Instagram alanları DEĞİL, türetilmiş `publishTarget` bulunur.
+ */
+function postKaydi(overrides: {
+  status: string;
+  publishStatus: string;
+  publishTarget: boolean;
+}) {
+  return {
+    id: "p1",
+    caption: "Test postu",
+    createdAt: new Date(),
+    igPermalink: null,
+    approvalLink: null,
+    images: [{ id: "i1", url: "https://example.com/1.jpg", altText: null }],
+    ...overrides,
+    client: { id: "c1", name: "Müşteri", email: "m@example.com", publishTarget: overrides.publishTarget },
+  };
+}
 
 function daysFromNow(days: number): Date {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
@@ -49,6 +73,26 @@ describe("Dashboard boş durumu", () => {
   it("0 müşteri varken önce müşteri eklemeye yönlendirir", async () => {
     render(await DashboardPage());
     expect(screen.getByText(/Post oluşturmadan önce/)).toBeTruthy();
+  });
+});
+
+describe("Dashboard 'yayınlanmadı' rozeti", () => {
+  it("onaylanmış + yayın hedefli + idle postu 'Yayınlanmadı' diye işaretler", async () => {
+    posts = [postKaydi({ status: "approved", publishStatus: "idle", publishTarget: true })];
+    render(await DashboardPage());
+    expect(screen.getByText("Yayınlanmadı")).toBeTruthy();
+  });
+
+  it("Instagram bağlı olmayan müşteride idle post sessiz kalır", async () => {
+    posts = [postKaydi({ status: "approved", publishStatus: "idle", publishTarget: false })];
+    render(await DashboardPage());
+    expect(screen.queryByText("Yayınlanmadı")).toBeNull();
+  });
+
+  it("henüz onaylanmamış postta rozet çıkmaz", async () => {
+    posts = [postKaydi({ status: "pending", publishStatus: "idle", publishTarget: true })];
+    render(await DashboardPage());
+    expect(screen.queryByText("Yayınlanmadı")).toBeNull();
   });
 });
 

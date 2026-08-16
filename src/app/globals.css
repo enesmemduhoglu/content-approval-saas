@@ -317,6 +317,12 @@ button:disabled {
   color: var(--color-danger);
 }
 
+/* Onaylandı ama Instagram'a hâlâ düşmedi — sessiz kalmaması gereken durum */
+.publish-idle {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+}
+
 /* --- Instagram token uyarı şeridi --- */
 .token-alerts {
   display: flex;
@@ -540,6 +546,13 @@ button:disabled {
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
+}
+
+/* Yayın hedefli postlarda toplu onay yok — sebebi burada anlatılır */
+.sibling-note {
+  margin: 0 0 1rem;
+  color: var(--color-text-muted);
+  font-size: 14px;
 }
 
 .batch-approve-warning {

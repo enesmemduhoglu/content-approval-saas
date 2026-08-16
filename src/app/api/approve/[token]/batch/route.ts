@@ -1,14 +1,24 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { isPublishTarget } from "@/lib/instagram-token";
 import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
 import { isExpired } from "@/lib/tokens";
 
 type RouteParams = { params: Promise<{ token: string }> };
 
+const PUBLISH_TARGET_ERROR =
+  "Bu postlar onaylandığında Instagram'a yayınlanacağı için toplu onaylanamaz — her birini tek tek onaylaman gerekiyor";
+
 /**
  * Toplu onay: geçerli bir approval token'ı, AYNI müşterinin onay bekleyen ve
  * linki geçerli tüm postlarını tek istekte onaylamaya yetki verir. Reddetme
  * bilinçli olarak toplu değildir — sebep alanı post başına anlamlıdır.
+ *
+ * Yayın hedefi olan postlar (müşteride Instagram bağlı) toplu onayın DIŞINDA:
+ * onay = yayın demek, slayt container'ı başına ~8.5 sn sürüyor ve Vercel'in
+ * 60 sn tavanı N postu arka arkaya yayınlamaya yetmiyor. Bu postlar tek tek
+ * onaylanır ki tekil yoldaki `publishApprovedPost()` gerçekten çalışsın.
+ * Arayüzde butonu gizlemek yetmez — istemciye güvenilmez, filtre burada.
  */
 export async function POST(request: Request, { params }: RouteParams) {
   const ip = getClientIp(request.headers);
@@ -38,7 +48,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       status: "pending",
       approvalLink: { expiresAt: { gt: now } },
     },
-    select: { id: true },
+    select: {
+      id: true,
+      client: { select: { instagramUserId: true, instagramAccessToken: true } },
+    },
   });
 
   if (pendingPosts.length === 0) {
@@ -48,11 +61,25 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
+  // Yayın hedefli postlar burada elenir; kaçı elendiği yanıtta bildirilir ki
+  // sessizce "onaylandı sandım" durumu oluşmasın.
+  const skippedPublishTargets = pendingPosts.filter((post) =>
+    isPublishTarget(post.client)
+  ).length;
+  const approvablePosts = pendingPosts.filter((post) => !isPublishTarget(post.client));
+
+  if (approvablePosts.length === 0) {
+    return NextResponse.json(
+      { error: PUBLISH_TARGET_ERROR, approved: 0, skippedPublishTargets },
+      { status: 409 }
+    );
+  }
+
   // Post başına WHERE status='pending' guard'ı korunur — eşzamanlı tekil
   // kararla yarışta çifte karar oluşmaz; audit kaydı aynı transaction'da.
   const approvedCount = await db.$transaction(async (tx) => {
     let approved = 0;
-    for (const post of pendingPosts) {
+    for (const post of approvablePosts) {
       const result = await tx.post.updateMany({
         where: { id: post.id, status: "pending" },
         data: { status: "approved", rejectionReason: null },
@@ -67,5 +94,5 @@ export async function POST(request: Request, { params }: RouteParams) {
     return approved;
   });
 
-  return NextResponse.json({ approved: approvedCount });
+  return NextResponse.json({ approved: approvedCount, skippedPublishTargets });
 }

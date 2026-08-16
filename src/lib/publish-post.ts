@@ -1,18 +1,7 @@
 import type { PublishStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { IGError, publishToInstagram } from "@/lib/instagram";
-import { isInstagramTokenExpired } from "@/lib/instagram-token";
-
-/**
- * Onaylanmış bir postu Instagram'a yayınlar.
- *
- * Yayın onay transaction'ından SONRA, ayrı adımda yapılır (tasarım kararı 2):
- * onay kaydı ASLA bir Instagram hatası yüzünden kaybolmamalı. Yayın patlarsa
- * onay yerinde durur, `publishStatus = "failed"` olur ve tekrar denenebilir.
- *
- * Bu fonksiyon hiçbir zaman throw etmez — çağıran route her durumda onayın
- * sonucunu döndürebilmelidir.
- */
+import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
 
 export type PublishOutcome = {
   publishStatus: PublishStatus;
@@ -23,6 +12,17 @@ export type PublishOutcome = {
 
 const GENERIC_ERROR = "Instagram'a yayınlanamadı. Tekrar deneyebilirsin.";
 
+/**
+ * Onaylanmış bir postu Instagram'a yayınlar. Yayın hedefi olan müşteride
+ * onay, aynı istekte yayını da tetikler.
+ *
+ * Yayın onay transaction'ından SONRA, ayrı adımda yapılır (tasarım kararı 2):
+ * onay kaydı ASLA bir Instagram hatası yüzünden kaybolmamalı. Yayın patlarsa
+ * onay yerinde durur, `publishStatus = "failed"` olur ve tekrar denenebilir.
+ *
+ * Bu fonksiyon hiçbir zaman throw etmez — çağıran route her durumda onayın
+ * sonucunu döndürebilmelidir.
+ */
 export async function publishApprovedPost(postId: string): Promise<PublishOutcome> {
   const post = await db.post.findUnique({
     where: { id: postId },
@@ -35,7 +35,7 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   const { client } = post;
   // Instagram bağlı değil → mevcut kullanıcıların davranışı aynen korunur:
   // post onaylanır, hiçbir şey yayınlanmaz.
-  if (!client.instagramUserId || !client.instagramAccessToken) {
+  if (!isPublishTarget(client)) {
     await db.post.updateMany({
       where: { id: postId, publishStatus: "idle" },
       data: { publishStatus: "skipped" },

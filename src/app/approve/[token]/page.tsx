@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
+import { isPublishTarget } from "@/lib/instagram-token";
 import { isExpired } from "@/lib/tokens";
 import { ApprovalActions } from "@/components/approval-actions";
 import { BatchApprove } from "@/components/batch-approve";
@@ -66,6 +67,9 @@ export default async function ApprovePage({
   }
 
   const { post } = link;
+  // Bu müşteride onay = yayın. O yüzden postlar toplu onaylanmaz, tek tek
+  // onaylanır (bkz. api/approve/[token]/batch).
+  const publishTargeted = isPublishTarget(post.client);
 
   // Toplu onay: aynı müşterinin onay bekleyen (linki geçerli) diğer postları.
   // Token zaten bu müşteriye ait bir postu açtığı için aynı müşterinin kendi
@@ -144,6 +148,10 @@ export default async function ApprovePage({
             {post.publishStatus === "published" && " Instagram'da yayınlandı."}
             {post.publishStatus === "failed" &&
               " Instagram'a yayınlanamadı — aşağıdan tekrar deneyebilirsin."}
+            {publishTargeted &&
+              post.status === "approved" &&
+              post.publishStatus === "idle" &&
+              " Instagram'a henüz yayınlanmadı — aşağıdan yayınlayabilirsin."}
           </p>
           {post.publishStatus === "published" && post.igPermalink && (
             <a
@@ -155,15 +163,36 @@ export default async function ApprovePage({
               Instagram&apos;da gör
             </a>
           )}
-          {/* Onay yerinde duruyor; buton yalnızca yayını tekrar dener. */}
+          {/* Onay yerinde duruyor; buton yalnızca yayını çalıştırır. "idle"
+              eski toplu onaylardan kalan, yayını hiç denenmemiş postlardır. */}
           {post.status === "approved" && post.publishStatus === "failed" && (
             <ApprovalActions token={token} instagramConnected retryOnly />
+          )}
+          {publishTargeted && post.status === "approved" && post.publishStatus === "idle" && (
+            <ApprovalActions
+              token={token}
+              instagramConnected
+              retryOnly
+              retryLabel="Instagram'a yayınla"
+            />
           )}
         </div>
       )}
       {siblingPosts.length > 0 && (
         <section className="sibling-posts">
-          <h2>Onay bekleyen diğer postların ({siblingPosts.length})</h2>
+          <h2>
+            {publishTargeted
+              ? `Tek tek onaylanacak diğer postların (${siblingPosts.length})`
+              : `Onay bekleyen diğer postların (${siblingPosts.length})`}
+          </h2>
+          {/* Neden "Tümünü onayla" yok: dürüstçe söylenir, kullanıcı aramasın. */}
+          {publishTargeted && (
+            <p className="sibling-note">
+              Bu postlar onaylandığı anda Instagram&apos;a yayınlanıyor. Yayın her post
+              için ayrı sürdüğünden toplu onay yapılamıyor — aşağıdakileri kendi
+              sayfalarında tek tek onaylaman gerekiyor.
+            </p>
+          )}
           <ul className="sibling-list">
             {siblingPosts.map((sibling) => (
               <li key={sibling.id}>
@@ -184,7 +213,9 @@ export default async function ApprovePage({
               </li>
             ))}
           </ul>
-          <BatchApprove token={token} totalPending={siblingPosts.length + 1} />
+          {!publishTargeted && (
+            <BatchApprove token={token} totalPending={siblingPosts.length + 1} />
+          )}
         </section>
       )}
     </main>

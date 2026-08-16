@@ -77,7 +77,12 @@ export default async function DashboardPage() {
                 </div>
                 <div className="post-meta">
                   <StatusBadge status={post.status} />
-                  <PublishBadge status={post.publishStatus} />
+                  <PublishBadge
+                    status={post.publishStatus}
+                    awaitingPublish={
+                      post.status === "approved" && post.client.publishTarget
+                    }
+                  />
                   <time className="post-date">
                     {post.createdAt.toLocaleDateString("tr-TR")}
                   </time>

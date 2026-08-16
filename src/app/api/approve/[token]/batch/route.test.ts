@@ -1,13 +1,24 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Toplu onay hiçbir şey yayınlamamalı; gerçek istek atılmadığını da garanti eder.
+vi.mock("@/lib/instagram", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/instagram")>();
+  return { ...actual, publishToInstagram: vi.fn() };
+});
+
 import { POST } from "./route";
 import { db } from "@/lib/db";
+import { publishToInstagram } from "@/lib/instagram";
 import { resetRateLimiter } from "@/lib/rate-limit";
 import {
   createAgency,
   createClient,
+  createInstagramClient,
   createPendingPostWithLink,
   resetDb,
 } from "@tests/helpers/db";
+
+const mockPublish = vi.mocked(publishToInstagram);
 
 function makeParams(token: string) {
   return { params: Promise.resolve({ token }) };
@@ -23,6 +34,7 @@ function batchRequest(ip = "1.2.3.4") {
 beforeEach(async () => {
   await resetDb();
   resetRateLimiter();
+  mockPublish.mockReset();
 });
 
 describe("POST /api/approve/[token]/batch", () => {
@@ -37,6 +49,7 @@ describe("POST /api/approve/[token]/batch", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.approved).toBe(3);
+    expect(data.skippedPublishTargets).toBe(0);
 
     for (const { post } of [a, b, c]) {
       const updated = await db.post.findUnique({ where: { id: post.id } });
@@ -102,5 +115,46 @@ describe("POST /api/approve/[token]/batch", () => {
     await POST(batchRequest(), makeParams(link.token));
     const second = await POST(batchRequest(), makeParams(link.token));
     expect(second.status).toBe(409);
+  });
+});
+
+describe("POST /api/approve/[token]/batch — yayın hedefli postlar", () => {
+  it("Instagram bağlı müşteride toplu onay REDDEDİLİR, postlar bekliyor kalır", async () => {
+    // Sessiz hata senaryosunun kökü: batch yayın yapmıyordu, postlar onaylanıp
+    // Instagram'a hiç düşmüyordu. Artık hiç onaylanmıyorlar.
+    const agency = await createAgency();
+    const client = await createInstagramClient(agency.id);
+    const a = await createPendingPostWithLink(agency.id, client.id);
+    const b = await createPendingPostWithLink(agency.id, client.id);
+
+    const res = await POST(batchRequest(), makeParams(a.link.token));
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.approved).toBe(0);
+    expect(data.skippedPublishTargets).toBe(2);
+    expect(data.error).toContain("tek tek");
+
+    for (const { post } of [a, b]) {
+      const untouched = await db.post.findUnique({ where: { id: post.id } });
+      expect(untouched?.status).toBe("pending");
+      expect(untouched?.publishStatus).toBe("idle");
+    }
+    expect(await db.approvalAudit.count()).toBe(0);
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it("kimlik bilgisi YARIM (token yok) müşteri yayın hedefi sayılmaz, toplu onay çalışır", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id, {
+      instagramUserId: "17841400000000000",
+    });
+    const { post, link } = await createPendingPostWithLink(agency.id, client.id);
+
+    const res = await POST(batchRequest(), makeParams(link.token));
+    expect(res.status).toBe(200);
+    expect((await res.json()).approved).toBe(1);
+    expect((await db.post.findUnique({ where: { id: post.id } }))?.status).toBe(
+      "approved"
+    );
   });
 });

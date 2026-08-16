@@ -16,6 +16,27 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Kaç gün kala uyarı şeridi çıkar. Eşik SADECE burada tanımlıdır. */
 export const IG_TOKEN_WARNING_DAYS = 10;
 
+export type PublishTargetClient = {
+  instagramUserId: string | null;
+  instagramAccessToken: string | null;
+};
+
+/**
+ * "Bu müşterinin postu onaylanınca Instagram'a düşer mi?" sorusunun TEK yeri.
+ * Toplu onay bu postları dışarıda bırakır (yayın tek tek onay yolunda yapılır),
+ * panel de onaylanıp yayınlanmamış postları buna bakarak işaretler.
+ *
+ * `publish-post.ts` yerine burada duruyor: yüklem saf, yalnızca müşteri
+ * alanlarına bakıyor ve `scoped-db.ts` de buna ihtiyaç duyuyor — yayın
+ * modülünü (ve dolayısıyla Instagram HTTP katmanını) veri katmanına
+ * sürüklememek için ortak leaf modül burası.
+ */
+export function isPublishTarget<T extends PublishTargetClient>(
+  client: T
+): client is T & { instagramUserId: string; instagramAccessToken: string } {
+  return Boolean(client.instagramUserId && client.instagramAccessToken);
+}
+
 /** Uyarı hesabı için gereken müşteri alanları — token'ın KENDİSİ hiç geçmez. */
 export type TokenAlertClient = {
   id: string;

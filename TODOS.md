@@ -36,14 +36,16 @@ Aşağıdakiler bilinçli olarak o kapsamın dışında bırakıldı, ayrı bir 
       prod Neon adresi **`POSTGRES_URL`** altında. Prisma varsayılanıyla bağlanan bir betik
       prod'a değil yerel DB'ye düşer. Prod'a yazmadan önce bağlandığın hostu doğrula.
 
-- [ ] **Toplu onay yayın yapmıyor** — `POST /api/approve/[token]/batch` yalnızca onaylıyor;
-      Instagram bağlı bir müşteride toplu onaylanan postlar `publishStatus='idle'` kalıp
-      **sessizce yayınlanmıyor**. Tekil onay yolundaki `publishApprovedPost()` çağrısı burada yok.
-      *Karar gerekiyor:* tek tıkla N post arka arkaya yayınlanmalı mı? Süre riski gerçek —
-      slayt container'ı başına ~8.5 sn, 60 sn Vercel tavanı. Muhtemel çözüm: batch yalnızca
-      onaylasın, yayınlar kuyruğa alınsın; ya da yayın hedefi olan postlar batch'ten çıkarılsın.
-      En azından `idle` kalan postlar panelde görünür olmalı (şu an `PublishBadge` `idle`'da
-      hiçbir şey göstermiyor — bu tekil akış için doğru, batch için yanıltıcı).
+- [x] **Toplu onay yayın yapmıyor** — 2026-08-16: yayın hedefi olan postlar toplu onaydan
+      çıkarıldı. Instagram bağlı müşteride `POST /api/approve/[token]/batch` hiçbir postu
+      onaylamıyor (409 + "tek tek onaylaman gerekiyor"), onay sayfasında "Tümünü onayla"
+      butonu yerine sebebini anlatan açıklama çıkıyor, panelde onaylanmış ama yayınlanmamış
+      postlar "Yayınlanmadı" rozetiyle görünüyor. Toplu yayın bilinçli olarak yapılmadı:
+      slayt container'ı başına ~8.5 sn, 60 sn Vercel tavanı.
+      Bu durumda sıkışmış eski postlar onay linkindeki "Instagram'a yayınla" butonuyla
+      kurtarılabiliyor (karar yeniden verilmiyor, yalnızca yayın çalışıyor).
+      *Kalan elle iş:* prod panelinde "Yayınlanmadı" rozetli post varsa linki müşteriye
+      gönderilip yayınlanmalı.
 
 - [x] **Instagram bağlama arayüzü** — 2026-08-16: `/clients` sayfasındaki her müşteri satırında
       bağlama alanı var (`POST`/`DELETE /api/clients/[id]/instagram`). Token `type="password"`

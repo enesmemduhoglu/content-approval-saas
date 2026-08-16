@@ -1,6 +1,6 @@
 import type { Client, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import type { TokenAlertClient } from "@/lib/instagram-token";
+import { isPublishTarget, type TokenAlertClient } from "@/lib/instagram-token";
 import { approvalLinkExpiry, generateApprovalToken } from "@/lib/tokens";
 
 export type ScopedSession = { agencyId: string };
@@ -114,19 +114,39 @@ export function getScopedDb(session: ScopedSession) {
        * Dashboard listesi: `client` + `approvalLink` + `images` eager-load edilir — N+1 yok (T4).
        * `client` bilerek `select`li: tam kayıt eager-load edilirse
        * `instagramAccessToken` de GET /api/posts yanıtına düşer.
+       *
+       * Panelin "onaylandı ama yayınlanmadı" rozetine karar verebilmesi için
+       * Instagram alanları okunur, ama dışarı `publishTarget` boolean'ı çıkar.
+       * Yüklem `instagram-token.ts`'deki tek tanımdan gelir — panel ile toplu
+       * onay yolunun aynı soruya farklı yanıt vermesi mümkün olmasın.
        */
-      findManyWithRelations: (
+      findManyWithRelations: async (
         args: { orderBy?: Prisma.PostOrderByWithRelationInput } = {}
-      ) =>
-        db.post.findMany({
+      ) => {
+        const posts = await db.post.findMany({
           ...args,
           where: { agencyId },
           include: {
-            client: { select: { id: true, name: true, email: true } },
+            client: {
+              // Instagram alanları "yayın hedefi mi?" sorusunu yanıtlamak için
+              // okunur ama aşağıda DÜŞÜRÜLÜR — token yanıta asla girmez.
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                instagramUserId: true,
+                instagramAccessToken: true,
+              },
+            },
             approvalLink: true,
             images: { orderBy: { sortOrder: "asc" } },
           },
-        }),
+        });
+        return posts.map(({ client, ...post }) => {
+          const { instagramUserId: _u, instagramAccessToken: _t, ...safe } = client;
+          return { ...post, client: { ...safe, publishTarget: isPublishTarget(client) } };
+        });
+      },
       findById: (id: string) => db.post.findFirst({ where: { id, agencyId } }),
       /**
        * Post + görseller + ApprovalLink'i tek transaction'da oluşturur — herhangi
