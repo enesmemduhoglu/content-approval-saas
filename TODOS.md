@@ -53,10 +53,18 @@ yerine geçmiyor.
       Transaction hatası gelirse `DB_URL_ENV=POSTGRES_URL_NON_POOLING` ile tekrarla —
       varsayılan `POSTGRES_URL` pooled (pgbouncer) adres.
 
-- [ ] **Prod'daki mevcut çift yayın hâlâ duruyor** — `externalRef='dizi/long-story-short'`
-      için Instagram'da **iki ayrı post canlıda** (`cmsvyzi1w0001ju04qoih8gjp` 15:38 ve
-      `cmsw1t4mv0001ky046csgssb5` 16:57). #23 tekrarı önlüyor ama geçmişi temizlemiyor —
-      ikisi de `published` kalıyor. Birini Instagram'dan elle silmek gerek.
+- [ ] **DB'de ölü bir `published` kaydı var** — `externalRef='dizi/long-story-short'` için
+      **iki** post `publishStatus='published'` (`cmsvyzi1w0001ju04qoih8gjp` 15:38 ve
+      `cmsw1t4mv0001ky046csgssb5` 16:57), ama **Instagram'da tek post var** (2026-08-17'de
+      elle doğrulandı). Yani ikisinden birinin `igPermalink`'i ölü — DB gerçeği yansıtmıyor.
+      *Düzeltme:* "Duman testi" postuna 2026-08-16'da uygulanan işlemin aynısı — ölü kaydın
+      `igPermalink`'ini `NULL`'la. `publishStatus` ve `igMediaId`'ye dokunma: içerik gerçekten
+      yayınlanmıştı, sonradan silindi; bu bilgi kayıt olarak kalmalı.
+      *Hangisinin ölü olduğu:* `igMediaId` üzerinden `GET /{media-id}?fields=id` ile
+      belirlenir (#23'ün `checkMediaLiveness`'ının yaptığı çağrının aynısı).
+      **Not:** bu #23'ü etkilemiyor, tersine #23 bu durumu zaten doğru işliyor — ölü kardeşe
+      "deleted" deyip yayına izin veriyor, canlı olana "live" deyip engelliyor. Yani bu madde
+      kozmetik bir veri tutarlılığı işi, davranışsal bir hata değil.
 
 ### Doğruluk
 
