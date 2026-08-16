@@ -53,18 +53,6 @@ yerine geçmiyor.
       Transaction hatası gelirse `DB_URL_ENV=POSTGRES_URL_NON_POOLING` ile tekrarla —
       varsayılan `POSTGRES_URL` pooled (pgbouncer) adres.
 
-- [ ] **DB'de ölü bir `published` kaydı var** — `externalRef='dizi/long-story-short'` için
-      **iki** post `publishStatus='published'` (`cmsvyzi1w0001ju04qoih8gjp` 15:38 ve
-      `cmsw1t4mv0001ky046csgssb5` 16:57), ama **Instagram'da tek post var** (2026-08-17'de
-      elle doğrulandı). Yani ikisinden birinin `igPermalink`'i ölü — DB gerçeği yansıtmıyor.
-      *Düzeltme:* "Duman testi" postuna 2026-08-16'da uygulanan işlemin aynısı — ölü kaydın
-      `igPermalink`'ini `NULL`'la. `publishStatus` ve `igMediaId`'ye dokunma: içerik gerçekten
-      yayınlanmıştı, sonradan silindi; bu bilgi kayıt olarak kalmalı.
-      *Hangisinin ölü olduğu:* `igMediaId` üzerinden `GET /{media-id}?fields=id` ile
-      belirlenir (#23'ün `checkMediaLiveness`'ının yaptığı çağrının aynısı).
-      **Not:** bu #23'ü etkilemiyor, tersine #23 bu durumu zaten doğru işliyor — ölü kardeşe
-      "deleted" deyip yayına izin veriyor, canlı olana "live" deyip engelliyor. Yani bu madde
-      kozmetik bir veri tutarlılığı işi, davranışsal bir hata değil.
 
 ### Doğruluk
 
@@ -100,6 +88,20 @@ Vercel tavanı aşılır. Toplu yayının yapılmama sebebi de bu.
 **Deploy.** Proje GitHub'a bağlı (2026-08-17'de bağlandı): master'a merge → production,
 PR → preview. Elle deploy gerekmiyor.
 
+**Silinmiş Instagram medyasının hata imzası — canlı veriyle doğrulandı (2026-08-17).**
+`dizi/long-story-short`'un iki kaydı prod'da teşhis edildi: `18619576627013761` **silinmiş**,
+`18073015358411119` **canlı**. Silinen medya `GET /{media-id}?fields=id` çağrısına şunu
+döndürüyor:
+```
+HTTP 400 · code=100 · error_subcode=33
+"Unsupported get request. Object with ID '...' does not exist, cannot be loaded
+ due to missing permissions, or does not support this operation"
+```
+Bu tam olarak #23'teki `isMissingObjectError`'ın aradığı kalıp — yani canlılık kontrolü
+uydurma bir imzaya değil, prod'da ölçülmüş gerçek cevaba dayanıyor. Dikkat: Instagram
+silinmiş medya için **404 döndürmüyor**, 400 döndürüyor; sadece HTTP koduna bakan bir
+kontrol yanılır.
+
 **Mükerrer yayın kontrolü neden benzersizlik kısıtı değil.** furi'nin `esitle.py`'si
 "yayınlandı ama sonra Instagram'dan silindi" durumunda içeriği bilerek havuza geri
 döndürüyor (`yayinlandi_sonra_silindi`). Yani aynı `externalRef`'in ikinci kez gönderilmesi
@@ -112,6 +114,14 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ## Tamamlananlar
 
 ### 2026-08-17 — açık işler turu (PR #21, #22, #23)
+
+- [x] **"Prod'da çift yayın duruyor" maddesi kapandı — yapacak bir şey yokmuş.**
+      Instagram'da `long-story-short`'tan **tek post var**; iki `published` kaydın eskisine
+      (`cmsvyzi1w0001ju04qoih8gjp`, medya `18619576627013761`) ait medya silinmiş ve o kaydın
+      `igPermalink`'i **zaten `NULL`**. Yeni kayıt (`cmsw1t4mv0001ky046csgssb5`, medya
+      `18073015358411119`) canlı ve permalink'i yerinde. Yani DB gerçeği doğru yansıtıyor:
+      "yayınlandı, sonra silindi" durumu `publishStatus='published'` + `igPermalink=NULL`
+      olarak zaten doğru kodlanmış. Düzeltilecek tutarsızlık çıkmadı.
 
 - [x] **Mükerrer Instagram yayını koruması** — `externalRef` aynı olan kardeş postun
       Instagram'da hâlâ durup durmadığı kontrol ediliyor (`GET /{media-id}?fields=id`).
