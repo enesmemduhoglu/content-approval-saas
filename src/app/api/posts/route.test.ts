@@ -14,6 +14,7 @@ vi.mock("@/lib/blob", async (importOriginal) => {
 
 vi.mock("@/lib/email", () => ({
   sendApprovalRequestEmail: vi.fn(),
+  sendAgencyNoticeEmail: vi.fn(),
 }));
 
 vi.mock("@/lib/tokens", async (importOriginal) => {
@@ -24,7 +25,7 @@ vi.mock("@/lib/tokens", async (importOriginal) => {
 import { GET, POST } from "./route";
 import { auth } from "@/lib/auth";
 import { uploadPostImage } from "@/lib/blob";
-import { sendApprovalRequestEmail } from "@/lib/email";
+import { sendAgencyNoticeEmail, sendApprovalRequestEmail } from "@/lib/email";
 import { generateApprovalToken } from "@/lib/tokens";
 import { db } from "@/lib/db";
 import {
@@ -37,6 +38,7 @@ import {
 const mockAuth = vi.mocked(auth);
 const mockUpload = vi.mocked(uploadPostImage);
 const mockSendEmail = vi.mocked(sendApprovalRequestEmail);
+const mockAgencyNotice = vi.mocked(sendAgencyNoticeEmail);
 const mockGenerateToken = vi.mocked(generateApprovalToken);
 
 function makeImage() {
@@ -69,6 +71,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   mockUpload.mockResolvedValue("/uploads/test.png");
   mockSendEmail.mockResolvedValue({ sent: true });
+  mockAgencyNotice.mockResolvedValue({ sent: true });
   const { generateApprovalToken: realGenerate } =
     await vi.importActual<typeof import("@/lib/tokens")>("@/lib/tokens");
   mockGenerateToken.mockImplementation(realGenerate);
@@ -127,6 +130,50 @@ describe("POST /api/posts", () => {
     expect(data.approvalUrl).toContain("/approve/");
     expect(data.emailSent).toBe(false);
     expect(data.emailError).toBe("validation_error: geçersiz adres");
+  });
+
+  it("iş sahibine 'onay bekliyor' bildirimi gider", async () => {
+    const agency = await createAgency({ name: "Parlak Ajans" });
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    await POST(
+      postRequest({ caption: "Yeni post", clientId: client.id, image: makeImage() })
+    );
+
+    expect(mockAgencyNotice).toHaveBeenCalledOnce();
+    const arg = mockAgencyNotice.mock.calls[0][0];
+    expect(arg.to).toBe(agency.email);
+    expect(arg.event).toBe("request_sent");
+    expect(arg.clientName).toBe(client.name);
+    expect(arg.clientEmailSent).toBe(true);
+  });
+
+  // İş sahibinin en çok bilmesi gereken durum: post sıraya girdi ama müşteriye
+  // haber gitmedi. Bunu bilmezse yayının neden durduğunu anlayamaz.
+  it("müşteriye mail gitmediyse iş sahibinin bildirimi bunu söyler", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+    mockSendEmail.mockResolvedValue({ sent: false, reason: "validation_error: geçersiz adres" });
+
+    await POST(
+      postRequest({ caption: "Yeni post", clientId: client.id, image: makeImage() })
+    );
+
+    expect(mockAgencyNotice.mock.calls[0][0].clientEmailSent).toBe(false);
+  });
+
+  it("ajans bildirimi patlarsa post oluşturma BOZULMAZ — 201 döner", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+    mockAgencyNotice.mockRejectedValue(new Error("Resend down"));
+
+    const res = await POST(
+      postRequest({ caption: "Yeni post", clientId: client.id, image: makeImage() })
+    );
+    expect(res.status).toBe(201);
   });
 
   it("çoklu görsel: 3 dosya sıralı PostImage kayıtlarına dönüşür (D3.3)", async () => {

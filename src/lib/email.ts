@@ -76,16 +76,17 @@ export type EmailResult =
   | { sent: true }
   | { sent: false; reason: string };
 
-// Fire-and-forget: gönderim başarısız olsa bile ASLA throw etmez — post oluşturma
-// akışı e-postaya bağımlı değildir. Ama SESSİZ de kalmaz: sonucu döndürür ki
-// çağıran taraf "post oluştu ama müşteriye haber gitmedi" durumunu görebilsin.
-export async function sendApprovalRequestEmail(
-  input: ApprovalEmailInput
+// Fire-and-forget: gönderim başarısız olsa bile ASLA throw etmez — çağıran akış
+// e-postaya bağımlı değildir. Ama SESSİZ de kalmaz: sonucu döndürür ki çağıran
+// taraf "iş yapıldı ama haber gitmedi" durumunu görebilsin.
+async function gonder(
+  payload: { to: string; subject: string; html: string; text: string },
+  etiket: string
 ): Promise<EmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     const reason = "RESEND_API_KEY tanımlı değil";
-    console.warn(`[email] ${reason}, onay e-postası gönderimi atlandı`);
+    console.warn(`[email] ${reason}, ${etiket} gönderimi atlandı`);
     return { sent: false, reason };
   }
   try {
@@ -97,19 +98,128 @@ export async function sendApprovalRequestEmail(
     // hata vardi. Dönüşü okumak bu sinifin tek teshis yolu.
     const { error } = await resend.emails.send({
       from: process.env.EMAIL_FROM ?? "Content Approval <onboarding@resend.dev>",
-      to: input.to,
-      subject: approvalEmailSubject(input.agencyName),
-      html: renderApprovalEmailHtml(input),
-      text: renderApprovalEmailText(input),
+      ...payload,
     });
     if (error) {
       const reason = `${error.name ?? "resend_error"}: ${error.message ?? "bilinmeyen"}`;
-      console.error("[email] Resend gönderimi reddetti:", error);
+      console.error(`[email] Resend ${etiket} gönderimini reddetti:`, error);
       return { sent: false, reason };
     }
     return { sent: true };
   } catch (error) {
-    console.error("[email] Onay e-postası gönderilemedi:", error);
+    console.error(`[email] ${etiket} gönderilemedi:`, error);
     return { sent: false, reason: error instanceof Error ? error.message : String(error) };
   }
+}
+
+export async function sendApprovalRequestEmail(
+  input: ApprovalEmailInput
+): Promise<EmailResult> {
+  return gonder(
+    {
+      to: input.to,
+      subject: approvalEmailSubject(input.agencyName),
+      html: renderApprovalEmailHtml(input),
+      text: renderApprovalEmailText(input),
+    },
+    "onay e-postası"
+  );
+}
+
+// ----------------------------------------------------------- ajans bildirimi
+
+/**
+ * İş sahibine (ajans) giden bildirim. Müşteri onay e-postasını alıyordu ama
+ * ajansın akıştan hiç haberi olmuyordu: onay isteği gitti mi, müşteri ne dedi,
+ * post yayınlandı mı — hepsini ancak panele bakarak öğrenebiliyordu.
+ */
+export type AgencyNoticeEvent = "request_sent" | "approved" | "rejected";
+
+export type AgencyNoticeInput = {
+  to: string;
+  event: AgencyNoticeEvent;
+  clientName: string;
+  /** Postu tanıyacak kısa etiket: externalRef ya da caption'ın ilk satırı. */
+  postRef: string;
+  approvalUrl?: string;
+  /** request_sent: müşteriye onay maili gerçekten gitti mi. */
+  clientEmailSent?: boolean;
+  rejectionReason?: string | null;
+  publishStatus?: string | null;
+  igPermalink?: string | null;
+};
+
+const YAYIN_METNI: Record<string, string> = {
+  published: "Instagram'a yayınlandı",
+  failed: "Instagram'a YAYINLANAMADI — onay sayfasından tekrar denenebilir",
+  skipped: "Yayınlanmadı: müşteride Instagram bağlı değil",
+  duplicate: "Yayınlanmadı: aynı post zaten Instagram'da",
+  idle: "Yayın henüz denenmedi",
+};
+
+export function agencyNoticeSubject(input: AgencyNoticeInput): string {
+  const etiket = {
+    request_sent: "Onay bekliyor",
+    approved: "Onaylandı",
+    rejected: "Reddedildi",
+  }[input.event];
+  return `[${etiket}] ${input.clientName} — ${input.postRef}`;
+}
+
+/** Bildirimin gövdesi — satır listesi olarak; text ve HTML aynı kaynaktan. */
+function agencyNoticeLines(input: AgencyNoticeInput): string[] {
+  const lines: string[] = [];
+  if (input.event === "request_sent") {
+    lines.push(`${input.clientName} için yeni bir post onaya gönderildi.`);
+    // Asıl mesele bu satır: 16-17.08'de onay maili gitmedi ve kimse fark
+    // etmedi. Ajans artık müşteriye ulaşılıp ulaşılmadığını burada görüyor.
+    lines.push(
+      input.clientEmailSent === false
+        ? "DİKKAT: Müşteriye onay e-postası GİTMEDİ. Aşağıdaki linki elle iletmen gerekiyor."
+        : "Müşteriye onay e-postası gönderildi."
+    );
+  } else if (input.event === "approved") {
+    lines.push(`${input.clientName} postu ONAYLADI.`);
+    lines.push(YAYIN_METNI[input.publishStatus ?? "idle"] ?? `Yayın durumu: ${input.publishStatus}`);
+    if (input.igPermalink) lines.push(`Post: ${input.igPermalink}`);
+  } else {
+    lines.push(`${input.clientName} postu REDDETTİ.`);
+    lines.push(
+      input.rejectionReason
+        ? `Gerekçe: ${input.rejectionReason}`
+        : "Gerekçe belirtilmedi."
+    );
+  }
+  if (input.approvalUrl) lines.push(`Onay sayfası: ${input.approvalUrl}`);
+  return lines;
+}
+
+export function renderAgencyNoticeText(input: AgencyNoticeInput): string {
+  return agencyNoticeLines(input).join("\n\n");
+}
+
+export function renderAgencyNoticeHtml(input: AgencyNoticeInput): string {
+  const body = agencyNoticeLines(input)
+    .map(
+      (line) =>
+        `<p style="font-size: 15px; line-height: 1.5; margin: 0 0 12px;">${escapeHtml(line)}</p>`
+    )
+    .join("\n    ");
+  return `<div style="font-family: 'Public Sans', Arial, sans-serif; background: #fafaf8; color: #1a1a1a; padding: 32px 16px;">
+  <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 32px;">
+    ${body}
+  </div>
+</div>`;
+}
+
+export async function sendAgencyNoticeEmail(input: AgencyNoticeInput): Promise<EmailResult> {
+  return gonder(
+    {
+      to: input.to,
+      subject: agencyNoticeSubject(input),
+      html: renderAgencyNoticeHtml(input),
+      text: renderAgencyNoticeText(input),
+    },
+    "ajans bildirimi"
+  );
 }
