@@ -19,17 +19,16 @@ import {
  * o kararı uygulamak ve sonucu loglamaktır.
  *
  * ────────────────────────────────────────────────────────────────────────────
- * ⚠ TOKEN'IN İKİ KOPYASI VAR — BU CRON YALNIZCA BİRİNİ YENİLER
+ * TOKEN'IN TEK KOPYASI VAR — BURASI
  *
- * Aynı Instagram token'ı iki ayrı yerde duruyor:
- *   1. Burada, SaaS'ta          → `Client.instagramAccessToken` (bu cron'un yenilediği)
- *   2. furi otomasyonunda       → ayrı bir ortam değişkeni (AYRI REPO)
+ * Eskiden aynı token furi'de de ayrı bir ortam değişkeninde duruyordu ve bu
+ * cron SaaS kopyasını yenilediğinde furi'ninki sessizce bayatlıyordu. Artık
+ * furi kendi kopyasını tutmuyor; token'ı her çalışmada
+ * `GET /api/clients/[id]/instagram-token` üzerinden buradan çekiyor.
+ * Dolayısıyla bu cron yenilediği anda furi de yeni token'ı görür.
  *
- * İkisini senkron tutan HİÇBİR mekanizma yok. Bu cron 1'i yenileyince Instagram
- * eski token'ı kısa süre sonra geçersiz kılar ve furi'nin kopyası BAYATLAR —
- * furi tarafındaki yayın/okuma işleri sessizce kırılabilir. Kalıcı çözüm tek
- * kaynak (SaaS'ın token'ı API üzerinden furi'ye vermesi) ya da yenileme sonrası
- * furi env'inin de güncellenmesidir. Şimdilik ELLE takip gerekiyor.
+ * Bu bağı kırmadan önce oraya bak: furi'nin env'ine token geri konursa aynı
+ * bayatlama sorunu geri gelir.
  * ────────────────────────────────────────────────────────────────────────────
  */
 
