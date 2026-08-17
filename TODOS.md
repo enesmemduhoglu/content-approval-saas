@@ -12,13 +12,26 @@ Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** —
 
 ### Elle yapılması gerekenler (repo yapamaz)
 
-- [ ] **Boş test ajansları duruyor** (isteğe bağlı, düşük öncelik). 22 Temmuz'dan kalma
-      iki ajans kaydı prod'da hâlâ var ama **tamamen boş** — post=0, client=0:
+- [ ] **Boş test ajanslarını sil** — betik hazır, koşulmayı bekliyor (düşük öncelik).
+      22 Temmuz'dan kalma iki ajans prod'da duruyor ve **tamamen boş** (post=0, client=0):
       `Enes Memduh` (`cmrw9cu730000l404sekzspv4`) ve `enes can` (`cmrwa781m0001ky04liyy3f5d`).
-      Zararsızlar; temizlik betiği kural gereği `Agency` silmiyor (`FURI_API_AGENCY_ID`
-      bir ajansa bağlı, yanlış silme otomasyonu sessizce patlatır).
-      *Silinecekse:* önce `FURI_API_AGENCY_ID`'nin **`cmsw2ajnq0000jm04d6m9puei`**
-      (Enes MEMDUHOĞLU) olduğunu doğrula — canlı ajans o, diğer ikisi değil.
+      Kardeş betik `prod-test-verisi-temizligi.mjs` kural gereği `Agency`'ye hiç dokunmuyor,
+      bu yüzden ayrı betik yazıldı: **`scripts/bos-ajans-temizligi.mjs`** (PR #28).
+      Dry-run prod'a karşı koşuldu, iki ajans da "boş ve teyitli" çıktı.
+      *Çalıştır:* `node scripts/bos-ajans-temizligi.mjs --apply`
+      *Emniyet zinciri:* hedefler **sabit id listesi** (betik başka ajans silemez),
+      canlı ajans `Enes MEMDUHOĞLU` hem id hem ad ile kara listede ve kontrol üç ayrı
+      noktada, silme tek transaction içinde ve **transaction İÇİNDE** ad/kara liste/post/
+      client yeniden doğrulanıyor, `information_schema`'dan FK haritası okunup şemaya
+      yeni bağlı tablo eklenmişse betik duruyor.
+      *Bilinmesi gereken:* betiğin okuduğu `FURI_API_AGENCY_ID` **yerel** `.env.local`'dan
+      geliyor ve orada dev değeri (`dev-agency-a`) duruyor — prod'daki hiçbir ajansla
+      eşleşmiyor, betik bunu yüksek sesle uyarıyor. Yani o teyit tek başına anlamsız;
+      asıl koruma kara liste. Prod değeri (Vercel env) kayda göre
+      `cmsw2ajnq0000jm04d6m9puei` = `Enes MEMDUHOĞLU`, yani silinecek ikisi furi'ye
+      bağlı değil — istersen `--apply` öncesi Vercel'den bir kez daha bak.
+      *Yan etki:* `Agency.googleId` unique; bu iki kayıt silinince o Google hesapları
+      tekrar giriş yaparsa sıfırdan yeni ajans oluşur. Beklenen davranış.
 
 
 ### Doğruluk
