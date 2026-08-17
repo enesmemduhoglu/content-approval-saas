@@ -26,11 +26,27 @@
  * prod Neon adresi `POSTGRES_URL` altında. Betik HERHANGİ BİR SORGUDAN ÖNCE
  * bağlandığı hostu yazdırır ve prod olduğunu doğrular.
  *
- * ⚠️ ANAHTAR TUZAĞI
+ * ⚠️ ANAHTAR TUZAĞI — ÖNCE BUNU OKU
  * Şifreleme `ENCRYPTION_KEY` ile yapılır. Bu betiği YEREL anahtarla koşup
  * prod'a yazmak, prod'un okuyamayacağı kayıtlar üretir. Betik bu yüzden
- * kullandığı anahtarın SHA-256 parmak izinin ilk 8 karakterini basar —
- * Vercel'deki değerle karşılaştırılabilsin diye. Anahtarın kendisi basılmaz.
+ * kullandığı anahtarın SHA-256 parmak izinin ilk 8 karakterini basar.
+ *
+ * AMA: Vercel'de `Sensitive` işaretli bir değişkenin DEĞERİ geri okunamaz
+ * (`vercel env pull` yer tutucu yazar — 2026-08-17'de ölçüldü). Yani prod'un
+ * parmak izini elde etmenin bir yolu YOK ve bu iz tek başına karşılaştırılamaz;
+ * yalnızca "iki koşuda aynı anahtarı mı kullandım" sorusuna yarar.
+ *
+ * Uyuşmazlık hâlinde düz metin orijinal GİDER ve bu betik YEDEK TUTMAZ —
+ * geri dönüş yoktur.
+ *
+ * BU YÜZDEN TEK KAYIT İÇİN BU BETİĞİ KULLANMA. Panelden Instagram'ı yeniden
+ * bağlamak aynı işi yapar ve prod token'ı KENDİ anahtarıyla şifreler:
+ * uyuşmazlık riski sıfır, başarısızlık hâlinde mevcut kayda dokunulmaz.
+ * (Yeniden bağlarken token bitiş tarihini de girmeyi unutma; boş bırakılırsa
+ * cron o müşteriyi sonsuza kadar atlar.)
+ *
+ * Bu betik, çok sayıda kaydın olduğu ya da anahtar eşliğinden BAŞKA bir yolla
+ * emin olunan durumlar içindir.
  *
  * KULLANIM
  *   node scripts/token-sifrele.mjs                     # dry-run (varsayılan)

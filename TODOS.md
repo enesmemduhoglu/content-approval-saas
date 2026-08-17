@@ -166,6 +166,33 @@ kararı gerektiriyor.
 
 ## Bilinmesi gerekenler
 
+**Vercel'de `Sensitive` işaretli env değişkeninin DEĞERİ geri okunamaz — doğrulamayı
+buna göre planla.** `vercel env ls` yalnızca adı/kapsamı gösterir; `vercel env pull` ise
+sensitive değişkenler için gerçek değer yerine sabit bir yer tutucu yazar. 2026-08-17'de
+kanıtlandı: `ENCRYPTION_KEY`, `AUTH_SECRET`, `CRON_SECRET`, `FURI_API_KEY` ve
+`RESEND_API_KEY` — çalıştığı bilinen sırlar dahil — **hepsi birebir aynı 11 karakterlik
+değeri** döndürdü. Yani "prod'daki anahtar 32 bayt mı, benimkiyle aynı mı" sorusu
+CLI'dan yanıtlanamaz. Doğrulama ancak DAVRANIŞTAN yapılır (aşağıya bak).
+
+**Düz metin token'ı şifreliye çevirirken BETİĞİ DEĞİL, production'ın kendisini kullan.**
+`scripts/token-sifrele.mjs` *yerel* `ENCRYPTION_KEY` ile şifreliyor ve yukarıdaki madde
+yüzünden bu anahtarın prod'unkiyle aynı olduğu **kanıtlanamıyor**. Uyuşmazlık hâlinde
+betik prod'un çözemeyeceği bir kayıt yazar ve düz metin orijinali gider — **betik yedek
+tutmuyor, geri dönüş yok.**
+*Doğru yol:* panelden Instagram'ı bir kez YENİDEN BAĞLA. Prod token'ı kendi anahtarıyla
+şifreler, uyuşmazlık riski sıfırdır; anahtar bozuksa bağlantı açık bir hatayla reddedilir
+ve **mevcut token'a dokunulmaz** (başarısızlık da güvenli).
+*Bu sırada tuzak:* bağlama formunda **token bitiş tarihini de gir**. Boş bırakılırsa
+`instagramTokenExpiry` `null` olur ve aşağıdaki "boşsa otomatik yenileme HİÇ çalışmaz"
+sorunu geri gelir.
+*Doğrulama:* sonrasında `GET /api/clients/[id]/instagram-token` (Bearer `FURI_API_KEY`)
+çağır. Gerçek token dönüyorsa prod anahtarı geçerli, şifreleme çalışıyor ve furi
+bozulmamış — üçü tek çağrıda kanıtlanır. `500 token_undecryptable` dönerse anahtar sorunu
+var demektir.
+*Betik yine de duruyor:* birden fazla kaydın olduğu ya da anahtar eşliğinden emin olunan
+durumlar için hâlâ doğru araç (dry-run varsayılanı, host doğrulaması, transaction içinde
+geri okuma).
+
 **Güvenlik turunda DENETLENDİ ve temiz çıktı — bir sonraki tur bunları yeniden taramasın.**
 2026-08-17 incelemesinde tek tek okundu ve doğru kurulmuş bulundu:
 **IDOR** (`getScopedDb` her route'ta, makine anahtarı yolu dahil — anahtar yalnızca
@@ -316,6 +343,10 @@ değil müşteri öderdi.
 eklenmeli. Eklenmezse mevcut düz metin token'lar okunmaya devam eder (yayın çalışır) ama
 **panelden yeni Instagram bağlanamaz** ve **cron token yenileyemez** (o müşteri `failed`
 sayılır). Üret: `openssl rand -base64 32`.
+*Durum (2026-08-17):* eklendi — `content-approval-saas` projesinde, kapsam
+**Preview + Production**, Sensitive. (İlk denemede yanlış projeye — `web-projesi` —
+eklenmişti; oradan silinmeli.) Prod'daki tek düz metin kayıt: `Furkan Teacher`
+(`7b76443b401b4f56bc7686b1a70835ba`), 186 karakter.
 
 ### 2026-08-17 — post yönetimi (F1 + F2 + F5)
 
