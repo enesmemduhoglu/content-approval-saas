@@ -618,3 +618,84 @@ button:disabled {
     width: 100%;
   }
 }
+
+/* --- Post yönetimi (F1/F2/F5) --- */
+
+/* Mail rozetleri: başarı sessiz-nötr, başarısızlık göze batan.
+   İkisi de gösterilir — "gitti" ile "hiç denenmedi"yi ayırmak bu rozetin
+   var olma sebebi (bkz. status-badge.tsx > EmailBadge). */
+.email-sent {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.email-failed {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.post-actions,
+.client-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.client-actions {
+  align-items: flex-start;
+  margin-top: 0.5rem;
+}
+
+.post-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.client-actions .post-actions-row {
+  justify-content: flex-start;
+}
+
+/* Satır aksiyonları ana butonlardan daha sakin dursun — post listesi
+   bir buton duvarına dönüşmesin. */
+.post-actions .button-secondary,
+.post-actions .button-reject,
+.client-actions .button-secondary,
+.client-actions .button-reject {
+  font-size: 13px;
+  padding: 0.3rem 0.7rem;
+}
+
+.post-actions-notice {
+  font-size: 13px;
+  color: var(--color-accent);
+  margin: 0;
+  text-align: right;
+}
+
+.post-edit-caption {
+  width: 100%;
+  min-width: 260px;
+  font: inherit;
+  font-size: 14px;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+@media (max-width: 640px) {
+  .post-actions,
+  .post-actions-row {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .post-actions-notice {
+    text-align: left;
+  }
+}

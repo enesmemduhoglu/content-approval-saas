@@ -31,9 +31,16 @@ import type { NextConfig } from "next";
 //   görseli SESSİZCE kırar — ürünün tam kalbi. Sunucu tarafında zaten bir
 //   allowlist var (`validation.ts`), bu yüzden burada https: yeterli kabul
 //   edildi; `http:` ve `data:` dışı şemalar yine kapalı.
+// Next.js'in DEV sunucusu HMR ve source map'ler için `eval()` kullanır. Bu izin
+// olmadan istemci JS'i hiç çalışmaz: sayfa sunucudan render olmuş görünür ama
+// hidrasyon sessizce ölür — butonlar tıklanır, hiçbir şey olmaz. (Tam olarak bu
+// yaşandı: CSP eklendiğinde e2e testlerinin üçü "Yeni Müşteri'ye tıkladım, form
+// açılmadı" diye düştü.) Production build'de eval kullanılmaz, orada verilmez.
+const DEV_SCRIPT_SRC = process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'";
+
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${DEV_SCRIPT_SRC}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",

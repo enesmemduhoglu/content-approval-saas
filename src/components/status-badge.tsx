@@ -43,3 +43,21 @@ export function PublishBadge({
   if (!label) return null;
   return <span className={`status-badge publish-${status}`}>{label}</span>;
 }
+
+/**
+ * Onay e-postasının akıbeti (F5).
+ *
+ * Diğer rozetlerin aksine BAŞARIYI DA gösterir. Sebep: bu rozetin var olma
+ * sebebi "mail gitti mi" sorusunun panelden yanıtlanamamasıydı; başarıda sessiz
+ * kalsaydı "gitti" ile "hiç denenmedi" yine ayırt edilemezdi — yani sorun
+ * çözülmemiş olurdu. `null` (eski postlar, alan eklenmeden önce oluşmuş)
+ * bilerek sessiz: onlar için gerçekten bilmiyoruz, uydurmak yanlış olur.
+ */
+export function EmailBadge({ sent }: { sent: boolean | null }) {
+  if (sent === null) return null;
+  return sent ? (
+    <span className="status-badge email-sent">Mail gitti</span>
+  ) : (
+    <span className="status-badge email-failed">Mail GİTMEDİ</span>
+  );
+}

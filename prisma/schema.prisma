@@ -83,6 +83,13 @@ model Post {
   // Dış sistemin (furi) kendi tanımlayıcısı — "bu slug daha önce gönderildi mi"
   externalRef   String?
 
+  // Onay e-postasının akıbeti. #31 bu bilgiyi /api/posts YANITINA koymuştu ama
+  // hiçbir yerde saklamıyordu: yanıtı gören otomasyon öğreniyor, panele bakan
+  // insan asla öğrenemiyordu. `null` = henüz hiç denenmedi.
+  approvalEmailSent   Boolean?
+  approvalEmailError  String?
+  approvalEmailSentAt DateTime?
+
   @@index([agencyId])
   @@index([clientId])
   @@index([externalRef])

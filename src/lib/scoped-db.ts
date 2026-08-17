@@ -68,6 +68,34 @@ export function getScopedDb(session: ScopedSession) {
       },
       create: async (data: { name: string; email: string }): Promise<ClientView> =>
         toClientView(await db.client.create({ data: { ...data, agencyId } })),
+
+      /**
+       * Müşteri silme (F2). Postu olan müşteri SİLİNMEZ — `Post.clientId` FK'sı
+       * zaten engellerdi ama o yol çıplak bir Prisma hatası verirdi; burada
+       * sebep açıkça söyleniyor ve kaç post olduğu geri dönüyor ki ajans ne
+       * yapması gerektiğini bilsin (önce postları sil).
+       *
+       * Silme, müşterinin Instagram kimlik bilgilerini de götürür (aynı satır) —
+       * bağlantıyı ayrıca kaldırmak gerekmez.
+       */
+      deleteById: async (
+        id: string
+      ): Promise<
+        { ok: true } | { ok: false; reason: "not_found" | "has_posts"; postCount?: number }
+      > => {
+        const client = await db.client.findFirst({
+          where: { id, agencyId },
+          select: { id: true, _count: { select: { posts: true } } },
+        });
+        if (!client) return { ok: false, reason: "not_found" };
+        if (client._count.posts > 0) {
+          return { ok: false, reason: "has_posts", postCount: client._count.posts };
+        }
+        // Kapsam burada da tekrarlanır: findFirst ile delete arasında geçen
+        // sürede başka bir şey olduysa yanlış satıra dokunmayalım.
+        const result = await db.client.deleteMany({ where: { id, agencyId } });
+        return result.count === 1 ? { ok: true } : { ok: false, reason: "not_found" };
+      },
       /**
        * Instagram kimlik bilgilerini yazar/temizler. `updateMany` + `agencyId`
        * filtresi bilinçli: başka ajansın müşterisi verildiğinde satır eşleşmez,
@@ -184,6 +212,130 @@ export function getScopedDb(session: ScopedSession) {
         });
       },
       findById: (id: string) => db.post.findFirst({ where: { id, agencyId } }),
+
+      /**
+       * Post yönetimi işlemlerinin (link yenileme, mail tekrar gönderme)
+       * ihtiyaç duyduğu okuma: müşteri + mevcut onay linki birlikte.
+       * `client` dar `select`li — `instagramAccessToken` buraya da girmesin.
+       */
+      findByIdWithClientAndLink: (id: string) =>
+        db.post.findFirst({
+          where: { id, agencyId },
+          include: {
+            client: { select: { id: true, name: true, email: true } },
+            approvalLink: true,
+          },
+        }),
+
+      /**
+       * Onay linkini yeniler: YENİ token + yeni son kullanma tarihi (F1).
+       * Eski token o anda ölür — süresi dolmuş bir linki paylaşmaya devam etmek
+       * ya da iki geçerli linkin dolaşımda kalması istenmez.
+       *
+       * `ApprovalLink.postId` unique olduğu için post başına tek satır var;
+       * `updateMany` + `agencyId` filtresi yerine önce sahiplik doğrulanır
+       * (link tablosunda `agencyId` yok, kapsam Post üzerinden gelir).
+       */
+      renewApprovalLink: async (
+        id: string
+      ): Promise<{ token: string; expiresAt: Date } | null> => {
+        const post = await db.post.findFirst({
+          where: { id, agencyId },
+          select: { id: true },
+        });
+        if (!post) return null;
+
+        const token = generateApprovalToken();
+        const expiresAt = approvalLinkExpiry();
+        // Link hiç yoksa (teorik: eski veri) oluştur, varsa değiştir.
+        await db.approvalLink.upsert({
+          where: { postId: post.id },
+          update: { token, expiresAt },
+          create: { postId: post.id, token, expiresAt },
+        });
+        return { token, expiresAt };
+      },
+
+      /**
+       * Onay e-postasının sonucunu posta yazar (F5). Sonucu SAKLAMAK, yanıtta
+       * döndürmekten farklı: panele bakan insan da "mail gitti mi" sorusunu
+       * yanıtlayabilsin diye. Mail yolu hiçbir zaman akışı düşürmediğinden bu
+       * yazma da sessizce başarısız olabilir — çağıran taraf await eder ama
+       * hatayı yutar.
+       */
+      recordApprovalEmail: async (
+        id: string,
+        result: { sent: boolean; reason?: string }
+      ): Promise<void> => {
+        await db.post.updateMany({
+          where: { id, agencyId },
+          data: {
+            approvalEmailSent: result.sent,
+            approvalEmailError: result.sent ? null : (result.reason ?? "bilinmeyen"),
+            approvalEmailSentAt: new Date(),
+          },
+        });
+      },
+
+      /**
+       * Caption düzeltme (F2). YALNIZCA `pending` iken: karar verilmiş bir
+       * postun metnini değiştirmek, müşterinin onayladığı şeyle kayıttaki şeyi
+       * ayırır — onay kaydını sessizce yalan hâline getirir.
+       */
+      updateCaption: async (
+        id: string,
+        caption: string
+      ): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_pending" }> => {
+        const post = await db.post.findFirst({
+          where: { id, agencyId },
+          select: { status: true },
+        });
+        if (!post) return { ok: false, reason: "not_found" };
+        if (post.status !== "pending") return { ok: false, reason: "not_pending" };
+
+        const result = await db.post.updateMany({
+          where: { id, agencyId, status: "pending" },
+          data: { caption },
+        });
+        // Araya giren bir onay/red yarışı: satır eşleşmediyse artık pending değil.
+        return result.count === 1 ? { ok: true } : { ok: false, reason: "not_pending" };
+      },
+
+      /**
+       * Post silme (F2). Görsel URL'lerini döndürür ki çağıran taraf blob
+       * dosyalarını da temizleyebilsin (F13) — DB satırı gidip dosya kalırsa
+       * depolama sınırsız birikir.
+       *
+       * YAYINLANMIŞ POST SİLİNMEZ. Aynı kural `prod-test-verisi-temizligi.mjs`
+       * betiğinde de var: Instagram'a gerçekten gitmiş bir içeriğin kaydını
+       * silmek, "bu yayınlandı mı" sorusunu cevapsız bırakır ve mükerrer yayın
+       * korumasının (`findLivePublishedTwin`) baktığı kardeş kaydı yok eder.
+       *
+       * `ApprovalAudit`'in Post'a FK'sı YOK (şemada ilişki tanımlı değil), yani
+       * ne cascade eder ne engeller — elle silinmezse öksüz satır kalır.
+       */
+      deleteById: async (
+        id: string
+      ): Promise<
+        { ok: true; imageUrls: string[] } | { ok: false; reason: "not_found" | "published" }
+      > => {
+        const post = await db.post.findFirst({
+          where: { id, agencyId },
+          select: { id: true, publishStatus: true, images: { select: { url: true } } },
+        });
+        if (!post) return { ok: false, reason: "not_found" };
+        if (post.publishStatus === "published") return { ok: false, reason: "published" };
+
+        const imageUrls = post.images.map((image) => image.url);
+        await db.$transaction(async (tx) => {
+          await tx.approvalAudit.deleteMany({ where: { postId: post.id } });
+          await tx.postImage.deleteMany({ where: { postId: post.id } });
+          await tx.approvalLink.deleteMany({ where: { postId: post.id } });
+          // Kapsam son adımda da tekrarlanır — transaction içinde bile.
+          await tx.post.deleteMany({ where: { id: post.id, agencyId } });
+        });
+        return { ok: true, imageUrls };
+      },
       /**
        * Post + görseller + ApprovalLink'i tek transaction'da oluşturur — herhangi
        * bir yazma başarısız olursa tümü geri alınır (T2). clientId bu ajansa ait

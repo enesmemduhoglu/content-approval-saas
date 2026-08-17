@@ -1,6 +1,6 @@
 # TODOS
 
-Son güncelleme: 2026-08-17 (güvenlik turu — S2 + S4 kapatıldı).
+Son güncelleme: 2026-08-17 (post yönetimi turu — F1 + F2 + F5).
 Canlı: https://content-approval-saas.vercel.app · **Depo artık private.**
 
 **Açık PR yok, açık issue yok.** #21–#23, #28–#32 merge edildi; `master` = `origin/master`
@@ -9,9 +9,11 @@ deployment'ında, canlı doğrulandı).
 Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** — çöp veri kalmadı.
 
 Kod tabanı baştan sona okunup güvenlik açıkları (S1–S9) ve ürün boşlukları (F1–F13)
-"Açık işler" altına işlendi. Ardından **sömürülebilir olan iki madde (S2, S4) kapatıldı**
-ve bu belge açık bir açık listesi taşıdığı için **depo private'a alındı** — ayrıntı
-"Tamamlananlar → 2026-08-17 güvenlik turu"nda.
+"Açık işler" altına işlendi. Sonra sırasıyla: **S2 + S4 kapatıldı** ve bu belge açık bir
+açık listesi taşıdığı için **depo private'a alındı**; ardından **F1 + F2 + F5** (post
+yönetimi) yapıldı, F13 ve S9 da onlara bindi.
+**Kalanların hiçbiri bugün sömürülebilir değil.** Sıradaki en yüksek etkili madde S1
+(token şifreleme).
 
 ---
 
@@ -47,6 +49,7 @@ ve bu belge açık bir açık listesi taşıdığı için **depo private'a alın
       `status: rejected` bir post duruyor. 2026-08-17 akşamı bildirim zincirini canlıda
       uçtan uca ölçmek için oluşturuldu ve **hemen reddedildi** (red asla yayın yapmaz,
       yani Instagram'a hiçbir şey gitmedi). İşi bitti, silinebilir. Düşük öncelik.
+      *Artık elle iş değil:* F2 ile panelde "Sil" butonu var, dashboard'dan silinebilir.
 
 ### Bilinçli kapsam dışı
 
@@ -119,26 +122,18 @@ yeniden taranmasın.
       `multipart/form-data` kabul ediyor (CORS'un "basit istek"i), dolayısıyla tek savunma
       bu tek katman. `Origin` başlığı kontrolü ucuz bir ikinci katman olur.
 
-- [ ] **S9 · Düşük/uyumluluk — veri silme yolu yok.** API'de hiç `DELETE` yok; ne müşteri
-      ne post silinebiliyor. KVKK/GDPR "silme hakkı" bugün elle SQL demek. Yukarıdaki
-      "Doğrulama test postunu sil" maddesinin elle iş olarak durmasının sebebi de bu.
-      **F2 ile aynı kök** — orada çözülür.
+- [x] **S9 — kapatıldı** (F2 ile birlikte: post ve müşteri artık panelden silinebiliyor).
 
 ### Ürün boşlukları (2026-08-17 inceleme turu)
 
-Aynı turun ürün tarafı. Hiçbiri başlanmadı; sıralama "temel akışın deliği mi, büyüme
-maddesi mi" ayrımına göre.
+Aynı turun ürün tarafı; sıralama "temel akışın deliği mi, büyüme maddesi mi" ayrımına
+göre. **Temel akışın delikleri kapandı** (F1, F2, F5 + F13); kalanlar şema ya da ürün
+kararı gerektiriyor.
 
 **Temel akışın delikleri — yüksek değer, düşük maliyet**
 
-- [ ] **F1 · Onay linki yenilenemiyor.** `APPROVAL_LINK_TTL_DAYS = 7` dolunca post kalıcı
-      kilitleniyor: yeni link üretecek ne API ne arayüz var, müşteri tatildeyse iş durur.
-      Ekle: `POST /api/posts/[id]/relink` + panelde "Yeni link gönder".
-      Mevcut `generateApprovalToken` / `approvalLinkExpiry` aynen yeniden kullanılır.
-- [ ] **F2 · Post/müşteri silinemiyor, düzenlenemiyor.** Yanlış caption ya da yanlış
-      görselle oluşan postu geri almanın yolu yok — bir onay aracında tuhaf boşluk.
-      `DELETE /api/posts/[id]` (yayınlanmışı koru), `PATCH` (yalnızca `pending` iken
-      caption), `DELETE /api/clients/[id]` (postu varsa reddet). S9'u da kapatır.
+- [x] **F1 — kapatıldı.** Bkz. "Tamamlananlar → post yönetimi".
+- [x] **F2 — kapatıldı** (S9'u da kapattı). Bkz. "Tamamlananlar → post yönetimi".
 - [ ] **F3 · Hatırlatma yok.** Post `pending`'de sonsuza kadar durabiliyor; ne müşteriye
       ikinci mail ne ajansa "3 gündür bekliyor" uyarısı. Cron altyapısı (`vercel.json` +
       `CRON_SECRET` + `bearerToken`/`secretsMatch`) zaten kurulu — ikinci bir cron işi,
@@ -147,9 +142,7 @@ maddesi mi" ayrımına göre.
       görünüyor. README'nin öne çıkardığı "karar IP ve zaman damgasıyla kayıt altında"
       vaadinin arayüzde karşılığı yok — veri ölü duruyor. Post detayında küçük bir zaman
       çizelgesi yeter.
-- [ ] **F5 · `emailSent` panele yansımıyor.** #31 alanı API yanıtına koydu ama dashboard
-      göstermiyor ve "maili tekrar gönder" butonu yok. Aşağıdaki "mailler iki ayrı kutuya
-      gidiyor" tuzağının kalıcı çözümü bu: durumu `Post` üzerinde sakla, rozetle göster.
+- [x] **F5 — kapatıldı.** Bkz. "Tamamlananlar → post yönetimi".
 
 **SaaS eksikleri — şema/ürün kararı gerektirir**
 
@@ -175,7 +168,7 @@ maddesi mi" ayrımına göre.
       kimseye ulaşmıyor: cron'un sessizce patlaması, Resend'in reddetmesi, yayın hataları
       ancak biri bakarsa görünür. "İki gündür mail gitmiyor" olayının tekrar etmemesinin yolu.
 - [ ] **F12 · `/api/health` yok.** Uptime/canary izlemesi için uç nokta yok.
-- [ ] **F13 · Blob dosyaları asla silinmiyor.** Sınırsız birikim; F2 ile birlikte ele alınmalı.
+- [x] **F13 — kapatıldı** (F2'ye bindi: silinen postun blob'ları da siliniyor).
 
 **Yapılırsa önerilen sıra:** Faz A (S2 → S3 → S4 → S5 → S7, hepsi küçük) · Faz B (S1 token
 şifreleme, tek başına PR) · Faz C (F1 + F2 + F5, tek "post yönetimi" PR'ı) · Faz D
@@ -269,6 +262,59 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ---
 
 ## Tamamlananlar
+
+### 2026-08-17 — post yönetimi (F1 + F2 + F5)
+
+Güvenlik tarafında sömürülebilir bir şey kalmayınca sıra günlük kullanımda en çok
+hissedilen boşluklara geldi. Üçü tek PR: oluştur → takip et → düzelt/yenile → sil.
+
+- [x] **F1 — onay linki yenilenebiliyor.** `POST /api/posts/[id]/approval-link`.
+      Link 7 günde ölüyordu ve yenilemenin YOLU YOKTU: müşteri tatildeyse post kalıcı
+      kilitleniyordu. Süresi dolmuş link `renew` istenmese bile yenilenir (süresi geçmiş
+      bir linki tekrar e-postalamak kullanıcıyı boşuna yürütür); `renew: true` geçerli
+      linki de değiştirir — sızan link için iptal yolu. **Eski token anında ölür**
+      (e2e ile doğrulandı). Karar verilmiş postta link yenilenir ama mail GİTMEZ:
+      "İncele ve Onayla" maili yanlış bilgi olurdu. Yenileme orada da gerekli, çünkü
+      onay sayfasındaki "Instagram'a yayınla / tekrar dene" butonu o linkten çalışıyor.
+
+- [x] **F2 — post ve müşteri silinebiliyor, caption düzeltilebiliyor.**
+      `PATCH`/`DELETE /api/posts/[id]`, `DELETE /api/clients/[id]`.
+      *Sınırlar bilinçli:* yayınlanmış post **silinmez** (kaydı silmek "bu yayınlandı mı"
+      sorusunu cevapsız bırakır ve mükerrer yayın korumasının baktığı kardeş kaydı yok
+      eder — aynı kural temizlik betiğinde de var); caption yalnızca `pending` iken
+      değişir (karar verilmiş postun metnini değiştirmek onay kaydını sessizce yalan
+      yapardı); postu olan müşteri silinmez, kaç postu olduğu söylenir.
+      *`ApprovalAudit`'in Post'a FK'sı YOK* — cascade etmez, engellemez; elle silinmezse
+      öksüz satır kalırdı. Silme transaction'ı audit + görsel + link + post sırasıyla
+      temizliyor, testi de var.
+      *F13 buraya bindi:* silinen postun Blob dosyaları da siliniyor (best-effort, asla
+      throw etmez — post gerçekten silindi, dosya kaldıysa "silinemedi" demek yanıltıcı
+      olurdu). `raw.githubusercontent.com`'daki makine-API görselleri **bizim değil**,
+      `isOwnBlobUrl` ile ayıklanıyor.
+      *Kapsam dışı:* görsel değiştirme (yeni yükleme + eski blob + sıra yönetimi demek);
+      görsel yanlışsa post silinip yeniden oluşturulur.
+
+- [x] **F5 — mail durumu panelde.** Yeni alanlar `Post.approvalEmailSent` /
+      `approvalEmailError` / `approvalEmailSentAt` (migration: üç nullable kolon).
+      #31 bu bilgiyi yalnızca **API yanıtına** koymuştu: yanıtı gören otomasyon
+      öğreniyor, panele bakan insan asla öğrenemiyordu. Artık rozet var ve
+      **başarıyı da gösteriyor** — sessiz kalsaydı "gitti" ile "hiç denenmedi" yine
+      ayırt edilemezdi, yani sorun çözülmemiş olurdu. `null` (eski postlar) bilerek
+      sessiz: onlar için gerçekten bilmiyoruz. Mailin neden gitmediği de satırda yazıyor.
+
+- [x] **PR #34'ün CSP'si yerel `npm run dev`'i bozuyormuş — düzeltildi.**
+      Next.js'in dev sunucusu HMR ve source map'ler için `eval()` kullanıyor;
+      `script-src`'de `'unsafe-eval'` olmadığı için istemci JS'i hiç çalışmıyordu:
+      sayfa sunucudan render olmuş **görünüyor** ama hidrasyon sessizce ölüyor,
+      butonlar tıklanıyor ve hiçbir şey olmuyordu. E2E'nin üçü tam bu yüzden düştü.
+      **Production etkilenmemişti** (production build `eval` kullanmaz, canlıda
+      doğrulanmıştı) — yalnızca yerel geliştirme. İzin artık yalnızca dev'de veriliyor.
+      *Ders:* CSP değişikliğini yalnızca production build'de doğrulamak yetmiyor;
+      `npm run test:e2e` (dev sunucusu) ayrı bir ortam ve ayrı davranıyor.
+
+- [x] **297 unit/integration + 6 e2e testi geçti, `tsc` temiz, build başarılı.**
+      Yeni e2e'ler: "link yenileme → eski token ölür, yeni token çalışır" ve
+      "post silme → onay linki de ölür".
 
 ### 2026-08-17 — güvenlik turu (S2 + S4 kapatıldı, depo private'a alındı)
 

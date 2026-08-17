@@ -177,6 +177,13 @@ export async function POST(request: Request) {
       return { sent: false, reason: error instanceof Error ? error.message : String(error) };
     });
 
+    // Sonucu posta da YAZ (F5). Yanıta koymak yalnızca çağıran otomasyonu
+    // bilgilendiriyordu; panele bakan insan "mail gitti mi" sorusunu hiçbir
+    // yerden yanıtlayamıyordu. Yazma hatası post oluşturmayı düşürmez.
+    await scoped.posts
+      .recordApprovalEmail(post.id, email)
+      .catch((error) => console.error("[posts] mail durumu yazılamadı:", error));
+
     // İş sahibine haber: "müşteriye onay isteği gitti" — ve gitmediyse onu da
     // söyler, linki elle iletebilsin. Ajansın akıştan haberdar olmasının tek
     // yolu buydu; öncesinde panele bakmadan hiçbir şey öğrenemiyordu.
