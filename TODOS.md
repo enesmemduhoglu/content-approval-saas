@@ -1,15 +1,17 @@
 # TODOS
 
-Son güncelleme: 2026-08-17 (inceleme turu — güvenlik + feature tespiti işlendi).
-Canlı: https://content-approval-saas.vercel.app
+Son güncelleme: 2026-08-17 (güvenlik turu — S2 + S4 kapatıldı).
+Canlı: https://content-approval-saas.vercel.app · **Depo artık private.**
 
 **Açık PR yok, açık issue yok.** #21–#23, #28–#32 merge edildi; `master` = `origin/master`
 ve **prod'a deploy edildi** (`content-approval-saas.vercel.app` alias'ı #32'nin
 deployment'ında, canlı doğrulandı).
 Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** — çöp veri kalmadı.
 
-Bu turda **kod değişmedi**: kod tabanı baştan sona okunup güvenlik açıkları (S1–S9) ve
-ürün boşlukları (F1–F13) "Açık işler" altına tespit olarak işlendi, düzeltme yapılmadı.
+Kod tabanı baştan sona okunup güvenlik açıkları (S1–S9) ve ürün boşlukları (F1–F13)
+"Açık işler" altına işlendi. Ardından **sömürülebilir olan iki madde (S2, S4) kapatıldı**
+ve bu belge açık bir açık listesi taşıdığı için **depo private'a alındı** — ayrıntı
+"Tamamlananlar → 2026-08-17 güvenlik turu"nda.
 
 ---
 
@@ -58,9 +60,10 @@ Bu turda **kod değişmedi**: kod tabanı baştan sona okunup güvenlik açıkla
 
 ### Güvenlik (2026-08-17 inceleme turu)
 
-Kod okunarak yapılan tur; **hiçbiri düzeltilmedi**, bu tur yalnızca tespit. Sömürülebilir
-durumdaki tek maddeler S2 ve S4; gerisi ya derinlemesine savunma ya da koşula bağlı.
-Temiz çıkan alanların listesi "Bilinmesi gerekenler"de — yeniden taranmasın.
+Kod okunarak yapılan tur. **Sömürülebilir olan iki madde (S2, S4) kapatıldı** — aşağıda
+"Tamamlananlar"da. Kalanlar ya derinlemesine savunma ya da koşula bağlı; hiçbiri bugün
+sömürülebilir değil. Temiz çıkan alanların listesi "Bilinmesi gerekenler"de —
+yeniden taranmasın.
 
 - [ ] **S1 · Yüksek — Instagram token'ları DB'de düz metin.**
       `prisma/schema.prisma:37`, `Client.instagramAccessToken`.
@@ -76,16 +79,7 @@ Temiz çıkan alanların listesi "Bilinmesi gerekenler"de — yeniden taranması
       *Dikkat:* furi token'ı `GET /api/clients/[id]/instagram-token` ile çekiyor —
       o uç nokta **çözülmüş** token döndürmeye devam etmeli, yoksa furi sessizce kırılır.
 
-- [ ] **S2 · Yüksek — `ENABLE_TEST_AUTH` için production sertliği yok.**
-      `src/lib/auth.ts:20-21` yalnızca env değişkenine bakıyor. Vercel'e yanlışlıkla
-      `ENABLE_TEST_AUTH=1` girilirse `/api/auth/signin` üzerinden **herkes** herhangi bir
-      e-postayla giriş yapıp ajans yaratabilir.
-      *Sınırı:* mevcut ajanslar ele geçirilemez — test girişi `googleId`'yi `test:` önekiyle
-      üretiyor, Google'ınkiyle çakışmıyor. Yani hesap ele geçirme değil; bedava hesap,
-      prod verisi arasına yabancı ajans ve Blob/Resend/DB kotası tüketimi.
-      *Düzeltme:* tek koşul — `NODE_ENV === "production"` (ve/veya `VERCEL_ENV`) ise
-      provider hiç eklenmez, env ne derse desin. README zaten "production'da asla" diyor;
-      kural yorumda değil kodda durmalı.
+- [x] **S2 — kapatıldı.** Bkz. "Tamamlananlar → 2026-08-17 güvenlik turu".
 
 - [ ] **S3 · Orta — bağımlılıklarda 8 high seviye açık.** (`npm audit --omit=dev`)
 
@@ -95,16 +89,7 @@ Temiz çıkan alanların listesi "Bilinmesi gerekenler"de — yeniden taranması
       | `prisma` → `@prisma/config` → `deepmerge-ts` | stack exhaustion | `npm audit fix`, breaking değil |
       | `nanoid` | sonsuz döngü | `npm audit fix`, breaking değil |
 
-- [ ] **S4 · Orta — hiçbir güvenlik başlığı yok; `/approve` iframe'lenebiliyor.**
-      `next.config.ts` boş ve `middleware.ts` yok: CSP, `frame-ancestors`/`X-Frame-Options`,
-      `Referrer-Policy`, `X-Content-Type-Options`, HSTS — hiçbiri tanımlı değil.
-      *Neden bu projede teorik değil:* onay butonu Instagram bağlı müşteride doğrudan
-      **yayın tetikliyor**. Clickjacking ile atılan tek tık içeriği canlıya alır ve geri
-      alınamaz. `Referrer-Policy` yokluğu ayrıca approval token'ını `Referer` başlığıyla
-      dış host'lara taşıyabilir — sayfa içindeki dış linkler `rel="noreferrer"` ile
-      korunmuş (bu doğru yapılmış), eksik olan sayfa geneli varsayılan.
-      *Düzeltme:* `next.config.ts > headers()`. Onay sayfasına `frame-ancestors 'none'`,
-      geneline `Referrer-Policy: strict-origin-when-cross-origin`, `nosniff`, HSTS.
+- [x] **S4 — kapatıldı.** Bkz. "Tamamlananlar → 2026-08-17 güvenlik turu".
 
 - [ ] **S5 · Orta — sır dağıtan uç noktada rate limit ve erişim kaydı yok.**
       `src/app/api/clients/[id]/instagram-token/route.ts` ham token döndüren tek yol.
@@ -284,6 +269,50 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ---
 
 ## Tamamlananlar
+
+### 2026-08-17 — güvenlik turu (S2 + S4 kapatıldı, depo private'a alındı)
+
+Tetikleyen soru: **"bu açıkları public repoda yayınlamak onları göstermek değil mi?"**
+Haklı bir soruydu. Çıkan sonuç: depo public'ti, açıklar açıktı ve tarifi yazılıydı.
+
+- [x] **Depo private'a alındı.** 0 fork / 0 star olduğu için içerik pratikte hiç
+      yayılmamıştı. *Neden TODOS'u gitignore'lamak yetmezdi:* içerik yalnızca o dosyada
+      değildi — PR #33'ün **diff'i** ve **gövdesi** GitHub'da kalır, force-push sonrası
+      kopuk commit'ler SHA ile erişilebilir kalır. Yani geçmişi yeniden yazmak en çok iş,
+      en az fayda olurdu; üstelik açıklar yine açık kalırdı. Private + gerçek düzeltme
+      seçildi. **Doğrulandı:** hiçbir SIR DEĞERİ hiç sızmamıştı (`CRON_SECRET`,
+      `FURI_API_KEY`, Resend/Blob token'ları TODOS'ta yalnızca *adıyla* geçiyor).
+      Sızan şey prod id'leri ve iki e-posta adresiydi; onlar da 22 Temmuz'dan beri oradaydı.
+
+- [x] **S2 — test girişi artık production'da var olamaz.** `src/lib/auth.ts` koşulu bir
+      ortam değişkenine bırakmıyordu; `NODE_ENV === "production"` mutlak kapı oldu, env ne
+      derse desin provider eklenmiyor. Yanlış yapılandırma sessizce yutulmuyor: değişken
+      production'da set edilmişse yüksek sesle `console.error` basılıyor ama **kapı yine
+      açılmıyor**. Vercel hem preview hem production build'inde `NODE_ENV`'i "production"
+      yaptığı için internete açık hiçbir deployment'ta test girişi bulunmuyor.
+      *E2E etkilenmedi:* Playwright `next dev` ile koşuyor (`NODE_ENV=development`).
+      *Canlı doğrulandı:* `ENABLE_TEST_AUTH=1` **bilerek açıkken** production build'e karşı
+      `POST /api/auth/callback/credentials` → `error=Configuration`, `set-cookie` yok,
+      `/api/auth/session` → `null`, `/dashboard` → girişe yönlendirdi. NextAuth'un kendi
+      logu: `Provider with id "credentials" not found. Available providers: [google]`.
+      8 yeni test (`src/lib/auth.test.ts`) bu regresyonu kilitliyor.
+      *Test yazarken öğrenilen:* `Credentials()` fabrikası kendisine verilen `id`'yi
+      ("test-login") **yok sayıyor**, `id: "credentials"` ile dönüyor — provider'ı `id` ile
+      arayan bir test sessizce yanlış şey ölçer. Doğru ayraç `type === "credentials"`.
+
+- [x] **S4 — güvenlik başlıkları eklendi, clickjacking kapatıldı.** `next.config.ts`
+      artık `headers()` tanımlıyor: CSP (`frame-ancestors 'none'`), `X-Frame-Options: DENY`,
+      `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`,
+      HSTS. Asıl kazanç onay sayfası: giriş gerektirmiyor ve "Onayla" doğrudan yayın
+      tetiklediği için iframe'lenebilir olması, tek tıkla geri alınamaz bir yayın demekti.
+      *Bilinçli gevşeklikler (gerekçeleri dosyada):* `script-src 'unsafe-inline'` — Next.js
+      hidrasyonu inline script gömüyor, nonce'a geçmek sırf bunun için `middleware.ts`
+      eklemeyi gerektirirdi; `img-src ... https:` — host daraltmak Blob store adı
+      değiştiğinde onay sayfasının görselini SESSİZCE kırardı, sunucuda zaten
+      `ALLOWED_IMAGE_URL_HOSTS` allowlist'i var. `preload` BİLEREK yok (geri alması zor
+      taahhüt). *Canlı doğrulandı:* production build'de altı başlık da yanıtta.
+
+- [x] **272/272 test geçti, `tsc --noEmit` temiz, `next build` başarılı.**
 
 ### 2026-08-17 akşamı — bildirim turu (SaaS #31, #32 · furi #4, #5)
 

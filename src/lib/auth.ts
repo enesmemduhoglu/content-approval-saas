@@ -16,9 +16,32 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // Yalnızca test/geliştirme ortamında aktif olan Credentials provider'ı (TENSION 2):
 // E2E testleri gerçek Google OAuth'a gitmeden geçerli bir NextAuth session üretir.
-// Production'da ENABLE_TEST_AUTH set edilmediği sürece bu provider var olmaz.
+//
+// GÜVENLİK: production'da bu provider'ın var olmaması bir ortam değişkeninin
+// doğru ayarlanmasına BIRAKILMAZ. `ENABLE_TEST_AUTH=1` Vercel'e yanlışlıkla
+// girilirse /api/auth/signin üzerinden HERKES istediği e-postayla giriş yapıp
+// ajans yaratabilirdi (mevcut ajanslar ele geçirilemez — test girişi googleId'yi
+// `test:` önekiyle üretir, Google'ınkiyle çakışmaz — ama bedava hesap, prod
+// verisi arasına yabancı ajans ve kota tüketimi demekti).
+//
+// Bu yüzden `NODE_ENV === "production"` mutlak bir kapıdır: env ne derse desin
+// provider hiç eklenmez. Vercel hem preview hem production build'lerinde
+// NODE_ENV'i "production" yapar, yani internete açık HİÇBİR deployment'ta test
+// girişi bulunmaz. E2E akışı etkilenmez: Playwright `next dev` ile koşuyor
+// (NODE_ENV="development"), vitest ise "test".
+const isProduction = process.env.NODE_ENV === "production";
 const testAuthEnabled =
-  process.env.ENABLE_TEST_AUTH === "1" || process.env.NODE_ENV === "test";
+  !isProduction &&
+  (process.env.ENABLE_TEST_AUTH === "1" || process.env.NODE_ENV === "test");
+
+if (isProduction && process.env.ENABLE_TEST_AUTH === "1") {
+  // Sessizce yok saymak, yanlış yapılandırmayı görünmez kılardı: ajans test
+  // girişinin çalıştığını sanıp beklerdi. Yüksek sesle söyle, ama AÇMA.
+  console.error(
+    "[auth] ENABLE_TEST_AUTH production'da set edilmiş — test girişi provider'ı " +
+      "BİLEREK eklenmedi. Bu değişkeni production ortamından kaldır."
+  );
+}
 
 if (testAuthEnabled) {
   providers.push(
