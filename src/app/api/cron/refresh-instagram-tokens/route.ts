@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { IGError, refreshInstagramToken } from "@/lib/instagram";
 import {
   IG_TOKEN_REFRESH_DAYS,
@@ -101,11 +102,15 @@ export async function GET(request: Request) {
     // Tek tek denenir ve hata BURADA yutulur: bir müşterinin token'ını
     // Instagram reddettiğinde diğerlerinin yenilenmesi durmamalı.
     try {
-      const result = await refreshInstagramToken(client.instagramAccessToken as string);
+      // Token DB'de şifreli (S1): Instagram'a giderken çözülür, dönen YENİ
+      // token yazılırken tekrar şifrelenir. Çözme hatası da bu `catch`e düşer
+      // ve o müşteri "failed" sayılır — diğerleri etkilenmez.
+      const current = decryptSecret(client.instagramAccessToken as string);
+      const result = await refreshInstagramToken(current);
       await db.client.update({
         where: { id: client.id },
         data: {
-          instagramAccessToken: result.accessToken,
+          instagramAccessToken: encryptSecret(result.accessToken),
           instagramTokenExpiry: result.expiresAt,
         },
       });

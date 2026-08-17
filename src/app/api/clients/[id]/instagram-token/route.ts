@@ -49,7 +49,27 @@ export async function GET(request: Request, { params }: RouteParams) {
   }
 
   const { id } = await params;
-  const client = await getScopedDb(session).clients.findInstagramCredentials(id);
+
+  // Token DB'de şifreli duruyor (S1); okuma yolu çözüyor. Anahtar kaybolmuş ya
+  // da kayıt bozulmuşsa şifreli metni "token" diye göndermek, furi tarafında
+  // teşhisi imkânsız bir "Instagram kabul etmedi" hatasına dönerdi — bunun
+  // yerine açık bir 500 dönüyoruz.
+  let client: Awaited<
+    ReturnType<ReturnType<typeof getScopedDb>["clients"]["findInstagramCredentials"]>
+  >;
+  try {
+    client = await getScopedDb(session).clients.findInstagramCredentials(id);
+  } catch (error) {
+    // Mesaj sırrın kendisini taşımaz; ayrıntı yalnızca log'a.
+    console.error("[ig-token] token çözülemedi:", error);
+    return secretJson(
+      {
+        error: "Token sunucuda çözülemedi — yapılandırma sorunu",
+        code: "token_undecryptable",
+      },
+      500
+    );
+  }
 
   // Başka ajansın müşterisi de, hiç olmayan id de aynı yanıtı alır — hangi
   // id'lerin var olduğu bilgisi de sızmasın.

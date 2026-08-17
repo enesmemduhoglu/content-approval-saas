@@ -1,5 +1,6 @@
 import type { Client, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { decryptSecret, encryptSecret, tryDecryptSecret } from "@/lib/crypto";
 import { isPublishTarget, type TokenAlertClient } from "@/lib/instagram-token";
 import { approvalLinkExpiry, generateApprovalToken } from "@/lib/tokens";
 
@@ -31,7 +32,19 @@ export type ClientView = {
 };
 
 export function toClientView(client: Client): ClientView {
-  const token = client.instagramAccessToken;
+  const stored = client.instagramAccessToken;
+  // İpucu ŞİFRELİ metinden değil, ÇÖZÜLMÜŞ token'dan üretilmeli — yoksa ajansa
+  // base64 kuyruğu gösterilir ve "hangi token kayıtlı" sorusu yanıtsız kalır.
+  // `tryDecrypt` bilinçli: çözülemeyen bir sır yüzünden müşteri listesi komple
+  // düşmemeli. Bağlantının VARLIĞI ham kayda bakar (satırda token var), ipucu
+  // ise ancak çözülebiliyorsa gösterilir.
+  const token = stored ? tryDecryptSecret(stored) : null;
+  if (stored && token === null) {
+    console.error(
+      `[scoped-db] ${client.id} müşterisinin Instagram token'ı çözülemedi — ` +
+        "ENCRYPTION_KEY değişmiş ya da kayıt bozulmuş olabilir. Yayın çalışmayacak."
+    );
+  }
   return {
     id: client.id,
     agencyId: client.agencyId,
@@ -40,7 +53,7 @@ export function toClientView(client: Client): ClientView {
     createdAt: client.createdAt,
     instagramUserId: client.instagramUserId,
     instagramTokenExpiry: client.instagramTokenExpiry,
-    instagramConnected: Boolean(client.instagramUserId && token),
+    instagramConnected: Boolean(client.instagramUserId && stored),
     instagramTokenHint: token ? `…${token.slice(-4)}` : null,
   };
 }
@@ -109,7 +122,18 @@ export function getScopedDb(session: ScopedSession) {
           instagramTokenExpiry: Date | null;
         }
       ): Promise<ClientView | null> => {
-        const result = await db.client.updateMany({ where: { id, agencyId }, data });
+        // Token ŞİFRELENEREK yazılır (S1) — DB'ye düz metin girmesinin tek yolu
+        // buydu. `null` (bağlantı kaldırma) olduğu gibi geçer.
+        const result = await db.client.updateMany({
+          where: { id, agencyId },
+          data: {
+            ...data,
+            instagramAccessToken:
+              data.instagramAccessToken === null
+                ? null
+                : encryptSecret(data.instagramAccessToken),
+          },
+        });
         if (result.count === 0) return null;
         const client = await db.client.findFirst({ where: { id, agencyId } });
         return client ? toClientView(client) : null;
@@ -138,8 +162,8 @@ export function getScopedDb(session: ScopedSession) {
         instagramUserId: string | null;
         instagramAccessToken: string | null;
         instagramTokenExpiry: Date | null;
-      } | null> =>
-        db.client.findFirst({
+      } | null> => {
+        const client = await db.client.findFirst({
           where: { id, agencyId },
           select: {
             id: true,
@@ -148,7 +172,19 @@ export function getScopedDb(session: ScopedSession) {
             instagramAccessToken: true,
             instagramTokenExpiry: true,
           },
-        }),
+        });
+        if (!client) return null;
+        // Token ÇÖZÜLMÜŞ döner: bu yolun tüketicisi (furi) onu doğrudan
+        // Instagram'a veriyor. Çözme hatası burada YUTULMAZ — `SecretCryptoError`
+        // çağırana kadar gider; şifreli metni token sanıp göndermek, teşhisi
+        // imkânsız bir "Instagram kabul etmedi" hatasına dönerdi.
+        return {
+          ...client,
+          instagramAccessToken: client.instagramAccessToken
+            ? decryptSecret(client.instagramAccessToken)
+            : null,
+        };
+      },
       /**
        * Dashboard token uyarısı için müşteri listesi. Instagram'ı bağlı olmayan
        * müşteriler SQL'de elenir; erişim token'ının kendisi bilerek `select`

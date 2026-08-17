@@ -31,6 +31,7 @@ Ajanslar, müşterileri için hazırladıkları postların onayını bugün What
 
 ## Güvenlik tasarımı
 
+- **Sırlar şifreli duruyor:** `Client.instagramAccessToken` veritabanına AES-256-GCM ile şifrelenmiş yazılır (`src/lib/crypto.ts`, `enc:v1:` önekli). Bu token bir uygulama sırrı değil, müşterinin Instagram hesabına yayın yetkisidir — bir DB dump'ı ya da yedek onu düz metin vermemeli. Önek taşımayan eski kayıtlar düz metin kabul edilip okunur (kesintisiz geçiş) ve ilk yazmada şifreliye döner; bekleyen kalıntıyı `scripts/token-sifrele.mjs` çevirir.
 - **IDOR koruması:** Route handler'lar Client/Post için asla ham `db.*` çağırmaz. `getScopedDb(session)` her sorguya oturumdaki ajansın `agencyId` filtresini otomatik enjekte eder (`src/lib/scoped-db.ts`) — yeni endpoint eklerken scoping unutulamaz.
 - **Atomiklik:** Post + ApprovalLink tek `$transaction` içinde oluşur; linksiz yarım post kalmaz.
 - **Yarış koruması:** Onay/red, `WHERE status='pending'` koşullu UPDATE ile yapılır — aynı anda gelen ikinci karar 409 alır, çifte karar imkânsızdır.
@@ -62,6 +63,7 @@ Yerel kolaylıklar (hiçbir dış servis hesabı olmadan tam akış çalışır)
 - `ENABLE_TEST_AUTH=1` → Google OAuth kurmadan e-posta + ajans adıyla test girişi
 - `BLOB_READ_WRITE_TOKEN` boş → görseller `public/uploads/` altına yazılır
 - `RESEND_API_KEY` boş → e-posta gönderimi atlanır, akış kesilmez
+- `ENCRYPTION_KEY` boş → token'lar düz metin yazılır (yüksek sesle uyarılır); production'da bu yol kapalıdır
 
 ### Ortam değişkenleri
 
@@ -70,6 +72,7 @@ Yerel kolaylıklar (hiçbir dış servis hesabı olmadan tam akış çalışır)
 | `DATABASE_URL` | ✅ | Postgres bağlantısı (pooled) |
 | `DATABASE_URL_UNPOOLED` | ✅ | Migration/CLI için doğrudan bağlantı (yerelde `DATABASE_URL` ile aynı; production'da Neon unpooled) |
 | `AUTH_SECRET` | ✅ | `openssl rand -base64 32` |
+| `ENCRYPTION_KEY` | prod | DB'deki Instagram token'larını şifreler (base64, 32 bayt). Production'da yoksa Instagram bağlama hata verir; yerelde boşsa düz metne düşer ve uyarır. **Kaybedilirse hesapların yeniden bağlanması gerekir.** |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | prod | Google OAuth (boşsa Google girişi kapalı) |
 | `BLOB_READ_WRITE_TOKEN` | prod | Vercel Blob |
 | `RESEND_API_KEY` / `EMAIL_FROM` | prod | E-posta bildirimi |
