@@ -12,26 +12,26 @@ Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** —
 
 ### Elle yapılması gerekenler (repo yapamaz)
 
-- [ ] **Apps Script'te canlı GitHub token'ı duruyor** — script.google.com'daki proje hâlâ
-      etkin olabilir ve `FURI_GITHUB_TOKEN` property'sinde gerçek bir token tutuyor.
-      Zincir furi PR #2 ile emekliye ayrıldı, yani token artık gereksiz ama açıkta.
-      *Doğrulandı (2026-08-17):* token furi1 reposunda **hiçbir yerde hardcode değil**,
-      yalnızca Apps Script property'sinde. Yani tek çözüm elle silmek.
-      *Adımlar:* script.google.com → `furi-onay-tetikleyici` → **Triggers** → `onayKontrol`
-      tetikleyicisini sil → **Project Settings → Script Properties** → `FURI_GITHUB_TOKEN`
-      sil → GitHub'da token'ı iptal et (github.com/settings/tokens) → tetikleyici issue #1
-      kapatılabilir. Ayrıntı: `furi1/.claude/skills/insta-yayinla/emekli/README.md`.
-      *Neden hâlâ açık:* oturum notlarında bu iptalin 2026-08-17'de yapıldığı yazıyor, ama
-      repo Apps Script property'sini göremediği için dışarıdan doğrulanamıyor. Yanlış
-      kapatılırsa canlı bir token açıkta kalır — o yüzden panelden teyit edilene kadar açık.
-
-- [ ] **Boş test ajansları duruyor** (isteğe bağlı, düşük öncelik). 22 Temmuz'dan kalma
-      iki ajans kaydı prod'da hâlâ var ama **tamamen boş** — post=0, client=0:
+- [ ] **Boş test ajanslarını sil** — betik hazır, koşulmayı bekliyor (düşük öncelik).
+      22 Temmuz'dan kalma iki ajans prod'da duruyor ve **tamamen boş** (post=0, client=0):
       `Enes Memduh` (`cmrw9cu730000l404sekzspv4`) ve `enes can` (`cmrwa781m0001ky04liyy3f5d`).
-      Zararsızlar; temizlik betiği kural gereği `Agency` silmiyor (`FURI_API_AGENCY_ID`
-      bir ajansa bağlı, yanlış silme otomasyonu sessizce patlatır).
-      *Silinecekse:* önce `FURI_API_AGENCY_ID`'nin **`cmsw2ajnq0000jm04d6m9puei`**
-      (Enes MEMDUHOĞLU) olduğunu doğrula — canlı ajans o, diğer ikisi değil.
+      Kardeş betik `prod-test-verisi-temizligi.mjs` kural gereği `Agency`'ye hiç dokunmuyor,
+      bu yüzden ayrı betik yazıldı: **`scripts/bos-ajans-temizligi.mjs`** (PR #28).
+      Dry-run prod'a karşı koşuldu, iki ajans da "boş ve teyitli" çıktı.
+      *Çalıştır:* `node scripts/bos-ajans-temizligi.mjs --apply`
+      *Emniyet zinciri:* hedefler **sabit id listesi** (betik başka ajans silemez),
+      canlı ajans `Enes MEMDUHOĞLU` hem id hem ad ile kara listede ve kontrol üç ayrı
+      noktada, silme tek transaction içinde ve **transaction İÇİNDE** ad/kara liste/post/
+      client yeniden doğrulanıyor, `information_schema`'dan FK haritası okunup şemaya
+      yeni bağlı tablo eklenmişse betik duruyor.
+      *Bilinmesi gereken:* betiğin okuduğu `FURI_API_AGENCY_ID` **yerel** `.env.local`'dan
+      geliyor ve orada dev değeri (`dev-agency-a`) duruyor — prod'daki hiçbir ajansla
+      eşleşmiyor, betik bunu yüksek sesle uyarıyor. Yani o teyit tek başına anlamsız;
+      asıl koruma kara liste. Prod değeri (Vercel env) kayda göre
+      `cmsw2ajnq0000jm04d6m9puei` = `Enes MEMDUHOĞLU`, yani silinecek ikisi furi'ye
+      bağlı değil — istersen `--apply` öncesi Vercel'den bir kez daha bak.
+      *Yan etki:* `Agency.googleId` unique; bu iki kayıt silinince o Google hesapları
+      tekrar giriş yaparsa sıfırdan yeni ajans oluşur. Beklenen davranış.
 
 
 ### Doğruluk
@@ -40,13 +40,20 @@ Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** —
       Instagram token'ının iki kopyası var: SaaS'ta `Client.instagramAccessToken`,
       furi'de ayrı bir ortam değişkeni. Senkron mekanizması yok. Cron SaaS kopyasını
       yenileyince Instagram eskisini kısa süre sonra geçersiz kılıyor → **furi sessizce
-      kırılır**. Bugünkü hâliyle cron her yenilediğinde furi env'ini elle güncellemek
-      gerekiyor; bu tekrar eden bir angarya.
-      *Kalıcı çözüm:* tek kaynak — furi token'ı SaaS API'sinden çeksin, ya da yenileme
-      sonrası furi env'i de programatik güncellensin. furi ayrı repo.
-      *Aciliyet:* cron bugün `skipped` dönüyor (token 2026-10-15'te doluyor, pencere 20 gün),
-      yani ilk gerçek yenileme ~**2026-09-25**. Bu tarihe kadar çözülmezse furi o gece
-      sessizce kırılır — pratik son tarih bu.
+      kırılır**. İlk gerçek yenileme ~**2026-09-25** (token 2026-10-15'te doluyor,
+      pencere 20 gün) — pratik son tarih buydu.
+      **Çözüm yazıldı, merge bekliyor: SaaS PR #29 + furi PR #3.**
+      Tek kaynak yaklaşımı: furi kendi kopyasını hiç tutmuyor, token'ı her çalışmada
+      `GET /api/clients/[id]/instagram-token` üzerinden SaaS'tan çekiyor.
+      *Merge sırası önemli:* **önce SaaS merge + deploy, sonra furi.** Ters sırada furi
+      henüz var olmayan bir uca istek atar.
+      *Sonrasında elle:* furi'nin yerel `.env`'inden `IG_ACCESS_TOKEN` ve `IG_USER_ID`
+      satırlarını sil — artık hiçbir yerde okunmuyorlar ama duran sır gereksiz risk.
+      Yeni env değişkeni **gerekmiyor**; `FURI_API_KEY`, `FURI_API_AGENCY_ID`,
+      `FURI_SAAS_URL`, `FURI_CLIENT_ID` zaten tanımlı.
+      *Merge sonrası doğrula:*
+      `python .claude/skills/insta-yayinla/scripts/ig_token.py --kontrol`
+      (uçtan uca gerçek doğrulama SaaS deploy edilmeden yapılamıyordu).
 
 ### Bilinçli kapsam dışı
 
@@ -63,6 +70,12 @@ değil yerel DB'ye düşer. Prod'a yazmadan önce bağlandığın hostu **doğru
 bu tuzak 2026-08-16'da prod temizliği sırasında bir kez yakalandı.
 `scripts/prod-test-verisi-temizligi.mjs` (#22) bu doğrulamayı zorunlu adım hâline getirdi:
 prod olmayan hosta bağlanılırsa tek sorgu açılmadan `exit 2`.
+
+**`instagramTokenExpiry` boşsa otomatik yenileme HİÇ çalışmaz.** Cron bitiş tarihi olmayan
+müşteriyi `skip` sayıyor — yani alan boşsa 2026-10-15 sorunu çözülmüş olmaz, cron sessizce
+hiçbir şey yapmaz. Panelden kontrol edilebilir; furi tarafında
+`python .claude/skills/insta-yayinla/scripts/ig_token.py --kontrol` bunu
+`durum: bilinmiyor` diye raporlar.
 
 **Yayın süresi.** Instagram `POST /{ig}/media` görseli senkron indirdiği için slayt başına
 ~8.5 sn. Karusel container'ları bu yüzden paralel oluşturuluyor; sıralı yapılırsa 60 sn
@@ -97,6 +110,26 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ## Tamamlananlar
 
 ### 2026-08-17 — açık işler turu (PR #21, #22, #23)
+
+- [x] **Apps Script'teki GitHub token'ı — açıkta bir şey kalmamış, panelden teyit edildi.**
+      Madde "iptal edildi ama doğrulanamıyor" diye açık duruyordu; script.google.com ve
+      GitHub ayarları tarayıcıdan gerçekten kontrol edildi ve **üç doğrulama noktası da
+      temiz** çıktı:
+      1. **Tetikleyici yok.** "FURI onay tetikleyici" projesi duruyor ama hem global
+         "Tetikleyicilerim" hem projenin kendi sekmesi 0 tetikleyici gösteriyor —
+         `onayKontrol` çalışmıyor. Kodda `EMEKLI = true` bayrağı da yerinde, yani proje
+         kazara tetiklense bile Gmail taramaz.
+      2. **Script Property yok.** Proje Ayarları → Komut Dosyası Özellikleri **boş**;
+         `FURI_GITHUB_TOKEN` silinmiş.
+      3. **GitHub token'ı yok.** `settings/personal-access-tokens` → "No fine-grained
+         tokens created" (token fine-grained'di, adı `furi-apps-script`, kapsamı yalnızca
+         `furi` reposu + Issues). Classic tokenlar arasında yalnızca ilgisiz bir
+         `portfolio site` kaydı var, o da 2025-10-17'de süresi dolmuş.
+      Repo tarafı da tekrar tarandı: `ghp_` / `github_pat_` / `FURI_GITHUB_TOKEN` için
+      6 eşleşmenin hepsi property **adına** yapılan referans ya da kurulum yer tutucusu —
+      gerçek token değeri furi1'de hiçbir yerde yok.
+      *Kaydın düzeltmesi:* maddedeki "tetikleyici issue #1 kapatılabilir" adımı da
+      geçersiz — `enesmemduhoglu/furi` reposunda hiç issue yok.
 
 - [x] **`CRON_SECRET` Vercel Production'a eklendi (Sensitive)** — cron artık devrede:
       `vercel.json` 03:00'e kurulu, endpoint canlıda, yetkisiz istek 401 dönüyor.
