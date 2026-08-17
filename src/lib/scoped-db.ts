@@ -54,8 +54,9 @@ export function getScopedDb(session: ScopedSession) {
   const { agencyId } = session;
   return {
     agencyId,
-    // Client okumaları daima `ClientView` döner — token'ın yanlışlıkla bir
-    // yanıta ya da prop'a sızması için önce bu dönüşümü bozmak gerekir.
+    // Client okumaları `ClientView` döner — token'ın yanlışlıkla bir yanıta ya
+    // da prop'a sızması için önce bu dönüşümü bozmak gerekir. Tek istisna
+    // `findInstagramCredentials`: adı ham token verdiğini söylesin diye ayrı.
     clients: {
       findMany: async (
         args: { orderBy?: Prisma.ClientOrderByWithRelationInput } = {}
@@ -85,6 +86,41 @@ export function getScopedDb(session: ScopedSession) {
         const client = await db.client.findFirst({ where: { id, agencyId } });
         return client ? toClientView(client) : null;
       },
+      /**
+       * ⚠ HAM TOKEN DÖNDÜREN TEK OKUMA YOLU — bilinçli ve tek amaçlı.
+       *
+       * `ClientView` token'ı bilerek maskeler; furi (ayrı repo, ayrı makine)
+       * Instagram'a doğrudan konuşabilmek için ham token'a ihtiyaç duyuyor ve
+       * kendi kopyasını tutması `refresh-instagram-tokens` cron'u token'ı
+       * yenilediği anda bayatlıyordu. Kopyayı yok etmenin yolu, token'ı tek
+       * kaynaktan (burası) dağıtmak.
+       *
+       * Kapsam yine `agencyId` ile: başka ajansın müşteri id'si verildiğinde
+       * satır eşleşmez ve `null` döner — `findById` ile aynı IDOR koruması.
+       * Bu yüzden ham `db.client` çağrısı route'ta DEĞİL, burada duruyor:
+       * scoping'in unutulabileceği tek yer route katmanıdır.
+       *
+       * `select` dar tutulur: yalnızca yayın için gereken alanlar okunur.
+       */
+      findInstagramCredentials: async (
+        id: string
+      ): Promise<{
+        id: string;
+        name: string;
+        instagramUserId: string | null;
+        instagramAccessToken: string | null;
+        instagramTokenExpiry: Date | null;
+      } | null> =>
+        db.client.findFirst({
+          where: { id, agencyId },
+          select: {
+            id: true,
+            name: true,
+            instagramUserId: true,
+            instagramAccessToken: true,
+            instagramTokenExpiry: true,
+          },
+        }),
       /**
        * Dashboard token uyarısı için müşteri listesi. Instagram'ı bağlı olmayan
        * müşteriler SQL'de elenir; erişim token'ının kendisi bilerek `select`
