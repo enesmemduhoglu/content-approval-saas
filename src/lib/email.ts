@@ -72,24 +72,44 @@ export function renderApprovalEmailHtml({
 </div>`;
 }
 
+export type EmailResult =
+  | { sent: true }
+  | { sent: false; reason: string };
+
 // Fire-and-forget: gönderim başarısız olsa bile ASLA throw etmez — post oluşturma
-// akışı e-postaya bağımlı değildir, hata yalnızca loglanır.
-export async function sendApprovalRequestEmail(input: ApprovalEmailInput): Promise<void> {
+// akışı e-postaya bağımlı değildir. Ama SESSİZ de kalmaz: sonucu döndürür ki
+// çağıran taraf "post oluştu ama müşteriye haber gitmedi" durumunu görebilsin.
+export async function sendApprovalRequestEmail(
+  input: ApprovalEmailInput
+): Promise<EmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    console.warn("[email] RESEND_API_KEY tanımlı değil, onay e-postası gönderimi atlandı");
-    return;
+    const reason = "RESEND_API_KEY tanımlı değil";
+    console.warn(`[email] ${reason}, onay e-postası gönderimi atlandı`);
+    return { sent: false, reason };
   }
   try {
     const resend = new Resend(apiKey);
-    await resend.emails.send({
+    // resend@4 API hatalarında THROW ETMEZ, { data, error } döndürür. Bu dönüş
+    // kontrol edilmediği surece reddedilen her gonderim iz birakmadan kaybolur:
+    // post 201 doner, durum "pending" kalir, kimse mailin gitmedigini bilmez.
+    // 17.08'de tam olarak bu yasandi — iki gun onay maili gitmedi, ne log ne
+    // hata vardi. Dönüşü okumak bu sinifin tek teshis yolu.
+    const { error } = await resend.emails.send({
       from: process.env.EMAIL_FROM ?? "Content Approval <onboarding@resend.dev>",
       to: input.to,
       subject: approvalEmailSubject(input.agencyName),
       html: renderApprovalEmailHtml(input),
       text: renderApprovalEmailText(input),
     });
+    if (error) {
+      const reason = `${error.name ?? "resend_error"}: ${error.message ?? "bilinmeyen"}`;
+      console.error("[email] Resend gönderimi reddetti:", error);
+      return { sent: false, reason };
+    }
+    return { sent: true };
   } catch (error) {
     console.error("[email] Onay e-postası gönderilemedi:", error);
+    return { sent: false, reason: error instanceof Error ? error.message : String(error) };
   }
 }

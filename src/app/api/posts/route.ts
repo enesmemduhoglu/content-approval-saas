@@ -4,7 +4,7 @@ import { authenticateApiKey } from "@/lib/api-key";
 import { db } from "@/lib/db";
 import { ClientNotOwnedError, getScopedDb } from "@/lib/scoped-db";
 import { InvalidImageError, uploadPostImage } from "@/lib/blob";
-import { sendApprovalRequestEmail } from "@/lib/email";
+import { sendApprovalRequestEmail, type EmailResult } from "@/lib/email";
 import {
   MAX_IMAGES_PER_POST,
   validateCaption,
@@ -160,18 +160,32 @@ export async function POST(request: Request) {
 
     const approvalUrl = `${appBaseUrl(request)}/approve/${approvalLink.token}`;
 
-    // Fire-and-forget: e-posta hatası post oluşturmayı ASLA başarısız yapmaz.
+    // E-posta hatası post oluşturmayı ASLA başarısız yapmaz — ama sonucu
+    // yanıta koyuyoruz. Çağıran otomasyon (furi/insta-yayinla) 201 gördüğünde
+    // "müşteriye haber gitti" varsayıyordu; gitmediğinde kimsenin haberi
+    // olmuyordu. Artık gitmediğini aynı yanıttan öğrenip uyarı verebiliyor.
     const agency = await db.agency.findUnique({ where: { id: session.agencyId } });
-    await sendApprovalRequestEmail({
+    const email = await sendApprovalRequestEmail({
       to: client.email,
       agencyName: agency?.name ?? "Ajansınız",
       clientName: client.name,
       approvalUrl,
       logoUrl: agency?.logoUrl,
       brandColor: agency?.brandColor,
-    }).catch((error) => console.error("[posts] e-posta hatası:", error));
+    }).catch((error): EmailResult => {
+      console.error("[posts] e-posta hatası:", error);
+      return { sent: false, reason: error instanceof Error ? error.message : String(error) };
+    });
 
-    return NextResponse.json({ post, approvalUrl }, { status: 201 });
+    return NextResponse.json(
+      {
+        post,
+        approvalUrl,
+        emailSent: email.sent,
+        ...(email.sent ? {} : { emailError: email.reason }),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     if (error instanceof ClientNotOwnedError) {
       return NextResponse.json(
