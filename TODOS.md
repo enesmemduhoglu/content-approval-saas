@@ -1,12 +1,15 @@
 # TODOS
 
-Son güncelleme: 2026-08-17 akşamı (bildirim turu merge + deploy sonrası).
+Son güncelleme: 2026-08-17 (inceleme turu — güvenlik + feature tespiti işlendi).
 Canlı: https://content-approval-saas.vercel.app
 
 **Açık PR yok, açık issue yok.** #21–#23, #28–#32 merge edildi; `master` = `origin/master`
 ve **prod'a deploy edildi** (`content-approval-saas.vercel.app` alias'ı #32'nin
 deployment'ında, canlı doğrulandı).
 Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** — çöp veri kalmadı.
+
+Bu turda **kod değişmedi**: kod tabanı baştan sona okunup güvenlik açıkları (S1–S9) ve
+ürün boşlukları (F1–F13) "Açık işler" altına tespit olarak işlendi, düzeltme yapılmadı.
 
 ---
 
@@ -53,9 +56,172 @@ Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** —
 - [ ] **Toplu reddetme** — reddetme sebebi post başına anlamlı olduğu için toplu onayın
       simetriği yapılmadı. Yeniden değerlendirilirse "ortak sebep" alanı gerekir.
 
+### Güvenlik (2026-08-17 inceleme turu)
+
+Kod okunarak yapılan tur; **hiçbiri düzeltilmedi**, bu tur yalnızca tespit. Sömürülebilir
+durumdaki tek maddeler S2 ve S4; gerisi ya derinlemesine savunma ya da koşula bağlı.
+Temiz çıkan alanların listesi "Bilinmesi gerekenler"de — yeniden taranmasın.
+
+- [ ] **S1 · Yüksek — Instagram token'ları DB'de düz metin.**
+      `prisma/schema.prisma:37`, `Client.instagramAccessToken`.
+      Bu bir uygulama sırrı değil, **müşterinin kimlik bilgisi**: hesabına yayın yapma
+      yetkisi. Neon dump'ı, bir yedek ya da Prisma query logging'in açılması doğrudan
+      hesap ele geçirmeye çıkar ve bedelini müşteri öder.
+      *Düzeltme:* uygulama katmanında AES-256-GCM, yeni `src/lib/crypto.ts` +
+      `ENCRYPTION_KEY` env. Yazma noktaları sayılı (`scoped-db.ts > updateInstagram`,
+      cron'daki `db.client.update`), okuma noktaları da (`findInstagramCredentials`,
+      cron, `publish-post.ts`) — dolayısıyla dar bir değişiklik.
+      *Kesintisiz geçiş:* `enc:v1:` öneki. Önek yoksa değer düz metin kabul edilip okunur,
+      her yazmada şifreliye döner; ayrı migration betiği gerekmez.
+      *Dikkat:* furi token'ı `GET /api/clients/[id]/instagram-token` ile çekiyor —
+      o uç nokta **çözülmüş** token döndürmeye devam etmeli, yoksa furi sessizce kırılır.
+
+- [ ] **S2 · Yüksek — `ENABLE_TEST_AUTH` için production sertliği yok.**
+      `src/lib/auth.ts:20-21` yalnızca env değişkenine bakıyor. Vercel'e yanlışlıkla
+      `ENABLE_TEST_AUTH=1` girilirse `/api/auth/signin` üzerinden **herkes** herhangi bir
+      e-postayla giriş yapıp ajans yaratabilir.
+      *Sınırı:* mevcut ajanslar ele geçirilemez — test girişi `googleId`'yi `test:` önekiyle
+      üretiyor, Google'ınkiyle çakışmıyor. Yani hesap ele geçirme değil; bedava hesap,
+      prod verisi arasına yabancı ajans ve Blob/Resend/DB kotası tüketimi.
+      *Düzeltme:* tek koşul — `NODE_ENV === "production"` (ve/veya `VERCEL_ENV`) ise
+      provider hiç eklenmez, env ne derse desin. README zaten "production'da asla" diyor;
+      kural yorumda değil kodda durmalı.
+
+- [ ] **S3 · Orta — bağımlılıklarda 8 high seviye açık.** (`npm audit --omit=dev`)
+
+      | Paket | Sorun | Çözüm |
+      |---|---|---|
+      | `@vercel/blob@1.x` → `undici` | request smuggling, CRLF injection, response queue poisoning | `@vercel/blob@2.8.0` (semver-major, ama kullanım yüzeyi tek `put()` çağrısı) |
+      | `prisma` → `@prisma/config` → `deepmerge-ts` | stack exhaustion | `npm audit fix`, breaking değil |
+      | `nanoid` | sonsuz döngü | `npm audit fix`, breaking değil |
+
+- [ ] **S4 · Orta — hiçbir güvenlik başlığı yok; `/approve` iframe'lenebiliyor.**
+      `next.config.ts` boş ve `middleware.ts` yok: CSP, `frame-ancestors`/`X-Frame-Options`,
+      `Referrer-Policy`, `X-Content-Type-Options`, HSTS — hiçbiri tanımlı değil.
+      *Neden bu projede teorik değil:* onay butonu Instagram bağlı müşteride doğrudan
+      **yayın tetikliyor**. Clickjacking ile atılan tek tık içeriği canlıya alır ve geri
+      alınamaz. `Referrer-Policy` yokluğu ayrıca approval token'ını `Referer` başlığıyla
+      dış host'lara taşıyabilir — sayfa içindeki dış linkler `rel="noreferrer"` ile
+      korunmuş (bu doğru yapılmış), eksik olan sayfa geneli varsayılan.
+      *Düzeltme:* `next.config.ts > headers()`. Onay sayfasına `frame-ancestors 'none'`,
+      geneline `Referrer-Policy: strict-origin-when-cross-origin`, `nosniff`, HSTS.
+
+- [ ] **S5 · Orta — sır dağıtan uç noktada rate limit ve erişim kaydı yok.**
+      `src/app/api/clients/[id]/instagram-token/route.ts` ham token döndüren tek yol.
+      Kimlik doğrulama sabit zamanlı, `Cache-Control` düşünülmüş, ajans kapsamı yerinde —
+      ama **rate limit yok** (diğer public yollarda var) ve **hiçbir erişim kaydı yok**.
+      `FURI_API_KEY` sızarsa token'ın ne zaman, kaç kez çekildiği hiçbir yerde görünmez.
+      *Düzeltme:* mevcut `checkRateLimit` yeniden kullanılır; log satırı token içermeden
+      `clientId` + zaman yazar.
+
+- [ ] **S6 · Düşük-Orta — görsel doğrulaması istemci beyanına güveniyor.**
+      `src/lib/blob.ts:15-26` kararı `file.type` ile veriyor (istemci gönderir),
+      magic-byte kontrolü yok.
+      *Etkisi sınırlı:* Blob ayrı origin'de servis ediliyor ve uzantı `.jpg/.png/.webp`
+      olarak zorlanıyor, yani depolanmış XSS uygulama origin'ine ulaşamaz. Asıl kazanç
+      güvenlikten çok teşhiste: sahte MIME'lı dosya bugün ancak **yayın anında** `failed`
+      olarak patlıyor; ilk baytlardan imza kontrolü hatayı yükleme anına çeker.
+
+- [ ] **S7 · Düşük — `x-forwarded-for`'un ilk değerine güveniliyor.**
+      `src/lib/rate-limit.ts:92-97`. Vercel bu başlığı kendi yazdığı için **bugün
+      sömürülebilir değil**. Ama `ApprovalAudit.ip` bir onayın *kanıtı* olarak saklanıyor;
+      proje Vercel dışına taşınır ya da araya bir proxy girerse hem rate limit hem o kanıt
+      aynı anda sahteleşir. `x-vercel-forwarded-for`'a öncelik vermek tek satır.
+
+- [ ] **S8 · Düşük/bilgi — CSRF koruması yalnızca SameSite'a bağımlı.**
+      NextAuth v5 session cookie'si `SameSite=Lax`; cross-site POST'ta cookie gitmiyor,
+      yani **şu an sömürülebilir değil**. Ancak `/api/posts` ve `/api/agency`
+      `multipart/form-data` kabul ediyor (CORS'un "basit istek"i), dolayısıyla tek savunma
+      bu tek katman. `Origin` başlığı kontrolü ucuz bir ikinci katman olur.
+
+- [ ] **S9 · Düşük/uyumluluk — veri silme yolu yok.** API'de hiç `DELETE` yok; ne müşteri
+      ne post silinebiliyor. KVKK/GDPR "silme hakkı" bugün elle SQL demek. Yukarıdaki
+      "Doğrulama test postunu sil" maddesinin elle iş olarak durmasının sebebi de bu.
+      **F2 ile aynı kök** — orada çözülür.
+
+### Ürün boşlukları (2026-08-17 inceleme turu)
+
+Aynı turun ürün tarafı. Hiçbiri başlanmadı; sıralama "temel akışın deliği mi, büyüme
+maddesi mi" ayrımına göre.
+
+**Temel akışın delikleri — yüksek değer, düşük maliyet**
+
+- [ ] **F1 · Onay linki yenilenemiyor.** `APPROVAL_LINK_TTL_DAYS = 7` dolunca post kalıcı
+      kilitleniyor: yeni link üretecek ne API ne arayüz var, müşteri tatildeyse iş durur.
+      Ekle: `POST /api/posts/[id]/relink` + panelde "Yeni link gönder".
+      Mevcut `generateApprovalToken` / `approvalLinkExpiry` aynen yeniden kullanılır.
+- [ ] **F2 · Post/müşteri silinemiyor, düzenlenemiyor.** Yanlış caption ya da yanlış
+      görselle oluşan postu geri almanın yolu yok — bir onay aracında tuhaf boşluk.
+      `DELETE /api/posts/[id]` (yayınlanmışı koru), `PATCH` (yalnızca `pending` iken
+      caption), `DELETE /api/clients/[id]` (postu varsa reddet). S9'u da kapatır.
+- [ ] **F3 · Hatırlatma yok.** Post `pending`'de sonsuza kadar durabiliyor; ne müşteriye
+      ikinci mail ne ajansa "3 gündür bekliyor" uyarısı. Cron altyapısı (`vercel.json` +
+      `CRON_SECRET` + `bearerToken`/`secretsMatch`) zaten kurulu — ikinci bir cron işi,
+      yeni altyapı gerekmiyor.
+- [ ] **F4 · `ApprovalAudit` hiçbir yerde okunmuyor.** Yazılıyor ama ne panelde ne API'de
+      görünüyor. README'nin öne çıkardığı "karar IP ve zaman damgasıyla kayıt altında"
+      vaadinin arayüzde karşılığı yok — veri ölü duruyor. Post detayında küçük bir zaman
+      çizelgesi yeter.
+- [ ] **F5 · `emailSent` panele yansımıyor.** #31 alanı API yanıtına koydu ama dashboard
+      göstermiyor ve "maili tekrar gönder" butonu yok. Aşağıdaki "mailler iki ayrı kutuya
+      gidiyor" tuzağının kalıcı çözümü bu: durumu `Post` üzerinde sakla, rozetle göster.
+
+**SaaS eksikleri — şema/ürün kararı gerektirir**
+
+- [ ] **F6 · Ajans başına tek kullanıcı.** `Agency.googleId @unique`; ekip üyesi davet
+      edilemiyor, oysa küçük ajanslarda bile 2-3 kişi çalışıyor. `AgencyMember` tablosu
+      gerekir. **Erken yapılmazsa pahalılaşır** — her `session.agencyId` kullanımı dolaylanır.
+- [ ] **F7 · Kota/plan yok.** Sınırsız müşteri, sınırsız post, post başına 10 MB × 10 görsel.
+      Ücretsiz katmanlarda duruyor ama tek kötü niyetli hesap Blob ve Resend kotasını
+      tüketebilir. En azından ajans başına kaba tavanlar.
+- [ ] **F8 · Zamanlanmış yayın yok.** Onay = anında yayın. Sosyal medya ajansı aracında
+      "en iyi saatte yayınla" temel beklenti. `Post.publishAt` + cron; `publishApprovedPost`
+      zaten idempotent kilide sahip olduğu için yayın kodu olduğu gibi kullanılabilir.
+- [ ] **F9 · Yalnızca Instagram, yalnızca görsel.** Reels/video yok
+      (`ALLOWED_IMAGE_TYPES` üç format), başka platform yok. Bilinçli kapsam olabilir ama
+      yol haritasında adı geçmeli.
+- [ ] **F10 · Revizyon turu yok.** Müşteri reddedince akış bitiyor; "şu cümleyi değiştir"
+      demek için ajans yeni post açmak zorunda ve geçmiş kopuyor. Sürüm + yorum zinciri,
+      ürünün asıl farklılaşma noktası olurdu.
+
+**Operasyon**
+
+- [ ] **F11 · Hata izleme yok.** Her şey `console.error` ile Vercel loglarına gidiyor ve
+      kimseye ulaşmıyor: cron'un sessizce patlaması, Resend'in reddetmesi, yayın hataları
+      ancak biri bakarsa görünür. "İki gündür mail gitmiyor" olayının tekrar etmemesinin yolu.
+- [ ] **F12 · `/api/health` yok.** Uptime/canary izlemesi için uç nokta yok.
+- [ ] **F13 · Blob dosyaları asla silinmiyor.** Sınırsız birikim; F2 ile birlikte ele alınmalı.
+
+**Yapılırsa önerilen sıra:** Faz A (S2 → S3 → S4 → S5 → S7, hepsi küçük) · Faz B (S1 token
+şifreleme, tek başına PR) · Faz C (F1 + F2 + F5, tek "post yönetimi" PR'ı) · Faz D
+(F3 + F4 + F11, görünürlük turu) · sonra F6/F7/F8 ayrı ayrı tartışılır.
+
 ---
 
 ## Bilinmesi gerekenler
+
+**Güvenlik turunda DENETLENDİ ve temiz çıktı — bir sonraki tur bunları yeniden taramasın.**
+2026-08-17 incelemesinde tek tek okundu ve doğru kurulmuş bulundu:
+**IDOR** (`getScopedDb` her route'ta, makine anahtarı yolu dahil — anahtar yalnızca
+`agencyId` üretiyor), **yarış koşulları** (onay/red ve toplu onay `WHERE status='pending'`
+koşullu UPDATE; yayın kilidi `publishStatus IN ('idle','failed')` ile aynı desende),
+**token entropisi** (`randomUUID`, 122 bit — brute-force anlamsız), **sabit zamanlı sır
+karşılaştırma** (`secretsMatch`, iki taraf da SHA-256'dan geçirilerek uzunluk sızıntısı da
+kapatılmış), **XSS** (`dangerouslySetInnerHTML` / `eval` hiç yok; e-postada `escapeHtml`,
+marka renginde hex regex), **token'ın yanıtlardan ayıklanması** (`ClientView` +
+`findManyWithRelations`'ın client alanlarını düşürmesi) ve **loglarda sır redaksiyonu**
+(`IGError.report()`, `refreshInstagramToken`'daki `safeDetail`, cron yanıtının yalnızca
+sayı taşıması). Açık bulgular yukarıdaki "Güvenlik" başlığında; bu liste onların dışında
+kalan ve **tekrar bakılması gerekmeyen** alanları kaydediyor.
+
+**`npm audit`'teki `next` → `sharp` / `postcss` uyarısı yanıltıcıdır — Next 16'ya koşma.**
+Bu iki paket için audit'in önerdiği düzeltme `next@16` (semver-major). Ama `sharp`
+(libvips CVE'leri) yalnızca `next/image` üzerinden görsel işlerken istek yoluna girer ve
+**bu proje `next/image` kullanmıyor** — her `<img>` üstünde
+`eslint-disable @next/next/no-img-element` var, görseller Blob'dan doğrudan servis
+ediliyor. `postcss` ise build zamanı. Yani ikisi de çalışan sistemde saldırı yüzeyi
+oluşturmuyor; Next 16 yükseltmesi kendi başına planlanmalı, güvenlik gerekçesiyle aceleye
+getirilmemeli. Gerçekten kapatılması gerekenler S3'teki üç satır.
 
 **Mailler iki AYRI kutuya gidiyor — "mail gitmiyor" teşhisi bu yüzden yanlış kurulabilir.**
 Onay maili **müşterinin** adresine (`Client.email`), ajans bildirimleri **iş sahibinin**
