@@ -24,11 +24,19 @@ Canlı: https://content-approval-saas.vercel.app
       repo Apps Script property'sini göremediği için dışarıdan doğrulanamıyor. Yanlış
       kapatılırsa canlı bir token açıkta kalır — o yüzden panelden teyit edilene kadar açık.
 
-- [ ] **Prod çöp verisini gerçekten sil** — #22'nin betiği yazıldı ve dry-run'ı prod'a karşı
-      çalıştırıldı, ama **silme yapılmadı**. Dry-run sonucu: 6 post, 8 görsel, 6 approval
-      link, 6 audit, 2 müşteri; 0 ajans. Yayın izi (`published` / `igMediaId` / `igPermalink`)
-      olan **hiçbir** aday çıkmadı, yani koruma filtresi bu turda bir şey elemedi.
-      *Çalıştır:* `node scripts/prod-test-verisi-temizligi.mjs --apply`
+- [ ] **Prod çöp verisi — teyit bekliyor, silinecek kayıt görünmüyor.**
+      2026-08-17'de dry-run prod'a karşı tekrar koşuldu ve sonuç **değişmiş**:
+      önceki turda 6 post / 8 görsel / 6 approval link / 6 audit / 2 müşteri çıkarken
+      şimdi **ölçüte uyan 0 post** var. Hedef ajanslar duruyor ama ikisi de tamamen boş:
+      `Enes Memduh` (`cmrw9cu730000l404sekzspv4`) → post=0, client=0;
+      `enes can` (`cmrwa781m0001ky04liyy3f5d`) → post=0, client=0.
+      Yani `--apply` bugün koşulsa "silinecek kayıt yok" deyip çıkardı.
+      *Açık soru:* veri **silindi mi**, yoksa postlar **başka bir `agencyId` altına mı
+      taşındı**? Betiğin ölçütü ajans adına bağlı olduğu için taşınmış veriyi göremez.
+      Ajanstan bağımsız caption araması (`caption ∈ [asd, gfh, as, sdf]`) henüz
+      yapılamadı — ad-hoc betik çalıştırma izni yoktu.
+      *Kapatmadan önce:* ajanstan bağımsız tek bir sayım koş; 0 çıkarsa madde kapanır.
+      *Silme gerekirse:* `node scripts/prod-test-verisi-temizligi.mjs --apply`
       Transaction hatası gelirse `DB_URL_ENV=POSTGRES_URL_NON_POOLING` ile tekrarla —
       varsayılan `POSTGRES_URL` pooled (pgbouncer) adres.
 
