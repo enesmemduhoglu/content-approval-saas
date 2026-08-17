@@ -68,7 +68,7 @@ beforeEach(async () => {
   await resetDb();
   vi.clearAllMocks();
   mockUpload.mockResolvedValue("/uploads/test.png");
-  mockSendEmail.mockResolvedValue(undefined);
+  mockSendEmail.mockResolvedValue({ sent: true });
   const { generateApprovalToken: realGenerate } =
     await vi.importActual<typeof import("@/lib/tokens")>("@/lib/tokens");
   mockGenerateToken.mockImplementation(realGenerate);
@@ -104,6 +104,29 @@ describe("POST /api/posts", () => {
     const emailArg = mockSendEmail.mock.calls[0][0];
     expect(emailArg.to).toBe("musteri@ornek.com");
     expect(emailArg.agencyName).toBe("Parlak Ajans");
+    expect(data.emailSent).toBe(true);
+    expect(data.emailError).toBeUndefined();
+  });
+
+  // Post oluşuyor ama müşteriye haber gitmiyorsa bunu çağıran bilmeli. Yanıt
+  // 201 olduğu için otomasyon "haber gitti" varsayıyordu; 17.08'de iki gün
+  // boyunca onay maili gitmedi ve hiçbir yerde iz kalmadı.
+  it("e-posta gitmediğinde 201 döner ama emailSent:false + sebep bildirir", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+    mockSendEmail.mockResolvedValue({ sent: false, reason: "validation_error: geçersiz adres" });
+
+    const res = await POST(
+      postRequest({ caption: "Yeni post", clientId: client.id, image: makeImage() })
+    );
+    expect(res.status).toBe(201);
+    const data = await res.json();
+
+    expect(data.post).toBeDefined();
+    expect(data.approvalUrl).toContain("/approve/");
+    expect(data.emailSent).toBe(false);
+    expect(data.emailError).toBe("validation_error: geçersiz adres");
   });
 
   it("çoklu görsel: 3 dosya sıralı PostImage kayıtlarına dönüşür (D3.3)", async () => {

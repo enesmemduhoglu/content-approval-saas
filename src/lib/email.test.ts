@@ -97,8 +97,8 @@ describe("renderApprovalEmailText", () => {
 
 describe("sendApprovalRequestEmail", () => {
   it("başarılı gönderimde doğru konu ve alıcıyla, text+html multipart çağrılır", async () => {
-    sendMock.mockResolvedValue({ id: "email-1" });
-    await sendApprovalRequestEmail(input);
+    sendMock.mockResolvedValue({ data: { id: "email-1" }, error: null });
+    await expect(sendApprovalRequestEmail(input)).resolves.toEqual({ sent: true });
     expect(sendMock).toHaveBeenCalledOnce();
     const arg = sendMock.mock.calls[0][0];
     expect(arg.to).toBe(input.to);
@@ -107,14 +107,34 @@ describe("sendApprovalRequestEmail", () => {
     expect(arg.text).toContain(input.approvalUrl);
   });
 
+  // resend@4 API hatalarında throw ETMEZ, { data: null, error } döndürür.
+  // Bu dönüş okunmadığı sürece reddedilen gönderim iz bırakmadan kaybolur —
+  // 17.08'de iki gün boyunca onay maili gitmemesinin sebebi buydu.
+  it("Resend { error } döndürdüğünde bunu sent:false olarak bildirir", async () => {
+    sendMock.mockResolvedValue({
+      data: null,
+      error: { name: "validation_error", message: "Alıcı adresi geçersiz" },
+    });
+    await expect(sendApprovalRequestEmail(input)).resolves.toEqual({
+      sent: false,
+      reason: "validation_error: Alıcı adresi geçersiz",
+    });
+  });
+
   it("Resend hatası akışı DURDURMAZ — asla throw etmez (fire-and-forget)", async () => {
     sendMock.mockRejectedValue(new Error("Resend down"));
-    await expect(sendApprovalRequestEmail(input)).resolves.toBeUndefined();
+    await expect(sendApprovalRequestEmail(input)).resolves.toEqual({
+      sent: false,
+      reason: "Resend down",
+    });
   });
 
   it("API key yoksa gönderim atlanır, hata fırlatılmaz", async () => {
     delete process.env.RESEND_API_KEY;
-    await expect(sendApprovalRequestEmail(input)).resolves.toBeUndefined();
+    await expect(sendApprovalRequestEmail(input)).resolves.toEqual({
+      sent: false,
+      reason: "RESEND_API_KEY tanımlı değil",
+    });
     expect(sendMock).not.toHaveBeenCalled();
   });
 });
