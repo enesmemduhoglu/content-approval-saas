@@ -141,3 +141,56 @@ test("geçersiz ve süresi dolmuş linkler doğru mesajları gösterir", async (
   await page.goto("/approve/olmayan-token-123");
   await expect(page.getByText("Bu link geçersiz")).toBeVisible();
 });
+
+test("link yenileme: eski token ölür, yeni token çalışır (F1)", async ({
+  page,
+  browser,
+}) => {
+  const unique = Date.now();
+  await loginAsAgency(page, `relink-${unique}@test.local`, "Relink Ajansı");
+  await createClientViaUi(page, "Relink Müşteri", `relink-c-${unique}@test.local`);
+  const eskiToken = await createPostViaUi(page, "Relink Müşteri", "Link yenileme testi");
+
+  // Link henüz geçerli olduğu için buton "Maili tekrar gönder" der; ama asıl
+  // ölçtüğümüz şey token'ın gerçekten değişip değişmediği, o yüzden API'ye
+  // renew:true ile gidiyoruz — arayüzdeki süresi-dolmuş yolu da aynı çağrı.
+  const postId = await page.locator("[data-edit-post]").first().getAttribute("data-edit-post");
+  expect(postId).toBeTruthy();
+  const res = await page.context().request.post(`/api/posts/${postId}/approval-link`, {
+    data: { renew: true },
+  });
+  expect(res.ok()).toBeTruthy();
+  const { approvalUrl, renewed } = await res.json();
+  expect(renewed).toBe(true);
+
+  const yeniToken = approvalUrl.split("/approve/")[1];
+  expect(yeniToken).not.toBe(eskiToken);
+
+  // Müşteri gözüyle: eski link ölmüş, yeni link çalışıyor.
+  const musteri = await browser.newContext();
+  const musteriSayfa = await musteri.newPage();
+  await musteriSayfa.goto(`${E2E_BASE_URL}/approve/${eskiToken}`);
+  await expect(musteriSayfa.getByText("Bu link geçersiz")).toBeVisible();
+
+  await musteriSayfa.goto(`${E2E_BASE_URL}/approve/${yeniToken}`);
+  await expect(musteriSayfa.getByText("Link yenileme testi")).toBeVisible();
+  await musteri.close();
+});
+
+test("post silme: onay linki de ölür (F2)", async ({ page, browser }) => {
+  const unique = Date.now();
+  await loginAsAgency(page, `sil-${unique}@test.local`, "Silme Ajansı");
+  await createClientViaUi(page, "Silme Müşteri", `sil-c-${unique}@test.local`);
+  const token = await createPostViaUi(page, "Silme Müşteri", "Silinecek post");
+
+  // İki adımlı inline onay — window.confirm bilerek kullanılmıyor.
+  await page.getByRole("button", { name: "Sil" }).first().click();
+  await page.getByRole("button", { name: "Evet, sil" }).click();
+  await expect(page.getByText("Silinecek post")).toHaveCount(0);
+
+  const musteri = await browser.newContext();
+  const musteriSayfa = await musteri.newPage();
+  await musteriSayfa.goto(`${E2E_BASE_URL}/approve/${token}`);
+  await expect(musteriSayfa.getByText("Bu link geçersiz")).toBeVisible();
+  await musteri.close();
+});

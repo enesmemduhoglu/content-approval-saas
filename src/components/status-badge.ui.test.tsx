@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { PublishBadge } from "./status-badge";
+import { EmailBadge, PublishBadge } from "./status-badge";
 
 afterEach(cleanup);
 
@@ -30,5 +30,24 @@ describe("PublishBadge", () => {
     expect(container.querySelector(".publish-duplicate")).toBeTruthy();
     // Hata değil: "Yayınlanamadı" rozetiyle karıştırılmamalı.
     expect(screen.queryByText("Yayınlanamadı")).toBeNull();
+  });
+});
+
+describe("EmailBadge", () => {
+  it("mail gitmediyse göze batan rozet çıkar", () => {
+    const { container } = render(<EmailBadge sent={false} />);
+    expect(screen.getByText("Mail GİTMEDİ")).toBeTruthy();
+    expect(container.querySelector(".email-failed")).toBeTruthy();
+  });
+
+  it("mail gittiyse de rozet çıkar — sessiz kalmak sorunu çözmezdi", () => {
+    const { container } = render(<EmailBadge sent />);
+    expect(screen.getByText("Mail gitti")).toBeTruthy();
+    expect(container.querySelector(".email-sent")).toBeTruthy();
+  });
+
+  it("bilinmiyorsa (null) hiçbir şey uydurmaz", () => {
+    const { container } = render(<EmailBadge sent={null} />);
+    expect(container.innerHTML).toBe("");
   });
 });
