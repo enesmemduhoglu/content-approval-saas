@@ -4,6 +4,7 @@ Son güncelleme: 2026-08-17 (ikinci tur merge'lerinden sonra).
 Canlı: https://content-approval-saas.vercel.app
 
 **Açık PR yok, açık issue yok.** #21, #22 ve #23 merge edildi; `master` = `origin/master`.
+Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** — çöp veri kalmadı.
 
 ---
 
@@ -24,21 +25,13 @@ Canlı: https://content-approval-saas.vercel.app
       repo Apps Script property'sini göremediği için dışarıdan doğrulanamıyor. Yanlış
       kapatılırsa canlı bir token açıkta kalır — o yüzden panelden teyit edilene kadar açık.
 
-- [ ] **Prod çöp verisi — teyit bekliyor, silinecek kayıt görünmüyor.**
-      2026-08-17'de dry-run prod'a karşı tekrar koşuldu ve sonuç **değişmiş**:
-      önceki turda 6 post / 8 görsel / 6 approval link / 6 audit / 2 müşteri çıkarken
-      şimdi **ölçüte uyan 0 post** var. Hedef ajanslar duruyor ama ikisi de tamamen boş:
-      `Enes Memduh` (`cmrw9cu730000l404sekzspv4`) → post=0, client=0;
-      `enes can` (`cmrwa781m0001ky04liyy3f5d`) → post=0, client=0.
-      Yani `--apply` bugün koşulsa "silinecek kayıt yok" deyip çıkardı.
-      *Açık soru:* veri **silindi mi**, yoksa postlar **başka bir `agencyId` altına mı
-      taşındı**? Betiğin ölçütü ajans adına bağlı olduğu için taşınmış veriyi göremez.
-      Ajanstan bağımsız caption araması (`caption ∈ [asd, gfh, as, sdf]`) henüz
-      yapılamadı — ad-hoc betik çalıştırma izni yoktu.
-      *Kapatmadan önce:* ajanstan bağımsız tek bir sayım koş; 0 çıkarsa madde kapanır.
-      *Silme gerekirse:* `node scripts/prod-test-verisi-temizligi.mjs --apply`
-      Transaction hatası gelirse `DB_URL_ENV=POSTGRES_URL_NON_POOLING` ile tekrarla —
-      varsayılan `POSTGRES_URL` pooled (pgbouncer) adres.
+- [ ] **Boş test ajansları duruyor** (isteğe bağlı, düşük öncelik). 22 Temmuz'dan kalma
+      iki ajans kaydı prod'da hâlâ var ama **tamamen boş** — post=0, client=0:
+      `Enes Memduh` (`cmrw9cu730000l404sekzspv4`) ve `enes can` (`cmrwa781m0001ky04liyy3f5d`).
+      Zararsızlar; temizlik betiği kural gereği `Agency` silmiyor (`FURI_API_AGENCY_ID`
+      bir ajansa bağlı, yanlış silme otomasyonu sessizce patlatır).
+      *Silinecekse:* önce `FURI_API_AGENCY_ID`'nin **`cmsw2ajnq0000jm04d6m9puei`**
+      (Enes MEMDUHOĞLU) olduğunu doğrula — canlı ajans o, diğer ikisi değil.
 
 
 ### Doğruluk
@@ -144,7 +137,19 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
       dry-run, silme yalnızca `--apply` ile. Zorunlu host doğrulaması, tam caption
       eşleşmesi (kör `LIKE` yok), yayınlanmış post asla silinmez, tarih koruması,
       `Agency` asla silinmez. Dry-run prod'a karşı çalıştırıldı, TODOS'taki "6 post"
-      iddiası doğrulandı. **Silme henüz yapılmadı.** (PR #22)
+      iddiası doğrulandı. (PR #22)
+
+- [x] **Prod çöp verisi temizlendi — 2026-08-17'de canlı veriyle doğrulandı.**
+      Temizlik betiğinin dry-run'ı artık **0 post** döndürüyor (önceki turda 6'ydı) ve
+      hedef ajansların ikisi de boşalmış. "Silindi mi, yoksa başka `agencyId` altına mı
+      taşındı" sorusu ajanstan **bağımsız** bir sayımla kapatıldı:
+      `caption ∈ [asd, gfh, as, sdf]` → **0 eşleşme**, ve
+      `createdAt < 2026-08-01` → **0 post**. Yani 22 Temmuz kalıntısı hiç kalmamış;
+      caption'ı değiştirilmiş bir çöp kaydın saklanma ihtimali de tarih taramasıyla elendi.
+      *Prod envanteri (2026-08-17):* 3 ajans / 1 müşteri / 6 post. Tek müşteri
+      "Furkan Teacher" (IG bağlı), 6 postun hepsi 2026-08-16 sonrası gerçek veri.
+      Ajanslardan yalnızca `Enes MEMDUHOĞLU` (`cmsw2ajnq0000jm04d6m9puei`) dolu —
+      `FURI_API_AGENCY_ID` bu. Diğer iki ajans boş; ayrı madde olarak açık bırakıldı.
 
 ### 2026-08-16 / 17 — Instagram yayını sonrası tur
 
