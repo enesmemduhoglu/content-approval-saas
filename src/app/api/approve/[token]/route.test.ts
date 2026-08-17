@@ -7,8 +7,11 @@ vi.mock("@/lib/instagram", async (importOriginal) => {
   return { ...actual, publishToInstagram: vi.fn() };
 });
 
+vi.mock("@/lib/email", () => ({ sendAgencyNoticeEmail: vi.fn() }));
+
 import { GET, POST } from "./route";
 import { db } from "@/lib/db";
+import { sendAgencyNoticeEmail } from "@/lib/email";
 import { publishToInstagram, IGError } from "@/lib/instagram";
 import { resetRateLimiter, RATE_LIMIT_MAX } from "@/lib/rate-limit";
 import {
@@ -20,6 +23,7 @@ import {
 } from "@tests/helpers/db";
 
 const mockPublish = vi.mocked(publishToInstagram);
+const mockAgencyNotice = vi.mocked(sendAgencyNoticeEmail);
 
 function makeParams(token: string) {
   return { params: Promise.resolve({ token }) };
@@ -42,7 +46,8 @@ function postRequest(body: unknown, ip = "1.2.3.4") {
 async function seedPendingPost(overrides: Parameters<typeof createPendingPostWithLink>[2] = {}) {
   const agency = await createAgency({ name: "Parlak Ajans" });
   const client = await createClient(agency.id);
-  return createPendingPostWithLink(agency.id, client.id, overrides);
+  const seeded = await createPendingPostWithLink(agency.id, client.id, overrides);
+  return { ...seeded, agency };
 }
 
 beforeEach(async () => {
@@ -50,6 +55,8 @@ beforeEach(async () => {
   resetRateLimiter();
   vi.restoreAllMocks();
   mockPublish.mockReset();
+  mockAgencyNotice.mockReset();
+  mockAgencyNotice.mockResolvedValue({ sent: true });
 });
 
 describe("GET /api/approve/[token]", () => {
@@ -121,6 +128,46 @@ describe("POST /api/approve/[token]", () => {
     const updated = await db.post.findUnique({ where: { id: post.id } });
     expect(updated?.status).toBe("rejected");
     expect(updated?.rejectionReason).toBe("Logo eski sürüm");
+  });
+
+  // İş sahibi (ajans) müşterinin ne yaptığını başka hiçbir yerden öğrenemiyordu:
+  // onay maili müşteriye gidiyor, karar da onay sayfasında veriliyordu.
+  it("onayda iş sahibine bildirim gider — yayın sonucuyla birlikte", async () => {
+    const { link, agency } = await seedPendingPost();
+    const res = await POST(postRequest({ action: "approve" }), makeParams(link.token));
+    expect(res.status).toBe(200);
+
+    expect(mockAgencyNotice).toHaveBeenCalledOnce();
+    const arg = mockAgencyNotice.mock.calls[0][0];
+    expect(arg.to).toBe(agency.email);
+    expect(arg.event).toBe("approved");
+    // Instagram bağlı olmayan müşteride yayın "skipped" olur; bildirim kararı
+    // değil AKIBETİ taşımalı, yoksa "onaylandı" deyip yayının olmadığını gizler.
+    expect(arg.publishStatus).toBe("skipped");
+  });
+
+  it("redde iş sahibine bildirim gider — gerekçesiyle", async () => {
+    const { link, agency } = await seedPendingPost();
+    await POST(
+      postRequest({ action: "reject", rejectionReason: "Logo eski sürüm" }),
+      makeParams(link.token)
+    );
+
+    expect(mockAgencyNotice).toHaveBeenCalledOnce();
+    const arg = mockAgencyNotice.mock.calls[0][0];
+    expect(arg.to).toBe(agency.email);
+    expect(arg.event).toBe("rejected");
+    expect(arg.rejectionReason).toBe("Logo eski sürüm");
+  });
+
+  it("bildirim patlarsa onay BOZULMAZ — karar yerinde kalır", async () => {
+    const { post, link } = await seedPendingPost();
+    mockAgencyNotice.mockRejectedValue(new Error("Resend down"));
+
+    const res = await POST(postRequest({ action: "approve" }), makeParams(link.token));
+    expect(res.status).toBe(200);
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.status).toBe("approved");
   });
 
   it("geçersiz token 404 döner", async () => {

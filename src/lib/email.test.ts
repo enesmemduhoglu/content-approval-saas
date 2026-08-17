@@ -9,9 +9,13 @@ vi.mock("resend", () => ({
 }));
 
 import {
+  agencyNoticeSubject,
   approvalEmailSubject,
+  renderAgencyNoticeHtml,
+  renderAgencyNoticeText,
   renderApprovalEmailHtml,
   renderApprovalEmailText,
+  sendAgencyNoticeEmail,
   sendApprovalRequestEmail,
 } from "./email";
 
@@ -92,6 +96,85 @@ describe("renderApprovalEmailText", () => {
     expect(text).toContain(input.approvalUrl);
     expect(text).toContain("Parlak Ajans");
     expect(text).not.toContain("<");
+  });
+});
+
+describe("ajans bildirimi", () => {
+  const notice = {
+    to: "ajans@ornek.com",
+    clientName: "Kahve Dükkanı",
+    postRef: "dizi/my-bad",
+  } as const;
+
+  it("konu satırı olayı, müşteriyi ve postu tek bakışta verir", () => {
+    expect(agencyNoticeSubject({ ...notice, event: "request_sent" })).toBe(
+      "[Onay bekliyor] Kahve Dükkanı — dizi/my-bad"
+    );
+    expect(agencyNoticeSubject({ ...notice, event: "approved" })).toBe(
+      "[Onaylandı] Kahve Dükkanı — dizi/my-bad"
+    );
+    expect(agencyNoticeSubject({ ...notice, event: "rejected" })).toBe(
+      "[Reddedildi] Kahve Dükkanı — dizi/my-bad"
+    );
+  });
+
+  it("onay bildirimi yayının AKIBETİNİ söyler, sadece kararı değil", () => {
+    const yayinlandi = renderAgencyNoticeText({
+      ...notice,
+      event: "approved",
+      publishStatus: "published",
+      igPermalink: "https://www.instagram.com/p/ABC/",
+    });
+    expect(yayinlandi).toContain("ONAYLADI");
+    expect(yayinlandi).toContain("Instagram'a yayınlandı");
+    expect(yayinlandi).toContain("https://www.instagram.com/p/ABC/");
+
+    const patladi = renderAgencyNoticeText({
+      ...notice,
+      event: "approved",
+      publishStatus: "failed",
+    });
+    expect(patladi).toContain("YAYINLANAMADI");
+  });
+
+  it("müşteriye mail gitmediyse bunu açıkça yazar ve linki verir", () => {
+    const text = renderAgencyNoticeText({
+      ...notice,
+      event: "request_sent",
+      clientEmailSent: false,
+      approvalUrl: "https://ornek.com/approve/abc123",
+    });
+    expect(text).toContain("GİTMEDİ");
+    expect(text).toContain("https://ornek.com/approve/abc123");
+  });
+
+  it("red bildirimi gerekçeyi taşır", () => {
+    expect(
+      renderAgencyNoticeText({ ...notice, event: "rejected", rejectionReason: "Logo eski" })
+    ).toContain("Logo eski");
+    expect(renderAgencyNoticeText({ ...notice, event: "rejected" })).toContain(
+      "Gerekçe belirtilmedi"
+    );
+  });
+
+  it("HTML injection'a karşı escape eder", () => {
+    const html = renderAgencyNoticeHtml({
+      ...notice,
+      clientName: '<script>alert("x")</script>',
+      event: "approved",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("gönderim Resend hatasını sessizce yutmaz", async () => {
+    sendMock.mockResolvedValue({
+      data: null,
+      error: { name: "validation_error", message: "Geçersiz adres" },
+    });
+    await expect(
+      sendAgencyNoticeEmail({ ...notice, event: "approved" })
+    ).resolves.toEqual({ sent: false, reason: "validation_error: Geçersiz adres" });
   });
 });
 

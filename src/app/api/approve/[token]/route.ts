@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { publishApprovedPost } from "@/lib/publish-post";
+import { sendAgencyNoticeEmail } from "@/lib/email";
+import { publishApprovedPost, type PublishOutcome } from "@/lib/publish-post";
 import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
 import { isExpired } from "@/lib/tokens";
 
@@ -102,6 +103,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       (link.post.publishStatus === "failed" || link.post.publishStatus === "idle")
     ) {
       const outcome = await publishApprovedPost(link.postId);
+      // Tekrar denemenin sonucu da bildirilir: ilk denemesi "failed" diye mail
+      // alan is sahibi, ikincisinin tuttugunu ogrenemezse panele bakmak zorunda.
+      await notifyAgency(link, "approved", outcome);
       return NextResponse.json({ status: "approved", ...outcome });
     }
     return NextResponse.json(
@@ -139,11 +143,38 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   if (newStatus !== "approved") {
+    await notifyAgency(link, "rejected", { rejectionReason: reason });
     return NextResponse.json({ status: newStatus });
   }
 
   // Onay commit oldu; buradan sonrası onayı ETKİLEMEZ. publishApprovedPost
   // throw etmez, en kötü ihtimalle publishStatus "failed" döner.
   const outcome = await publishApprovedPost(link.postId);
+  // Bildirim yayından SONRA gidiyor ki iş sahibi tek mailde hem kararı hem
+  // yayının akibetini gorsun — "onaylandi" deyip yayinin patladigini
+  // soylemeyen bir mail en cok bilinmesi gereken seyi gizlerdi.
+  await notifyAgency(link, "approved", outcome);
   return NextResponse.json({ status: newStatus, ...outcome });
+}
+
+/**
+ * İş sahibine karar bildirimi. Onayı ASLA etkilemez: hata yalnızca loglanır.
+ * Müşteri onay e-postasını alıyordu, ajansın ise akıştan hiç haberi olmuyordu.
+ */
+async function notifyAgency(
+  link: NonNullable<Awaited<ReturnType<typeof findLink>>>,
+  event: "approved" | "rejected",
+  extra: { rejectionReason?: string | null } & Partial<PublishOutcome>
+): Promise<void> {
+  const { post } = link;
+  if (!post.agency.email) return;
+  await sendAgencyNoticeEmail({
+    to: post.agency.email,
+    event,
+    clientName: post.client.name,
+    postRef: post.externalRef ?? post.caption.split("\n")[0].slice(0, 60),
+    rejectionReason: extra.rejectionReason ?? null,
+    publishStatus: extra.publishStatus ?? null,
+    igPermalink: extra.igPermalink ?? null,
+  }).catch((error) => console.error("[approve] ajans bildirimi hatası:", error));
 }

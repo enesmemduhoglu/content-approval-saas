@@ -4,7 +4,7 @@ import { authenticateApiKey } from "@/lib/api-key";
 import { db } from "@/lib/db";
 import { ClientNotOwnedError, getScopedDb } from "@/lib/scoped-db";
 import { InvalidImageError, uploadPostImage } from "@/lib/blob";
-import { sendApprovalRequestEmail, type EmailResult } from "@/lib/email";
+import { sendAgencyNoticeEmail, sendApprovalRequestEmail, type EmailResult } from "@/lib/email";
 import {
   MAX_IMAGES_PER_POST,
   validateCaption,
@@ -176,6 +176,20 @@ export async function POST(request: Request) {
       console.error("[posts] e-posta hatası:", error);
       return { sent: false, reason: error instanceof Error ? error.message : String(error) };
     });
+
+    // İş sahibine haber: "müşteriye onay isteği gitti" — ve gitmediyse onu da
+    // söyler, linki elle iletebilsin. Ajansın akıştan haberdar olmasının tek
+    // yolu buydu; öncesinde panele bakmadan hiçbir şey öğrenemiyordu.
+    if (agency?.email) {
+      await sendAgencyNoticeEmail({
+        to: agency.email,
+        event: "request_sent",
+        clientName: client.name,
+        postRef: parsed.externalRef ?? parsed.caption.split("\n")[0].slice(0, 60),
+        approvalUrl,
+        clientEmailSent: email.sent,
+      }).catch((error) => console.error("[posts] ajans bildirimi hatası:", error));
+    }
 
     return NextResponse.json(
       {
