@@ -1,22 +1,9 @@
 # TODOS
 
-Son güncelleme: 2026-08-17. Canlı: https://content-approval-saas.vercel.app
+Son güncelleme: 2026-08-17 (ikinci tur merge'lerinden sonra).
+Canlı: https://content-approval-saas.vercel.app
 
----
-
-## İnceleme bekleyen PR'lar
-
-Üçü de açık ve master'a karşı `MERGEABLE`. **Ama #21 ile #23 birbirine değiyor** —
-ikisi de `src/lib/instagram.ts` ve `src/lib/instagram.test.ts` dosyasına aynı bölgeye
-(`fetchInstagramAccount` sonrası) fonksiyon ekliyor. Test birleştirmesi yapıldı:
-hangisi ikinci merge edilirse **çakışacak**. Sıralı merge et, ikincisinde
-`git merge master` ile çakışmayı çöz — iki fonksiyon da korunmalı, biri diğerinin
-yerine geçmiyor.
-
-- **#23 — mükerrer yayın koruması** (`fix/mukerrer-yayin-korumasi`)
-- **#21 — otomatik token yenileme** (`feat/otomatik-token-yenileme`)
-- **#22 — prod temizlik betiği** (`chore/prod-test-verisi-temizligi`) — diğer ikisiyle
-  dosya kesişimi yok, bağımsız merge edilebilir.
+**Açık PR yok, açık issue yok.** #21, #22 ve #23 merge edildi; `master` = `origin/master`.
 
 ---
 
@@ -33,17 +20,9 @@ yerine geçmiyor.
       tetikleyicisini sil → **Project Settings → Script Properties** → `FURI_GITHUB_TOKEN`
       sil → GitHub'da token'ı iptal et (github.com/settings/tokens) → tetikleyici issue #1
       kapatılabilir. Ayrıntı: `furi1/.claude/skills/insta-yayinla/emekli/README.md`.
-
-- [ ] **`CRON_SECRET` Vercel env'e eklenmeli** — #21 merge edilmeden ya da hemen sonra.
-      Eklenmezse cron endpoint'i her gece 401 döner ve **yenileme hiç çalışmaz**;
-      sistem sessizce eski (elle yenileme + uyarı şeridi) davranışına düşer.
-      Cron tanımı yalnızca deploy ile kaydolur — merge production deploy'u tetikliyor,
-      elle `vercel deploy` gerekmiyor. Sonra Vercel → Settings → Cron Jobs'tan listelendiğini
-      doğrula ve ilk koşuda `[cron:ig-token]` loglarına bak.
-      *Son tarih:* "Furkan Teacher" müşterisinin token'ı **2026-10-15'te doluyor**;
-      dolarsa yayın durur (`publishStatus='failed'`). Cron çalışır hâle gelirse bu tarih
-      kalıcı olarak sorun olmaktan çıkar — çıkmazsa 2026-10-05'te dashboard uyarısı gelecek
-      ve elle yenilemek gerekecek (SaaS **ve** furi kopyası, ikisi birden).
+      *Neden hâlâ açık:* oturum notlarında bu iptalin 2026-08-17'de yapıldığı yazıyor, ama
+      repo Apps Script property'sini göremediği için dışarıdan doğrulanamıyor. Yanlış
+      kapatılırsa canlı bir token açıkta kalır — o yüzden panelden teyit edilene kadar açık.
 
 - [ ] **Prod çöp verisini gerçekten sil** — #22'nin betiği yazıldı ve dry-run'ı prod'a karşı
       çalıştırıldı, ama **silme yapılmadı**. Dry-run sonucu: 6 post, 8 görsel, 6 approval
@@ -64,6 +43,9 @@ yerine geçmiyor.
       gerekiyor; bu tekrar eden bir angarya.
       *Kalıcı çözüm:* tek kaynak — furi token'ı SaaS API'sinden çeksin, ya da yenileme
       sonrası furi env'i de programatik güncellensin. furi ayrı repo.
+      *Aciliyet:* cron bugün `skipped` dönüyor (token 2026-10-15'te doluyor, pencere 20 gün),
+      yani ilk gerçek yenileme ~**2026-09-25**. Bu tarihe kadar çözülmezse furi o gece
+      sessizce kırılır — pratik son tarih bu.
 
 ### Bilinçli kapsam dışı
 
@@ -114,6 +96,15 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ## Tamamlananlar
 
 ### 2026-08-17 — açık işler turu (PR #21, #22, #23)
+
+- [x] **`CRON_SECRET` Vercel Production'a eklendi (Sensitive)** — cron artık devrede:
+      `vercel.json` 03:00'e kurulu, endpoint canlıda, yetkisiz istek 401 dönüyor.
+      *Doğrulamanın sınırı:* sırsız istek ile yanlış-sırlı istek **aynı** 401'i döndürüyor
+      (bilinçli tasarım), yani değerin sonunda satır sonu olup olmadığı dışarıdan
+      anlaşılamıyor. İlk `[cron:ig-token]` loglarına bakmak gerekiyor.
+      *Şu anki davranış:* "Furkan Teacher"ın token'ı **2026-10-15'te** doluyor, yani
+      `IG_TOKEN_REFRESH_DAYS = 20` penceresinin dışında → cron her gece `skipped:1` dönüyor
+      ve hiçbir token'a dokunmuyor (furi bozulmuyor). İlk **gerçek** yenileme ~2026-09-25.
 
 - [x] **"Prod'da çift yayın duruyor" maddesi kapandı — yapacak bir şey yokmuş.**
       Instagram'da `long-story-short`'tan **tek post var**; iki `published` kaydın eskisine
