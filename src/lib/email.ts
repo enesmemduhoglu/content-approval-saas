@@ -126,6 +126,83 @@ export async function sendApprovalRequestEmail(
   );
 }
 
+// -------------------------------------------------------- hatırlatma (F3)
+
+/**
+ * Müşteriye "bu hâlâ onayını bekliyor" hatırlatması.
+ *
+ * İlk onay e-postasının kopyası DEĞİL: konu satırı hatırlatma olduğunu söylüyor
+ * ve gövde kaç gündür beklediğini yazıyor. Aynı maili tekrar göndermek, müşteride
+ * "bunu zaten görmüştüm" refleksiyle okunmadan silinmeye yol açardı.
+ *
+ * Post başına yalnızca BİR KEZ gider (bkz. `reminders.ts` — `reminderSentAt`).
+ */
+export type ApprovalReminderInput = ApprovalEmailInput & { daysPending: number };
+
+export function approvalReminderSubject(agencyName: string): string {
+  return `Hatırlatma: ${agencyName} onayınızı bekliyor`;
+}
+
+export function renderApprovalReminderText({
+  agencyName,
+  clientName,
+  approvalUrl,
+  daysPending,
+}: Omit<ApprovalReminderInput, "to">): string {
+  return `Merhaba ${clientName},
+
+${agencyName} tarafından hazırlanan post ${daysPending} gündür onayınızı bekliyor.
+Aşağıdaki bağlantıdan inceleyip tek tıkla onaylayabilir veya reddedebilirsiniz:
+
+${approvalUrl}
+
+Bu bağlantının süresi dolduğunda çalışmayacaktır. Giriş yapmanız gerekmez.`;
+}
+
+export function renderApprovalReminderHtml({
+  agencyName,
+  clientName,
+  approvalUrl,
+  logoUrl,
+  brandColor,
+  daysPending,
+}: Omit<ApprovalReminderInput, "to">): string {
+  const agency = escapeHtml(agencyName);
+  const client = escapeHtml(clientName);
+  const url = escapeHtml(approvalUrl);
+  const accent =
+    brandColor && HEX_COLOR_RE.test(brandColor) ? brandColor : DEFAULT_ACCENT;
+  const logoHtml = logoUrl
+    ? `<img src="${escapeHtml(logoUrl)}" alt="${agency}" style="height: 40px; max-width: 160px; object-fit: contain; margin-bottom: 16px;" />\n    `
+    : "";
+  return `<div style="font-family: 'Public Sans', Arial, sans-serif; background: #fafaf8; color: #1a1a1a; padding: 32px 16px;">
+  <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 32px;">
+    ${logoHtml}<p style="font-size: 16px; margin: 0 0 8px;">Merhaba ${client},</p>
+    <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">
+      <strong>${agency}</strong> tarafından hazırlanan post
+      <strong>${daysPending} g&uuml;nd&uuml;r</strong> onayınızı bekliyor.
+      Aşağıdaki bağlantıdan inceleyip tek tıkla onaylayabilir veya reddedebilirsiniz.
+    </p>
+    <a href="${url}" style="display: inline-block; background: ${accent}; color: #ffffff; text-decoration: none; font-size: 16px; padding: 14px 28px; border-radius: 6px;">İncele ve Onayla</a>
+    <p style="font-size: 13px; color: #6b6b6b; margin: 24px 0 0;">Bu bağlantının s&uuml;resi dolduğunda &ccedil;alışmayacaktır. Giriş yapmanız gerekmez.</p>
+  </div>
+</div>`;
+}
+
+export async function sendApprovalReminderEmail(
+  input: ApprovalReminderInput
+): Promise<EmailResult> {
+  return gonder(
+    {
+      to: input.to,
+      subject: approvalReminderSubject(input.agencyName),
+      html: renderApprovalReminderHtml(input),
+      text: renderApprovalReminderText(input),
+    },
+    "onay hatırlatması"
+  );
+}
+
 // ----------------------------------------------------------- ajans bildirimi
 
 /**
@@ -133,7 +210,12 @@ export async function sendApprovalRequestEmail(
  * ajansın akıştan hiç haberi olmuyordu: onay isteği gitti mi, müşteri ne dedi,
  * post yayınlandı mı — hepsini ancak panele bakarak öğrenebiliyordu.
  */
-export type AgencyNoticeEvent = "request_sent" | "approved" | "rejected";
+export type AgencyNoticeEvent =
+  | "request_sent"
+  | "approved"
+  | "rejected"
+  /** Onay linki öldü ama post hâlâ bekliyor — yalnızca ajans çözebilir (F3). */
+  | "link_expired";
 
 export type AgencyNoticeInput = {
   to: string;
@@ -147,6 +229,8 @@ export type AgencyNoticeInput = {
   rejectionReason?: string | null;
   publishStatus?: string | null;
   igPermalink?: string | null;
+  /** link_expired: post kaç gündür bekliyor. */
+  daysPending?: number;
 };
 
 const YAYIN_METNI: Record<string, string> = {
@@ -162,6 +246,7 @@ export function agencyNoticeSubject(input: AgencyNoticeInput): string {
     request_sent: "Onay bekliyor",
     approved: "Onaylandı",
     rejected: "Reddedildi",
+    link_expired: "Link süresi doldu",
   }[input.event];
   return `[${etiket}] ${input.clientName} — ${input.postRef}`;
 }
@@ -182,6 +267,18 @@ function agencyNoticeLines(input: AgencyNoticeInput): string[] {
     lines.push(`${input.clientName} postu ONAYLADI.`);
     lines.push(YAYIN_METNI[input.publishStatus ?? "idle"] ?? `Yayın durumu: ${input.publishStatus}`);
     if (input.igPermalink) lines.push(`Post: ${input.igPermalink}`);
+  } else if (input.event === "link_expired") {
+    // Müşteriye hatırlatma göndermenin anlamı yok: elindeki link çalışmıyor.
+    // Yapabilecek tek kişi ajans, o yüzden ne yapması gerektiği açıkça yazıyor.
+    lines.push(
+      `${input.clientName} için gönderilen post hâlâ onay bekliyor` +
+        (input.daysPending !== undefined ? ` (${input.daysPending} gündür)` : "") +
+        ", ama onay linkinin SÜRESİ DOLDU."
+    );
+    lines.push(
+      "Müşteri artık linke tıklasa da açamaz. Panelden \"Yeni link gönder\" ile " +
+        "linki yenile — müşteriye yeni bir onay e-postası gider."
+    );
   } else {
     lines.push(`${input.clientName} postu REDDETTİ.`);
     lines.push(

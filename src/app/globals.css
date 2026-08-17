@@ -699,3 +699,34 @@ button:disabled {
     text-align: left;
   }
 }
+
+/* --- Karar geçmişi + hatırlatma notu (F3/F4) --- */
+.post-note {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0.15rem 0 0;
+}
+
+.audit-trail {
+  margin-top: 0.35rem;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.audit-trail summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.audit-trail ul {
+  list-style: none;
+  padding: 0.35rem 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.audit-ip {
+  font-variant-numeric: tabular-nums;
+}

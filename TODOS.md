@@ -1,6 +1,6 @@
 # TODOS
 
-Son güncelleme: 2026-08-17 (S1 — Instagram token'ları artık şifreli).
+Son güncelleme: 2026-08-17 (Faz D — hatırlatma + karar geçmişi).
 Canlı: https://content-approval-saas.vercel.app · **Depo artık private.**
 
 **Açık PR yok, açık issue yok.** #21–#23, #28–#32 merge edildi; `master` = `origin/master`
@@ -12,8 +12,9 @@ Kod tabanı baştan sona okunup güvenlik açıkları (S1–S9) ve ürün boşlu
 "Açık işler" altına işlendi. Sonra sırasıyla: **S2 + S4 kapatıldı** ve bu belge açık bir
 açık listesi taşıdığı için **depo private'a alındı**; ardından **F1 + F2 + F5** (post
 yönetimi) yapıldı, F13 ve S9 da onlara bindi.
-Sonra **S1** (token şifreleme) kapatıldı. **Kalanların hiçbiri bugün sömürülebilir
-değil**; kalan güvenlik maddeleri (S3, S5–S8) hijyen ve derinlemesine savunma.
+Sonra **S1** (token şifreleme) ve **Faz D**'den F3 + F4 kapatıldı. **Kalanların hiçbiri
+bugün sömürülebilir değil**; kalan güvenlik maddeleri (S3, S5–S8) hijyen ve derinlemesine
+savunma. F11 (hata izleme) bilinçli olarak bu tura alınmadı.
 
 ---
 
@@ -122,14 +123,8 @@ kararı gerektiriyor.
 
 - [x] **F1 — kapatıldı.** Bkz. "Tamamlananlar → post yönetimi".
 - [x] **F2 — kapatıldı** (S9'u da kapattı). Bkz. "Tamamlananlar → post yönetimi".
-- [ ] **F3 · Hatırlatma yok.** Post `pending`'de sonsuza kadar durabiliyor; ne müşteriye
-      ikinci mail ne ajansa "3 gündür bekliyor" uyarısı. Cron altyapısı (`vercel.json` +
-      `CRON_SECRET` + `bearerToken`/`secretsMatch`) zaten kurulu — ikinci bir cron işi,
-      yeni altyapı gerekmiyor.
-- [ ] **F4 · `ApprovalAudit` hiçbir yerde okunmuyor.** Yazılıyor ama ne panelde ne API'de
-      görünüyor. README'nin öne çıkardığı "karar IP ve zaman damgasıyla kayıt altında"
-      vaadinin arayüzde karşılığı yok — veri ölü duruyor. Post detayında küçük bir zaman
-      çizelgesi yeter.
+- [x] **F3 — kapatıldı.** Bkz. "Tamamlananlar → Faz D".
+- [x] **F4 — kapatıldı.** Bkz. "Tamamlananlar → Faz D".
 - [x] **F5 — kapatıldı.** Bkz. "Tamamlananlar → post yönetimi".
 
 **SaaS eksikleri — şema/ürün kararı gerektirir**
@@ -155,6 +150,10 @@ kararı gerektiriyor.
 - [ ] **F11 · Hata izleme yok.** Her şey `console.error` ile Vercel loglarına gidiyor ve
       kimseye ulaşmıyor: cron'un sessizce patlaması, Resend'in reddetmesi, yayın hataları
       ancak biri bakarsa görünür. "İki gündür mail gitmiyor" olayının tekrar etmemesinin yolu.
+      *2026-08-17'de bilinçli olarak ertelendi* (Faz D'de F3 + F4 yapıldı, bu alınmadı).
+      Seçenekler: sıfır bağımlılıkla e-posta uyarıları (mevcut `gonder()` üzerinden) ya da
+      Sentry (`@sentry/nextjs` + `SENTRY_DSN`). İlki yakalanmamış istisnaları göremez,
+      ikincisi yeni bağımlılık ve dış servis getirir.
 - [ ] **F12 · `/api/health` yok.** Uptime/canary izlemesi için uç nokta yok.
 - [x] **F13 — kapatıldı** (F2'ye bindi: silinen postun blob'ları da siliniyor).
 
@@ -277,6 +276,52 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ---
 
 ## Tamamlananlar
+
+### 2026-08-17 — Faz D: hatırlatma (F3) + karar geçmişi (F4)
+
+- [x] **F3 — bekleyen postlar artık dürtülüyor.** Yeni günlük cron
+      `/api/cron/pending-reminders` (`vercel.json`, 09:00 UTC), token yenileme cron'uyla
+      **aynı `CRON_SECRET`** — Vercel bütün cron'lara aynı başlığı gönderiyor, ikinci bir
+      sır yönetmenin faydası yok.
+      *Karar `reminders.ts`'de, saf yüklem* (`instagram-token.ts` deseni): cron yalnızca
+      uyguluyor, bütün kenar durumlar tek dosyada ve testte.
+      *İki ayrı olay, iki ayrı muhatap:* link HÂLÂ GEÇERLİ + post ≥2 gündür bekliyorsa
+      **müşteriye** hatırlatma; link ÖLMÜŞ ama post hâlâ bekliyorsa **ajansa** bildirim —
+      çünkü müşterinin elindeki link çalışmıyor, yapabilecek tek kişi ajans (F1'deki
+      "Yeni link gönder"e yönlendiriyor).
+      *2 gün nereden:* link 7 gün geçerli. Daha erken dürtmek rahatsızlık, daha geç
+      dürtmek linkin ölmesine çok az zaman bırakır.
+      *Spam koruması:* ikisi de post başına TEK SEFERLİK (`reminderSentAt`,
+      `expiryNoticeSentAt`). Damga gönderimden SONRA yazılıyor; **mail gitmezse damga da
+      yazılmıyor**, ertesi gün tekrar deneniyor — "bir kez fazla hatırlatma" ile "hiç
+      hatırlatmama" arasında ikincisi daha pahalı.
+      *Hatırlatma maili ilk mailin kopyası DEĞİL:* konusu hatırlatma olduğunu söylüyor,
+      gövdesi kaç gündür beklediğini yazıyor. Aynı maili tekrar atmak "bunu zaten
+      görmüştüm" refleksiyle okunmadan silinmeye yol açardı.
+      Panelde "Hatırlatma gönderildi · tarih" notu var.
+
+- [x] **F4 — `ApprovalAudit` artık okunuyor.** Panelde açılır "Karar geçmişi (N)":
+      karar, zaman damgası ve IP. README'nin öne çıkardığı vaadin arayüzde ilk kez
+      karşılığı var; anlaşmazlıkta ("ben onaylamadım") bakılacak yer burası.
+      *Şema değişti:* `ApprovalAudit.postId` çıplak bir `String`'di — ne cascade ediyor ne
+      engelliyordu, `include` de mümkün değildi. FK eklendi (`ON DELETE RESTRICT`).
+      **Migration öncesi prod ölçüldü: 8 audit satırı, 0 öksüz** → FK güvenle eklendi.
+      F2'nin silme sırası (audit → görsel → link → post) FK'yı zaten karşılıyor.
+      *IP `"unknown"` ise gösterilmiyor:* proxy'siz ortamda başlık gelmiyor ve audit'e boş
+      değer düşmesin diye sabit yazılıyor (`rate-limit.ts`); onu ekranda "unknown" diye
+      göstermektense sessiz kalmak daha dürüst.
+      *Etiketler rozetten farklı* ("Müşteri onayladı" / "Müşteri reddetti"): rozet ŞU ANKİ
+      durumu, geçmiş satırı ise OLAN BİR OLAYI anlatıyor. Aynı kelimeyi iki anlamda iki kez
+      göstermek hem okuyucuyu hem testleri şaşırttı (e2e'de "Onaylandı" iki elemana denk
+      geldi ve strict mode ihlali verdi).
+
+- [x] **F11 bilinçli olarak alınmadı** — açık madde olarak duruyor, seçenekleriyle birlikte.
+
+- [x] **353 unit/integration + 6 e2e geçti, `tsc` temiz, build başarılı.**
+
+**⚠ Cron sayısı:** `vercel.json` artık **iki** cron tanımlıyor (03:00 token yenileme,
+09:00 hatırlatma). Vercel Hobby planında cron sayısı ve sıklığı sınırlı — deploy sonrası
+Vercel → Project → Cron Jobs ekranından **ikisinin de kayıtlandığı doğrulanmalı**.
 
 ### 2026-08-17 — S1: Instagram token'ları şifrelendi
 

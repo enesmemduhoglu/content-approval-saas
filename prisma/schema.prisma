@@ -90,9 +90,20 @@ model Post {
   approvalEmailError  String?
   approvalEmailSentAt DateTime?
 
+  // Hatırlatma (F3) — ikisi de TEK SEFERLİK; dolu olmaları "bu bildirim zaten
+  // gitti" demek. Cron her gece koştuğu için tek koruma bu alanlar.
+  /** Müşteriye "hâlâ bekliyor" hatırlatması gönderildi. */
+  reminderSentAt     DateTime?
+  /** Ajansa "onay linkinin süresi doldu, yenilemen gerekiyor" bildirimi gönderildi. */
+  expiryNoticeSentAt DateTime?
+
+  audits ApprovalAudit[]
+
   @@index([agencyId])
   @@index([clientId])
   @@index([externalRef])
+  // Hatırlatma cron'u "bekleyen ve linki olan" postları tarıyor.
+  @@index([status])
 }
 
 model PostImage {
@@ -117,8 +128,14 @@ model ApprovalLink {
 }
 
 model ApprovalAudit {
-  id        String   @id @default(cuid())
-  postId    String
+  id     String @id @default(cuid())
+  postId String
+  // İlişki F4 ile eklendi. Öncesinde `postId` çıplak bir String'di: ne cascade
+  // ediyor ne engelliyordu, yani post silinince öksüz satır kalabiliyordu
+  // (post silme yolu bunu elle temizliyor). FK artık bunu şemada garanti ediyor
+  // ve panelin karar geçmişini `include` ile okumasını mümkün kılıyor.
+  // Migration öncesi prod'da öksüz satır olmadığı ölçüldü (8 kayıt, 0 öksüz).
+  post      Post     @relation(fields: [postId], references: [id])
   action    String // "approved" | "rejected"
   ip        String
   createdAt DateTime @default(now())
