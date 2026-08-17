@@ -6,6 +6,7 @@ import { PostForm } from "@/components/post-form";
 import { EmailBadge, PublishBadge, StatusBadge } from "@/components/status-badge";
 import { CopyLinkButton } from "@/components/copy-link-button";
 import { PostActions } from "@/components/post-actions";
+import { AuditTrail } from "@/components/audit-trail";
 import { TokenAlerts } from "@/components/token-alert";
 import { instagramTokenAlerts } from "@/lib/instagram-token";
 
@@ -72,6 +73,15 @@ export default async function DashboardPage() {
                       Mail hatası: {post.approvalEmailError}
                     </p>
                   )}
+                  {/* Hatırlatma gönderildiyse söyle — ajans "müşteri neden
+                      sessiz" derken dürtülüp dürtülmediğini bilmeli (F3). */}
+                  {post.status === "pending" && post.reminderSentAt && (
+                    <p className="post-note">
+                      Hatırlatma gönderildi ·{" "}
+                      {post.reminderSentAt.toLocaleDateString("tr-TR")}
+                    </p>
+                  )}
+                  <AuditTrail entries={post.audits} />
                   {/* Mükerrer: hata değil, atlama. "Yayın hatası:" öneki olmadan,
                       publishError'daki açıklama olduğu gibi gösterilir. */}
                   {post.publishStatus === "duplicate" && post.publishError && (

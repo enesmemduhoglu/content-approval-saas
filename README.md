@@ -97,6 +97,17 @@ Kapsam: token üretimi/expiry, rate limit eşiği, validasyon, e-posta hata tole
 
 Proje Vercel'e bağlıdır; `vercel deploy --prod` yeterlidir. `vercel-build` script'i her deploy'da önce `prisma migrate deploy` çalıştırır — migration'lar otomatik uygulanır. Postgres, Vercel Marketplace üzerinden Neon'dur (`DATABASE_URL` pooled, `DATABASE_URL_UNPOOLED` migration için).
 
+### Cron'lar
+
+`vercel.json` iki günlük iş tanımlıyor, ikisi de **aynı `CRON_SECRET`** ile korunur:
+
+| Saat (UTC) | Yol | Ne yapar |
+|---|---|---|
+| 03:00 | `/api/cron/refresh-instagram-tokens` | Süresi dolmaya yaklaşan Instagram token'larını uzatır |
+| 09:00 | `/api/cron/pending-reminders` | 2 gündür bekleyen posta müşteriye hatırlatma; linki ölmüş bekleyen post için ajansa bildirim |
+
+Hatırlatmalar post başına **tek seferlik** (`Post.reminderSentAt` / `expiryNoticeSentAt`) — cron her gece koştuğu için spam koruması bu alanlardır.
+
 ### Cron: Instagram token yenileme
 
 `vercel.json` her gün 03:00 UTC'de `/api/cron/refresh-instagram-tokens` çağırır ve süresi dolmaya yaklaşan (≤ 20 gün) token'ları uzatır. Çalışması için **`CRON_SECRET`'in Vercel env'ine eklenmesi zorunludur**:

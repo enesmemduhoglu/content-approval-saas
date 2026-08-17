@@ -240,6 +240,15 @@ export function getScopedDb(session: ScopedSession) {
             },
             approvalLink: true,
             images: { orderBy: { sortOrder: "asc" } },
+            // Karar geçmişi (F4). `ApprovalAudit` yazılıyordu ama hiçbir yerde
+            // OKUNMUYORDU — README'nin "karar IP ve zaman damgasıyla kayıt
+            // altında" vaadinin arayüzde karşılığı yoktu. İlişki de bu yüzden
+            // eklendi; öncesinde `postId` çıplak bir String olduğu için
+            // `include` mümkün değildi.
+            audits: {
+              select: { id: true, action: true, ip: true, createdAt: true },
+              orderBy: { createdAt: "asc" },
+            },
           },
         });
         return posts.map(({ client, ...post }) => {

@@ -58,6 +58,10 @@ function postKaydi(overrides: {
     publishError: null,
     approvalLink: null,
     images: [{ id: "i1", url: "https://example.com/1.jpg", altText: null }],
+    // Prisma `include` her zaman dizi döner; gerçek veride asla undefined olmaz.
+    audits: [],
+    approvalEmailSent: null,
+    reminderSentAt: null,
     ...overrides,
     client: { id: "c1", name: "Müşteri", email: "m@example.com", publishTarget: overrides.publishTarget },
   };
