@@ -1,9 +1,11 @@
 # TODOS
 
-Son güncelleme: 2026-08-17 (ikinci tur merge'lerinden sonra).
+Son güncelleme: 2026-08-17 akşamı (bildirim turu merge + deploy sonrası).
 Canlı: https://content-approval-saas.vercel.app
 
-**Açık PR yok, açık issue yok.** #21, #22 ve #23 merge edildi; `master` = `origin/master`.
+**Açık PR yok, açık issue yok.** #21–#23, #28–#32 merge edildi; `master` = `origin/master`
+ve **prod'a deploy edildi** (`content-approval-saas.vercel.app` alias'ı #32'nin
+deployment'ında, canlı doğrulandı).
 Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** — çöp veri kalmadı.
 
 ---
@@ -34,28 +36,19 @@ Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** —
       tekrar giriş yaparsa sıfırdan yeni ajans oluşur. Beklenen davranış.
 
 
-### Doğruluk
+### Temizlik
 
-- [ ] **furi'nin token kopyası bayatlayacak** — #21'in yan etkisi, yeni iş.
-      Instagram token'ının iki kopyası var: SaaS'ta `Client.instagramAccessToken`,
-      furi'de ayrı bir ortam değişkeni. Senkron mekanizması yok. Cron SaaS kopyasını
-      yenileyince Instagram eskisini kısa süre sonra geçersiz kılıyor → **furi sessizce
-      kırılır**. İlk gerçek yenileme ~**2026-09-25** (token 2026-10-15'te doluyor,
-      pencere 20 gün) — pratik son tarih buydu.
-      **Çözüm yazıldı, merge bekliyor: SaaS PR #29 + furi PR #3.**
-      Tek kaynak yaklaşımı: furi kendi kopyasını hiç tutmuyor, token'ı her çalışmada
-      `GET /api/clients/[id]/instagram-token` üzerinden SaaS'tan çekiyor.
-      *Merge sırası önemli:* **önce SaaS merge + deploy, sonra furi.** Ters sırada furi
-      henüz var olmayan bir uca istek atar.
-      *Sonrasında elle:* furi'nin yerel `.env`'inden `IG_ACCESS_TOKEN` ve `IG_USER_ID`
-      satırlarını sil — artık hiçbir yerde okunmuyorlar ama duran sır gereksiz risk.
-      Yeni env değişkeni **gerekmiyor**; `FURI_API_KEY`, `FURI_API_AGENCY_ID`,
-      `FURI_SAAS_URL`, `FURI_CLIENT_ID` zaten tanımlı.
-      *Merge sonrası doğrula:*
-      `python .claude/skills/insta-yayinla/scripts/ig_token.py --kontrol`
-      (uçtan uca gerçek doğrulama SaaS deploy edilmeden yapılamıyordu).
+- [ ] **Doğrulama test postunu sil** — panelde `test/bildirim-dogrulama` adlı,
+      `status: rejected` bir post duruyor. 2026-08-17 akşamı bildirim zincirini canlıda
+      uçtan uca ölçmek için oluşturuldu ve **hemen reddedildi** (red asla yayın yapmaz,
+      yani Instagram'a hiçbir şey gitmedi). İşi bitti, silinebilir. Düşük öncelik.
 
 ### Bilinçli kapsam dışı
+
+- [ ] **Toplu onayda (`/batch`) ajans bildirimi yok** — #32 tekil onay/red yolunu
+      kapsıyor, batch'i bilerek kapsamadı: o yol zaten yayın yapmıyor (aşağıdaki
+      "Toplu onay yayın yapmıyordu" maddesi) ve her post için ayrı mail atmak istenmez.
+      Batch yeniden ele alınırsa tek bir özet bildirim mantıklı olur.
 
 - [ ] **Toplu reddetme** — reddetme sebebi post başına anlamlı olduğu için toplu onayın
       simetriği yapılmadı. Yeniden değerlendirilirse "ortak sebep" alanı gerekir.
@@ -63,6 +56,23 @@ Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** —
 ---
 
 ## Bilinmesi gerekenler
+
+**Mailler iki AYRI kutuya gidiyor — "mail gitmiyor" teşhisi bu yüzden yanlış kurulabilir.**
+Onay maili **müşterinin** adresine (`Client.email`), ajans bildirimleri **iş sahibinin**
+adresine (`Agency.email` = `enesmemduhoglu0@gmail.com`) gider. İkisi de
+`eneshan034@gmail.com` **değil**. 2026-08-17'de bu tuzağa düşüldü: `eneshan034` kutusunda
+mail görünmeyince "iki gündür onay maili gitmiyor" sonucuna varıldı, oysa mailler
+gidiyordu — sadece başka kutuya. Ölçüm bunu net gösterdi: aynı Resend anahtarı ve aynı
+`EMAIL_FROM` ile `eneshan034`'e **doğrudan** atılan test maili düştü, uygulamanın
+`Client.email`'e attığı mail ise `emailSent: true` dönmesine rağmen orada görünmedi.
+*Kural:* bir mailin gidip gitmediğini gelen kutusuna bakarak değil, `/api/posts`
+yanıtındaki **`emailSent` / `emailError`** alanlarına bakarak karara bağla.
+
+**Resend SDK'sı (v4) API hatalarında THROW ETMEZ.** `{ data, error }` döndürür. Dönüşü
+okumayan bir çağrı, reddedilen her gönderimi iz bırakmadan yutar: post 201 döner, durum
+`pending` kalır, log bile çıkmaz. `email.ts > gonder()` bu dönüşü okuyor ve `EmailResult`
+üretiyor — **yeni bir mail yolu eklerken `gonder()` üzerinden geç**, `resend.emails.send`'i
+doğrudan çağırma. (#31)
 
 **`.env.local` iki ayrı adres tutuyor.** `DATABASE_URL` → **localhost** (Docker, port 5455);
 prod Neon adresi **`POSTGRES_URL`** altında. Prisma varsayılanıyla bağlanan bir betik prod'a
@@ -108,6 +118,64 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ---
 
 ## Tamamlananlar
+
+### 2026-08-17 akşamı — bildirim turu (SaaS #31, #32 · furi #4, #5)
+
+Tetikleyen olay: **furi'nin 15:07 zamanlanmış çalışması düştü ve o yuvaya post konmadı.**
+Kovalarken iki ayrı gerçek sorun ve bir yanlış teşhis çıktı.
+
+- [x] **`esitle.py` Instagram'a ulaşamayınca tüm akışı düşürüyordu** (furi #4).
+      Bulut oturumunun çıkış proxy'si `graph.instagram.com:443` CONNECT'ini politika
+      gereği 403 ile kesiyor. Script bunu `IGHatasi` olarak alıp **çıkış kodu 1** ile
+      dönüyordu; skill'in "hata olursa dur" kuralı yüzünden Faz 2 hiç çalışmadı.
+      Oysa aynı dosya karşılaştırmayı *"opsiyonel, bir emniyet ağı"* diye tarif ediyor ve
+      **token alınamadığında** zaten atlayıp devam ediyordu — token alınıp **çağrı
+      başarısız olduğunda** tepki farklıydı. İki yol aynı davranışa bağlandı.
+      *Sonuç:* bulutta Instagram karşılaştırması hiç çalışmıyor, yani **"defterde var,
+      Instagram'da yok" tespiti zamanlanmış çalışmalarda yapılmıyor** — elle silinen post
+      kendiliğinden havuza dönmez, `atlananlar`'a elle eklenmeli. Bu kısıt SKILL.md'ye
+      yazıldı. Faz 1'in asıl işi (bekleyen postun akıbeti) etkilenmiyor: o bilgi SaaS'ın
+      public onay endpoint'inden geliyor ve Instagram'a hiç dokunmuyor.
+
+- [x] **Onay maili sessizce kaybolabiliyordu** (#31). `resend@4` throw etmiyor,
+      `{ data, error }` döndürüyor; `email.ts` dönüşü hiç okumuyordu. Reddedilen her
+      gönderim iz bırakmadan kayboluyordu — ne log, ne hata, ne uyarı. Testler de eski SDK
+      şeklini (`mockResolvedValue({id})`) taklit ettiği için bu yolu hiç kapsamamıştı.
+      Artık `{ error }` okunuyor, `EmailResult` dönüyor ve `/api/posts` yanıtına
+      **`emailSent` / `emailError`** olarak çıkıyor. Hâlâ throw etmiyor — post oluşturma
+      e-postaya bağımlı değil.
+      *furi tarafı (#5):* bu alanlar `saas_gonder.py` raporuna `mail_gitti` / `mail_hatasi`
+      olarak taşınıyor; `mail_gitti: false` görülürse skill `[FURI-HATA]` maili atıyor.
+      Alan yoksa sessiz kalıyor (eski SaaS sürümüne karşı yanlış alarm yok).
+
+- [x] **İş sahibine onay/red bildirimi — hiç yazılmamış özellik** (#32).
+      Müşteri onay e-postasını alıyordu, **ajansın akıştan hiç haberi olmuyordu**;
+      `approve/[token]/route.ts` içinde `email`/`mail`/`bildir` geçen tek satır yoktu.
+      Artık `Agency.email` adresine üç noktada bildirim gidiyor: post onaya gönderilince
+      (`[Onay bekliyor]`, içinde müşteriye mail gidip gitmediği + onay linki), onaylanınca
+      (`[Onaylandı]`, **yayının akıbeti + permalink**), reddedilince (`[Reddedildi]`,
+      gerekçesiyle). Yayın tekrar denemesi de bildiriliyor.
+      *Kararlar:* onay bildirimi **yayından sonra** gider — sadece "onaylandı" diyen bir
+      mail, yayının patladığını gizlerdi. Bildirim onayı **asla** etkilemez; hata yalnızca
+      loglanır, karar ve yayın yerinde kalır (test ediliyor).
+
+- [x] **Canlıda uçtan uca doğrulandı.** #32 merge'i otomatik prod deployment'ı tetikledi
+      (`target: production`, alias bağlı). Doğrulama için test postu oluşturulup **hemen
+      reddedildi** — red asla yayın yapmadığı için Instagram'a hiçbir şey gitmedi:
+      `POST /api/posts → 201, emailSent: true, emailError: none` ·
+      `POST /api/approve → 200, {"status":"rejected"}`.
+
+- [x] **"İki gündür onay maili gitmiyor" — yanlış teşhisti, arıza yoktu.**
+      Mailler gidiyordu; `eneshan034@gmail.com` kutusuna bakıldığı için görünmüyordu.
+      Doğru adresler: onay maili müşteriye, bildirimler `enesmemduhoglu0@gmail.com`'a.
+      Ayrıntı ve kural için yukarıdaki "Bilinmesi gerekenler" bölümü.
+
+- [x] **furi token tek kaynak maddesi kapandı** (#29 + furi #3, bu turdan önce merge).
+      furi artık `IG_ACCESS_TOKEN` kopyası tutmuyor, token'ı her çalışmada
+      `GET /api/clients/[id]/instagram-token` ile SaaS'tan çekiyor — 2026-09-25'teki ilk
+      gerçek yenilemede sessizce kırılma riski ortadan kalktı.
+      *Kalan elle iş:* furi'nin yerel `.env`'inde `IG_ACCESS_TOKEN` / `IG_USER_ID` satırları
+      duruyorsa silinebilir; artık hiçbir yerde okunmuyorlar.
 
 ### 2026-08-17 — açık işler turu (PR #21, #22, #23)
 
