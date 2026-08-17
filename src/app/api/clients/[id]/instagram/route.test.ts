@@ -10,6 +10,7 @@ vi.mock("@/lib/auth", () => ({
 import { DELETE, POST } from "./route";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { decryptSecret, isEncrypted } from "@/lib/crypto";
 import { createAgency, createClient, createInstagramClient, resetDb } from "@tests/helpers/db";
 
 const mockAuth = vi.mocked(auth);
@@ -83,7 +84,9 @@ describe("POST /api/clients/[id]/instagram", () => {
 
     const saved = await db.client.findUnique({ where: { id: client.id } });
     expect(saved?.instagramUserId).toBe(IG_USER_ID);
-    expect(saved?.instagramAccessToken).toBe(VALID_TOKEN);
+    // Token DB'ye ŞİFRELİ yazılır (S1); düz metin karşılaştırması artık yanlış olurdu.
+    expect(isEncrypted(saved!.instagramAccessToken!)).toBe(true);
+    expect(decryptSecret(saved!.instagramAccessToken!)).toBe(VALID_TOKEN);
     expect(saved?.instagramTokenExpiry?.toISOString().slice(0, 10)).toBe("2099-10-15");
   });
 
@@ -214,5 +217,25 @@ describe("DELETE /api/clients/[id]/instagram", () => {
     mockAuth.mockResolvedValue(null as never);
     const res = await DELETE(new Request("http://localhost"), routeParams("x"));
     expect(res.status).toBe(401);
+  });
+});
+
+describe("ENCRYPTION_KEY yapılandırılmamışsa", () => {
+  it("production'da bağlantı REDDEDİLİR, düz metin yazılmaz", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+    respondMe();
+
+    vi.stubEnv("ENCRYPTION_KEY", "");
+    vi.stubEnv("NODE_ENV", "production");
+
+    const res = await POST(jsonRequest({ accessToken: VALID_TOKEN }), routeParams(client.id));
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toContain("ENCRYPTION_KEY");
+
+    // En önemlisi: DB'ye düz metin DÜŞMEDİ.
+    const saved = await db.client.findUnique({ where: { id: client.id } });
+    expect(saved?.instagramAccessToken).toBeNull();
   });
 });

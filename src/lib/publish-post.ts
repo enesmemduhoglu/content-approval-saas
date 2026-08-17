@@ -1,5 +1,6 @@
 import type { PublishStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { decryptSecret } from "@/lib/crypto";
 import type { MediaLiveness } from "@/lib/instagram";
 import { IGError, checkMediaLiveness, publishToInstagram } from "@/lib/instagram";
 import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
@@ -71,16 +72,29 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
     );
   }
 
+  // Token DB'de şifreli duruyor (S1). BİR KEZ çözülür ve aşağıdaki iki yerde
+  // (mükerrer kontrolü + yayın) aynı değer kullanılır.
+  //
+  // Çözme hatası burada yakalanır çünkü bu fonksiyonun sözleşmesi "asla throw
+  // etme": onay commit olmuş durumda çağrılıyor ve bir istisna onayın yanıtını
+  // düşürürdü. Ajans panelde ne olduğunu okuyabilsin diye mesaj açık.
+  let accessToken: string;
+  try {
+    accessToken = decryptSecret(client.instagramAccessToken);
+  } catch (error) {
+    console.error("[instagram] token çözülemedi:", error);
+    return markFailed(
+      postId,
+      "Instagram token'ı sunucuda çözülemedi (ENCRYPTION_KEY sorunu) — " +
+        "hesabın panelden yeniden bağlanması gerekebilir"
+    );
+  }
+
   // Mükerrer yayın koruması. Dış otomasyon (furi) aynı içeriği iki kez
   // gönderirse iki ayrı Post oluşur ve ikisi de onaylanınca Instagram'a İKİ KEZ
   // düşer — prod'da yaşandı.
   const liveTwin = post.externalRef
-    ? await findLivePublishedTwin(
-        post.id,
-        post.agencyId,
-        post.externalRef,
-        client.instagramAccessToken
-      )
+    ? await findLivePublishedTwin(post.id, post.agencyId, post.externalRef, accessToken)
     : null;
   if (liveTwin) {
     return markDuplicate(postId, post.externalRef!, liveTwin.igPermalink);
@@ -89,7 +103,7 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   try {
     const result = await publishToInstagram({
       igUserId: client.instagramUserId,
-      accessToken: client.instagramAccessToken,
+      accessToken,
       imageUrls: post.images.map((image) => image.url),
       caption: post.caption,
       altTexts: post.images.map((image) => image.altText),

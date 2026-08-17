@@ -1,6 +1,6 @@
 # TODOS
 
-Son güncelleme: 2026-08-17 (post yönetimi turu — F1 + F2 + F5).
+Son güncelleme: 2026-08-17 (S1 — Instagram token'ları artık şifreli).
 Canlı: https://content-approval-saas.vercel.app · **Depo artık private.**
 
 **Açık PR yok, açık issue yok.** #21–#23, #28–#32 merge edildi; `master` = `origin/master`
@@ -12,8 +12,8 @@ Kod tabanı baştan sona okunup güvenlik açıkları (S1–S9) ve ürün boşlu
 "Açık işler" altına işlendi. Sonra sırasıyla: **S2 + S4 kapatıldı** ve bu belge açık bir
 açık listesi taşıdığı için **depo private'a alındı**; ardından **F1 + F2 + F5** (post
 yönetimi) yapıldı, F13 ve S9 da onlara bindi.
-**Kalanların hiçbiri bugün sömürülebilir değil.** Sıradaki en yüksek etkili madde S1
-(token şifreleme).
+Sonra **S1** (token şifreleme) kapatıldı. **Kalanların hiçbiri bugün sömürülebilir
+değil**; kalan güvenlik maddeleri (S3, S5–S8) hijyen ve derinlemesine savunma.
 
 ---
 
@@ -68,19 +68,7 @@ Kod okunarak yapılan tur. **Sömürülebilir olan iki madde (S2, S4) kapatıld�
 sömürülebilir değil. Temiz çıkan alanların listesi "Bilinmesi gerekenler"de —
 yeniden taranmasın.
 
-- [ ] **S1 · Yüksek — Instagram token'ları DB'de düz metin.**
-      `prisma/schema.prisma:37`, `Client.instagramAccessToken`.
-      Bu bir uygulama sırrı değil, **müşterinin kimlik bilgisi**: hesabına yayın yapma
-      yetkisi. Neon dump'ı, bir yedek ya da Prisma query logging'in açılması doğrudan
-      hesap ele geçirmeye çıkar ve bedelini müşteri öder.
-      *Düzeltme:* uygulama katmanında AES-256-GCM, yeni `src/lib/crypto.ts` +
-      `ENCRYPTION_KEY` env. Yazma noktaları sayılı (`scoped-db.ts > updateInstagram`,
-      cron'daki `db.client.update`), okuma noktaları da (`findInstagramCredentials`,
-      cron, `publish-post.ts`) — dolayısıyla dar bir değişiklik.
-      *Kesintisiz geçiş:* `enc:v1:` öneki. Önek yoksa değer düz metin kabul edilip okunur,
-      her yazmada şifreliye döner; ayrı migration betiği gerekmez.
-      *Dikkat:* furi token'ı `GET /api/clients/[id]/instagram-token` ile çekiyor —
-      o uç nokta **çözülmüş** token döndürmeye devam etmeli, yoksa furi sessizce kırılır.
+- [x] **S1 — kapatıldı.** Bkz. "Tamamlananlar → token şifreleme".
 
 - [x] **S2 — kapatıldı.** Bkz. "Tamamlananlar → 2026-08-17 güvenlik turu".
 
@@ -262,6 +250,72 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ---
 
 ## Tamamlananlar
+
+### 2026-08-17 — S1: Instagram token'ları şifrelendi
+
+`Client.instagramAccessToken` düz metin duruyordu. Bu bir uygulama sırrı değil,
+**müşterinin Instagram hesabına yayın yapma yetkisi**: bir Neon dump'ı, bir yedek ya da
+Prisma query logging'in açılması doğrudan hesap ele geçirmeye çıkıyordu ve bedelini biz
+değil müşteri öderdi.
+
+- [x] **AES-256-GCM, `src/lib/crypto.ts`.** Biçim `enc:v1:<base64(iv‖tag‖ciphertext)>`.
+      GCM seçildi çünkü şifrelemenin yanında **bütünlük** de doğruluyor — kurcalanmış bir
+      değer sessizce yanlış token üretmiyor, çözme patlıyor.
+
+- [x] **Geçiş kesintisiz.** `enc:v1:` öneki OLMAYAN değer düz metin kabul edilip olduğu
+      gibi dönüyor, yani mevcut kayıtlar çalışmaya devam ediyor ve her yazmada şifreliye
+      dönüyorlar. Testi var ("şifrelemeden önce yazılmış düz metin token çalışmaya devam
+      eder").
+
+- [x] **Anahtar yoksa ne olur — production'da FAIL CLOSED.** Yazma patlıyor; sessizce düz
+      metin yazmak "şifreleme var" sanılan ama olmayan bir sistem üretirdi (bu depodaki en
+      pahalı hata sınıfı tam olarak bu, bkz. #31 sessizce kaybolan mailler).
+      Geliştirmede düz metne düşüp yüksek sesle uyarıyor — yerel kurulumun dış servis
+      olmadan çalışması kuralı korunuyor. Panelden bağlama isteği bu durumda çıplak 500
+      değil, ne yapılması gerektiğini söyleyen bir hata dönüyor.
+
+- [x] **Çözülemeyen token sessizce geçmiyor.** Yayın `failed` oluyor ve sebebi panelde
+      yazıyor; furi'nin çektiği uç nokta şifreli metni "token" diye VERMİYOR, 500 dönüyor
+      (şifreli metin yanıta da sızmıyor, testi var). Paneldeki "son 4 karakter" ipucu ise
+      çözülemezse yalnızca gizleniyor — kozmetik bir alan uğruna müşteri listesini komple
+      düşürmek yanlış olurdu.
+
+- [x] **Dokunulan altı nokta.** Çözme: `findInstagramCredentials` (furi'nin yolu),
+      `publish-post` (yayın), cron (yenileme), `toClientView` (ipucu). Şifreleme:
+      `updateInstagram` (panelden bağlama), cron (yenilenen token). Yalnızca varlık
+      kontrolü yapan yerler (`isPublishTarget`, `where: { not: null }`) bilerek
+      dokunulmadı — şifreli değer de doğru (truthy).
+
+- [x] **Testler şifreleme AÇIKKEN koşuyor.** `vitest.config.ts`'e `ENCRYPTION_KEY`
+      eklendi; anahtarsız koşmak tüm entegrasyon testlerinin düz metin yolundan geçmesi,
+      yani **asıl kullanılan yolun hiç denenmemesi** demekti. Bu değişiklik mevcut 4 testi
+      kırdı (ham kolonu düz metinle karşılaştırıyorlardı) — doğru davranışı doğrulayacak
+      şekilde güncellendiler, ayrıca artık "gerçekten şifreli mi" de kontrol ediyorlar.
+
+- [x] **`scripts/token-sifrele.mjs`** — prod'daki düz metin kalıntıyı çevirir.
+      Gerekli, çünkü yazma ancak yeniden bağlama ya da cron yenilemesiyle oluyor ve
+      prod'daki tek token 2026-10-15'te doluyor: cron ona ~2026-09-25'e kadar dokunmazdı,
+      yani S1 prod'da gerçekte kapanmamış olurdu.
+      *Emniyet:* varsayılan dry-run; zorunlu host doğrulaması (kardeş betikle aynı);
+      **anahtar parmak izi** basılıyor (sha256'nın ilk 8 hanesi) ki Vercel'dekiyle
+      karşılaştırılabilsin — yanlış anahtarla yazmak okunamaz kayıt üretirdi; her kayıt
+      yazıldıktan sonra **transaction İÇİNDE geri okunup çözülüyor** ve orijinaliyle
+      karşılaştırılıyor, tutmazsa rollback; koşullu UPDATE ile arada değişen kayda
+      dokunulmuyor. Yerel DB'ye karşı dry-run → apply → ikinci koşu (idempotent) olarak
+      gerçekten çalıştırılıp doğrulandı.
+      *Not:* dry-run varsayılanı iş gördü — betik ilk denemede `DATABASE_URL` üzerinden
+      **yerel geliştirme DB'sine** bağlandı; hiçbir şey yazılmadı.
+
+- [x] **Betik ile uygulama biçim uyumu teste bağlandı.** Betik plain Node olduğu için
+      `crypto.ts`'i içe aktaramıyor ve biçimi kopyalıyor; sessizce ayrışmasınlar diye
+      `crypto.test.ts` betiğin ürettiği baytları elle kurup uygulamada çözüyor.
+
+- [x] **323 unit/integration + 6 e2e geçti, `tsc` temiz, build başarılı.**
+
+**⚠ DEPLOY SIRASI ÖNEMLİ:** `ENCRYPTION_KEY` Vercel Production'a **merge'den ÖNCE**
+eklenmeli. Eklenmezse mevcut düz metin token'lar okunmaya devam eder (yayın çalışır) ama
+**panelden yeni Instagram bağlanamaz** ve **cron token yenileyemez** (o müşteri `failed`
+sayılır). Üret: `openssl rand -base64 32`.
 
 ### 2026-08-17 — post yönetimi (F1 + F2 + F5)
 

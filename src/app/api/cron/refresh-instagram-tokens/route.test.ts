@@ -9,6 +9,7 @@ vi.mock("@/lib/instagram", async (importOriginal) => {
 
 import { GET } from "./route";
 import { db } from "@/lib/db";
+import { decryptSecret, isEncrypted } from "@/lib/crypto";
 import { IGError, refreshInstagramToken } from "@/lib/instagram";
 import { IG_TOKEN_REFRESH_DAYS } from "@/lib/instagram-token";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
@@ -51,6 +52,19 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
+
+/**
+ * Kayıtlı token'ı ÇÖZEREK döner. Cron yenilediği token'ı artık şifreli yazıyor
+ * (S1), yani ham kolonu düz metinle karşılaştırmak yanlış olur. Ayrıca gerçekten
+ * şifreli yazıldığını da doğruluyoruz — düz metne düşseydi bu sessizce geçerdi.
+ */
+async function kayitliToken(id: string): Promise<string | null> {
+  const client = await db.client.findUnique({ where: { id } });
+  const stored = client?.instagramAccessToken;
+  if (!stored) return null;
+  expect(isEncrypted(stored)).toBe(true);
+  return decryptSecret(stored);
+}
 
 describe("yetkilendirme", () => {
   it("Authorization başlığı yoksa 401 döner ve Instagram'a hiç gidilmez", async () => {
@@ -102,8 +116,8 @@ describe("yenileme", () => {
     });
 
     expect(mockRefresh).toHaveBeenCalledWith("IGAA-eski");
+    expect(await kayitliToken(client.id)).toBe("IGAA-yeni");
     const saved = await db.client.findUnique({ where: { id: client.id } });
-    expect(saved?.instagramAccessToken).toBe("IGAA-yeni");
     expect(saved?.instagramTokenExpiry?.getTime()).toBe(yeniBitis.getTime());
   });
 
@@ -184,15 +198,11 @@ describe("kısmi hata dayanıklılığı", () => {
     expect(await res.json()).toMatchObject({ checked: 3, refreshed: 2, failed: 1 });
 
     // Hatalı olanın token'ı DEĞİŞMEZ, diğerleri güncellenir.
-    expect((await db.client.findUnique({ where: { id: first.id } }))?.instagramAccessToken).toBe(
-      "IGAA-1-yeni"
-    );
+    expect(await kayitliToken(first.id)).toBe("IGAA-1-yeni");
     expect((await db.client.findUnique({ where: { id: broken.id } }))?.instagramAccessToken).toBe(
       "IGAA-2"
     );
-    expect((await db.client.findUnique({ where: { id: last.id } }))?.instagramAccessToken).toBe(
-      "IGAA-3-yeni"
-    );
+    expect(await kayitliToken(last.id)).toBe("IGAA-3-yeni");
   });
 
   it("IGError olmayan beklenmedik hata da diğerlerini durdurmaz", async () => {
@@ -208,9 +218,7 @@ describe("kısmi hata dayanıklılığı", () => {
     const res = await GET(cronRequest());
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ refreshed: 1, failed: 1 });
-    expect((await db.client.findUnique({ where: { id: last.id } }))?.instagramAccessToken).toBe(
-      "IGAA-2-yeni"
-    );
+    expect(await kayitliToken(last.id)).toBe("IGAA-2-yeni");
   });
 });
 

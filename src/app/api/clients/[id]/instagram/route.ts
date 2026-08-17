@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { SecretCryptoError } from "@/lib/crypto";
 import { getScopedDb } from "@/lib/scoped-db";
 import { IGError, fetchInstagramAccount } from "@/lib/instagram";
 import {
@@ -97,11 +98,30 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
-  const client = await scoped.clients.updateInstagram(existing.id, {
-    instagramUserId: account.userId,
-    instagramAccessToken: token,
-    instagramTokenExpiry: expiry,
-  });
+  // Yazma şifreliyor (S1). Production'da `ENCRYPTION_KEY` yoksa `encryptSecret`
+  // bilerek PATLAR — sessizce düz metin yazmaktansa bağlamayı reddetmek doğru.
+  // Ama çıplak 500 sebebi gizlerdi; burada ne yapılması gerektiği söyleniyor.
+  let client: Awaited<ReturnType<typeof scoped.clients.updateInstagram>>;
+  try {
+    client = await scoped.clients.updateInstagram(existing.id, {
+      instagramUserId: account.userId,
+      instagramAccessToken: token,
+      instagramTokenExpiry: expiry,
+    });
+  } catch (error) {
+    if (error instanceof SecretCryptoError) {
+      console.error("[instagram] token şifrelenemedi:", error.message);
+      return NextResponse.json(
+        {
+          error:
+            "Sunucuda şifreleme anahtarı (ENCRYPTION_KEY) yapılandırılmamış; " +
+            "token güvenle saklanamayacağı için bağlantı kurulmadı.",
+        },
+        { status: 500 }
+      );
+    }
+    throw error;
+  }
   if (!client) {
     return NextResponse.json({ error: "Bu müşteri bulunamadı" }, { status: 404 });
   }
