@@ -12,19 +12,6 @@ Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** —
 
 ### Elle yapılması gerekenler (repo yapamaz)
 
-- [ ] **Apps Script'te canlı GitHub token'ı duruyor** — script.google.com'daki proje hâlâ
-      etkin olabilir ve `FURI_GITHUB_TOKEN` property'sinde gerçek bir token tutuyor.
-      Zincir furi PR #2 ile emekliye ayrıldı, yani token artık gereksiz ama açıkta.
-      *Doğrulandı (2026-08-17):* token furi1 reposunda **hiçbir yerde hardcode değil**,
-      yalnızca Apps Script property'sinde. Yani tek çözüm elle silmek.
-      *Adımlar:* script.google.com → `furi-onay-tetikleyici` → **Triggers** → `onayKontrol`
-      tetikleyicisini sil → **Project Settings → Script Properties** → `FURI_GITHUB_TOKEN`
-      sil → GitHub'da token'ı iptal et (github.com/settings/tokens) → tetikleyici issue #1
-      kapatılabilir. Ayrıntı: `furi1/.claude/skills/insta-yayinla/emekli/README.md`.
-      *Neden hâlâ açık:* oturum notlarında bu iptalin 2026-08-17'de yapıldığı yazıyor, ama
-      repo Apps Script property'sini göremediği için dışarıdan doğrulanamıyor. Yanlış
-      kapatılırsa canlı bir token açıkta kalır — o yüzden panelden teyit edilene kadar açık.
-
 - [ ] **Boş test ajansları duruyor** (isteğe bağlı, düşük öncelik). 22 Temmuz'dan kalma
       iki ajans kaydı prod'da hâlâ var ama **tamamen boş** — post=0, client=0:
       `Enes Memduh` (`cmrw9cu730000l404sekzspv4`) ve `enes can` (`cmrwa781m0001ky04liyy3f5d`).
@@ -97,6 +84,26 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ## Tamamlananlar
 
 ### 2026-08-17 — açık işler turu (PR #21, #22, #23)
+
+- [x] **Apps Script'teki GitHub token'ı — açıkta bir şey kalmamış, panelden teyit edildi.**
+      Madde "iptal edildi ama doğrulanamıyor" diye açık duruyordu; script.google.com ve
+      GitHub ayarları tarayıcıdan gerçekten kontrol edildi ve **üç doğrulama noktası da
+      temiz** çıktı:
+      1. **Tetikleyici yok.** "FURI onay tetikleyici" projesi duruyor ama hem global
+         "Tetikleyicilerim" hem projenin kendi sekmesi 0 tetikleyici gösteriyor —
+         `onayKontrol` çalışmıyor. Kodda `EMEKLI = true` bayrağı da yerinde, yani proje
+         kazara tetiklense bile Gmail taramaz.
+      2. **Script Property yok.** Proje Ayarları → Komut Dosyası Özellikleri **boş**;
+         `FURI_GITHUB_TOKEN` silinmiş.
+      3. **GitHub token'ı yok.** `settings/personal-access-tokens` → "No fine-grained
+         tokens created" (token fine-grained'di, adı `furi-apps-script`, kapsamı yalnızca
+         `furi` reposu + Issues). Classic tokenlar arasında yalnızca ilgisiz bir
+         `portfolio site` kaydı var, o da 2025-10-17'de süresi dolmuş.
+      Repo tarafı da tekrar tarandı: `ghp_` / `github_pat_` / `FURI_GITHUB_TOKEN` için
+      6 eşleşmenin hepsi property **adına** yapılan referans ya da kurulum yer tutucusu —
+      gerçek token değeri furi1'de hiçbir yerde yok.
+      *Kaydın düzeltmesi:* maddedeki "tetikleyici issue #1 kapatılabilir" adımı da
+      geçersiz — `enesmemduhoglu/furi` reposunda hiç issue yok.
 
 - [x] **`CRON_SECRET` Vercel Production'a eklendi (Sensitive)** — cron artık devrede:
       `vercel.json` 03:00'e kurulu, endpoint canlıda, yetkisiz istek 401 dönüyor.
