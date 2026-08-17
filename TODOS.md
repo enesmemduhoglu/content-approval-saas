@@ -40,13 +40,20 @@ Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** —
       Instagram token'ının iki kopyası var: SaaS'ta `Client.instagramAccessToken`,
       furi'de ayrı bir ortam değişkeni. Senkron mekanizması yok. Cron SaaS kopyasını
       yenileyince Instagram eskisini kısa süre sonra geçersiz kılıyor → **furi sessizce
-      kırılır**. Bugünkü hâliyle cron her yenilediğinde furi env'ini elle güncellemek
-      gerekiyor; bu tekrar eden bir angarya.
-      *Kalıcı çözüm:* tek kaynak — furi token'ı SaaS API'sinden çeksin, ya da yenileme
-      sonrası furi env'i de programatik güncellensin. furi ayrı repo.
-      *Aciliyet:* cron bugün `skipped` dönüyor (token 2026-10-15'te doluyor, pencere 20 gün),
-      yani ilk gerçek yenileme ~**2026-09-25**. Bu tarihe kadar çözülmezse furi o gece
-      sessizce kırılır — pratik son tarih bu.
+      kırılır**. İlk gerçek yenileme ~**2026-09-25** (token 2026-10-15'te doluyor,
+      pencere 20 gün) — pratik son tarih buydu.
+      **Çözüm yazıldı, merge bekliyor: SaaS PR #29 + furi PR #3.**
+      Tek kaynak yaklaşımı: furi kendi kopyasını hiç tutmuyor, token'ı her çalışmada
+      `GET /api/clients/[id]/instagram-token` üzerinden SaaS'tan çekiyor.
+      *Merge sırası önemli:* **önce SaaS merge + deploy, sonra furi.** Ters sırada furi
+      henüz var olmayan bir uca istek atar.
+      *Sonrasında elle:* furi'nin yerel `.env`'inden `IG_ACCESS_TOKEN` ve `IG_USER_ID`
+      satırlarını sil — artık hiçbir yerde okunmuyorlar ama duran sır gereksiz risk.
+      Yeni env değişkeni **gerekmiyor**; `FURI_API_KEY`, `FURI_API_AGENCY_ID`,
+      `FURI_SAAS_URL`, `FURI_CLIENT_ID` zaten tanımlı.
+      *Merge sonrası doğrula:*
+      `python .claude/skills/insta-yayinla/scripts/ig_token.py --kontrol`
+      (uçtan uca gerçek doğrulama SaaS deploy edilmeden yapılamıyordu).
 
 ### Bilinçli kapsam dışı
 
@@ -63,6 +70,12 @@ değil yerel DB'ye düşer. Prod'a yazmadan önce bağlandığın hostu **doğru
 bu tuzak 2026-08-16'da prod temizliği sırasında bir kez yakalandı.
 `scripts/prod-test-verisi-temizligi.mjs` (#22) bu doğrulamayı zorunlu adım hâline getirdi:
 prod olmayan hosta bağlanılırsa tek sorgu açılmadan `exit 2`.
+
+**`instagramTokenExpiry` boşsa otomatik yenileme HİÇ çalışmaz.** Cron bitiş tarihi olmayan
+müşteriyi `skip` sayıyor — yani alan boşsa 2026-10-15 sorunu çözülmüş olmaz, cron sessizce
+hiçbir şey yapmaz. Panelden kontrol edilebilir; furi tarafında
+`python .claude/skills/insta-yayinla/scripts/ig_token.py --kontrol` bunu
+`durum: bilinmiyor` diye raporlar.
 
 **Yayın süresi.** Instagram `POST /{ig}/media` görseli senkron indirdiği için slayt başına
 ~8.5 sn. Karusel container'ları bu yüzden paralel oluşturuluyor; sıralı yapılırsa 60 sn
