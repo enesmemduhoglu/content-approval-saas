@@ -45,7 +45,18 @@ const CSP = [
   "img-src 'self' data: https:",
   "font-src 'self' data:",
   "connect-src 'self'",
-  "form-action 'self'",
+  // `accounts.google.com` BURADA OLMAK ZORUNDA — yoksa panele giriş yapılamaz.
+  // Giriş akışı: "Giriş yap" → `/api/auth/signin` → o sayfadaki form
+  // `POST /api/auth/signin/google` (same-origin) → NextAuth 302 ile
+  // `accounts.google.com`'a yollar. Tarayıcılar `form-action`'ı form
+  // gönderiminin YÖNLENDİRMELERİNE de uyguluyor, yani sadece 'self' yazmak o
+  // 302'yi sessizce düşürüyor: buton tıklanıyor, hiçbir şey olmuyor, sayfa
+  // yerinde kalıyor. Tek iz konsoldaki "Refused to send form data" satırı —
+  // telefondan bakan kullanıcı onu da göremiyor. (17.08'de güvenlik başlıkları
+  // eklendiğinde tam olarak bu yaşandı; giriş bir gün boyunca kapalı kaldı.)
+  // Buradaki host yalnızca OAuth'un BAŞLANGIÇ adresi; Google'ın geri dönüşü
+  // normal bir GET redirect olduğu için `form-action` kapsamına girmiyor.
+  "form-action 'self' https://accounts.google.com",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
