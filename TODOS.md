@@ -46,11 +46,17 @@ savunma. F11 (hata izleme) bilinçli olarak bu tura alınmadı.
 
 ### Temizlik
 
-- [ ] **Doğrulama test postunu sil** — panelde `test/bildirim-dogrulama` adlı,
-      `status: rejected` bir post duruyor. 2026-08-17 akşamı bildirim zincirini canlıda
-      uçtan uca ölçmek için oluşturuldu ve **hemen reddedildi** (red asla yayın yapmaz,
-      yani Instagram'a hiçbir şey gitmedi). İşi bitti, silinebilir. Düşük öncelik.
-      *Artık elle iş değil:* F2 ile panelde "Sil" butonu var, dashboard'dan silinebilir.
+- [x] **Doğrulama test postunu sil** — 2026-08-18'de panelden silindi. `test/bildirim-dogrulama`
+      adlı `status: rejected` post, 2026-08-17 akşamı bildirim zincirini canlıda uçtan uca
+      ölçmek için oluşturulmuş ve hemen reddedilmişti (red asla yayın yapmaz, Instagram'a
+      hiçbir şey gitmedi). Aynı turda `karistirilan/borrow-vs-lend` de silindi: furi rutini
+      18.08 08:10'da siraya koymuştu, kalitesi yetersiz bulunup reddedildi, kayıt istenmedi.
+      İkisi de F2'nin "Sil" butonuyla dashboard'dan kaldırıldı — elle DB işi gerekmedi.
+      *Silinen kaydın yan etkisi:* onay linki 404 döndüğü için furi'nin `esitle.py`'si
+      bekleyeni çözemez ve `durum.json > bekleyen` asılı kalır; furi tarafında elle
+      temizlendi ([furi#6](https://github.com/enesmemduhoglu/furi/pull/6)).
+      *Prod envanteri (2026-08-18):* 7 post, hepsi `approved` + `published` — panelde
+      karar bekleyen ya da reddedilmiş kayıt kalmadı.
 
 ### Bilinçli kapsam dışı
 
