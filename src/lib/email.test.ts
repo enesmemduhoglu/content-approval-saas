@@ -15,8 +15,12 @@ import {
   renderAgencyNoticeText,
   renderApprovalEmailHtml,
   renderApprovalEmailText,
+  renderRevisedPostEmailHtml,
+  renderRevisedPostEmailText,
+  revisedPostEmailSubject,
   sendAgencyNoticeEmail,
   sendApprovalRequestEmail,
+  sendRevisedPostEmail,
 } from "./email";
 
 const input = {
@@ -175,6 +179,92 @@ describe("ajans bildirimi", () => {
     await expect(
       sendAgencyNoticeEmail({ ...notice, event: "approved" })
     ).resolves.toEqual({ sent: false, reason: "validation_error: Geçersiz adres" });
+  });
+});
+
+// ------------------------------------------------- revizyon turu (F10)
+
+describe("revizyon bildirimleri", () => {
+  const notice = {
+    to: "ajans@ornek.com",
+    clientName: "Kahve Dükkanı",
+    postRef: "dizi/my-bad",
+  } as const;
+
+  it("ajans bildirimi 'REDDETTİ' DEMEZ, yapılacak işi söyler", () => {
+    const text = renderAgencyNoticeText({
+      ...notice,
+      event: "revision_requested",
+      revisionRequest: "İkinci cümleyi yumuşat",
+      revisionRound: 1,
+    });
+    expect(text).toContain("DÜZELTME istedi");
+    expect(text).not.toContain("REDDETTİ");
+    expect(text).toContain("İkinci cümleyi yumuşat");
+    // Eylem çağrısı olmadan ajans "bu iş bitti" sanabilir.
+    expect(text).toContain("Düzeltip tekrar gönder");
+  });
+
+  it("konu satırı revizyonu reddetmeden ayırır", () => {
+    expect(
+      agencyNoticeSubject({ ...notice, event: "revision_requested" })
+    ).toBe("[Revizyon istendi] Kahve Dükkanı — dizi/my-bad");
+  });
+
+  it("müşteri ne istediğini yazmadıysa ajansa dürüstçe söylenir", () => {
+    const text = renderAgencyNoticeText({
+      ...notice,
+      event: "revision_requested",
+      revisionRequest: null,
+    });
+    expect(text).toContain("Ne istediğini yazmadı");
+  });
+
+  it("müşteri bildirimi müşterinin KENDİ isteğini geri okur", () => {
+    const revised = {
+      ...input,
+      revisionRequest: "İkinci cümleyi yumuşat",
+      agencyNote: "Yumuşattım",
+      round: 2,
+    };
+    const text = renderRevisedPostEmailText(revised);
+    expect(text).toContain("Senin isteğin: İkinci cümleyi yumuşat");
+    expect(text).toContain("Ajansın notu: Yumuşattım");
+    expect(text).toContain("2. tur");
+    expect(text).toContain(input.approvalUrl);
+    expect(revisedPostEmailSubject("Parlak Ajans")).toContain("Parlak Ajans");
+  });
+
+  it("HTML gövdede müşteri metni kaçırılır (XSS)", () => {
+    const html = renderRevisedPostEmailHtml({
+      ...input,
+      revisionRequest: '<script>alert("x")</script>',
+      round: 1,
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("gönderim `gonder()` yolundan geçer: Resend { error } yutulmaz", async () => {
+    sendMock.mockResolvedValue({
+      data: null,
+      error: { name: "validation_error", message: "Alıcı adresi geçersiz" },
+    });
+    await expect(sendRevisedPostEmail({ ...input, round: 1 })).resolves.toEqual({
+      sent: false,
+      reason: "validation_error: Alıcı adresi geçersiz",
+    });
+  });
+
+  it("başarılı gönderim text+html multipart olur", async () => {
+    sendMock.mockResolvedValue({ data: { id: "email-2" }, error: null });
+    await expect(sendRevisedPostEmail({ ...input, round: 1 })).resolves.toEqual({
+      sent: true,
+    });
+    const arg = sendMock.mock.calls[0][0];
+    expect(arg.to).toBe(input.to);
+    expect(arg.html).toContain(input.approvalUrl);
+    expect(arg.text).toContain(input.approvalUrl);
   });
 });
 

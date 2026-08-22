@@ -49,6 +49,9 @@ function postKaydi(overrides: {
   publishTarget: boolean;
   igPermalink?: string | null;
   publishError?: string | null;
+  /** Revizyon turu (F10) — varsayılan 0: mevcut akış aynen çalışmalı. */
+  revisionRound?: number;
+  revisions?: unknown[];
 }) {
   return {
     id: "p1",
@@ -60,6 +63,8 @@ function postKaydi(overrides: {
     images: [{ id: "i1", url: "https://example.com/1.jpg", altText: null }],
     // Prisma `include` her zaman dizi döner; gerçek veride asla undefined olmaz.
     audits: [],
+    revisions: [],
+    revisionRound: 0,
     approvalEmailSent: null,
     reminderSentAt: null,
     ...overrides,
@@ -135,6 +140,81 @@ describe("Dashboard mükerrer yayın rozeti", () => {
 
     const link = screen.getByText("Yayındaki gönderiyi gör") as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("https://instagram.com/p/CANLI/");
+  });
+});
+
+describe("Dashboard revizyon turu (F10)", () => {
+  const revizyonIstegi = {
+    id: "rev-1",
+    round: 1,
+    actor: "client",
+    event: "revision_requested",
+    message: "İkinci cümleyi yumuşat",
+    caption: "Test postu",
+    createdAt: new Date(),
+  };
+
+  it("müşterinin isteğini rozet ve satır olarak gösterir, 'Reddedildi' DEMEZ", async () => {
+    posts = [
+      postKaydi({
+        status: "revision_requested",
+        publishStatus: "idle",
+        publishTarget: false,
+        revisionRound: 1,
+        revisions: [revizyonIstegi],
+      }),
+    ];
+    render(await DashboardPage());
+
+    expect(screen.getByText("Revizyon istendi")).toBeTruthy();
+    expect(screen.queryByText("Reddedildi")).toBeNull();
+    // İki yerde birden: satırın üstünde açık uyarı + katlı revizyon zinciri.
+    expect(screen.getAllByText(/İkinci cümleyi yumuşat/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Düzeltip tekrar gönder" })).toBeTruthy();
+  });
+
+  it("müşteri ne istediğini yazmadıysa panel bunu dürüstçe söyler", async () => {
+    posts = [
+      postKaydi({
+        status: "revision_requested",
+        publishStatus: "idle",
+        publishTarget: false,
+        revisionRound: 1,
+        revisions: [{ ...revizyonIstegi, message: null }],
+      }),
+    ];
+    render(await DashboardPage());
+    expect(screen.getByText(/müşteriyle konuşman gerekebilir/)).toBeTruthy();
+  });
+
+  it("revizyon geçmişi karar geçmişinin YANINDA, ayrı bir liste olarak durur", async () => {
+    posts = [
+      postKaydi({
+        status: "pending",
+        publishStatus: "idle",
+        publishTarget: false,
+        revisionRound: 1,
+        revisions: [
+          revizyonIstegi,
+          {
+            ...revizyonIstegi,
+            id: "rev-2",
+            actor: "agency",
+            event: "resubmitted",
+            message: "Yumuşattım",
+          },
+        ],
+      }),
+    ];
+    render(await DashboardPage());
+    expect(screen.getByText("Revizyon geçmişi (1 tur · 2 kayıt)")).toBeTruthy();
+  });
+
+  it("revizyon yaşamamış postta zincir hiç görünmez — mevcut panel aynı kalır", async () => {
+    posts = [postKaydi({ status: "pending", publishStatus: "idle", publishTarget: false })];
+    render(await DashboardPage());
+    expect(screen.queryByText(/Revizyon geçmişi/)).toBeNull();
+    expect(screen.queryByText("Revizyon istendi")).toBeNull();
   });
 });
 

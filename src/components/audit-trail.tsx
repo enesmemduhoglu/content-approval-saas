@@ -19,6 +19,9 @@
 const ACTION_LABELS: Record<string, string> = {
   approved: "Müşteri onayladı",
   rejected: "Müşteri reddetti",
+  // Revizyon talebi de müşterinin verdiği bir karardır (F10) — anlaşmazlıkta
+  // "ben sadece düzeltme istemiştim" cümlesinin dayanağı bu satır.
+  revision_requested: "Müşteri revizyon istedi",
 };
 
 export type AuditEntry = {

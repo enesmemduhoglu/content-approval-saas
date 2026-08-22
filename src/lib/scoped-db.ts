@@ -287,6 +287,20 @@ export function getScopedDb(session: ScopedSession) {
               select: { id: true, action: true, ip: true, createdAt: true },
               orderBy: { createdAt: "asc" },
             },
+            // Revizyon zinciri (F10). Karar geçmişinden AYRI okunuyor: o "ne
+            // karar verildi", bu "ne konuşuldu ve metin nasıl değişti".
+            revisions: {
+              select: {
+                id: true,
+                round: true,
+                actor: true,
+                event: true,
+                message: true,
+                caption: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: "asc" },
+            },
           },
         });
         return posts.map(({ client, ...post }) => {
@@ -398,6 +412,167 @@ export function getScopedDb(session: ScopedSession) {
       },
 
       /**
+       * Düzeltip yeniden onaya gönderme (F10) — revizyon turunun ajans yarısı.
+       *
+       * SADECE `revision_requested` iken çalışır. `pending`den çağrılsa mevcut
+       * onay isteğini sessizce ikinci kez başlatırdı; `approved`/`rejected`ten
+       * çağrılsa müşterinin verdiği kararın altındaki metni değiştirirdi —
+       * `updateCaption`'ın kapattığı deliğin aynısı.
+       *
+       * ONAY LİNKİ AYNI TOKEN'LA DEVAM EDER. Bilinçli tercih: revizyon aynı
+       * işin devamı, yeni bir iş değil. Müşterinin en doğal refleksi elindeki
+       * maildeki linke tekrar tıklamaktır; token değiştirilseydi o link ölür ve
+       * müşteri "az önce çalışıyordu" diyerek duvara çarpardı. Sadece SÜRE
+       * tazelenir — konuşma sürerken linkin ölmesi turun kendisini keserdi.
+       * (F1'deki `renewApprovalLink` tam tersini yapar ve orada doğrusu odur:
+       * amacı sızmış bir linki İPTAL etmek.)
+       *
+       * Yayınlanmış post buraya giremez: `publishStatus` guard'ı UPDATE'in
+       * WHERE'inde de tekrarlanır — DB'deki metni değiştirip Instagram'daki
+       * gönderiyi olduğu gibi bırakmak, panelle gerçekliği sessizce ayırırdı.
+       */
+      resubmitForApproval: async (input: {
+        id: string;
+        /** Yeni metin; verilmezse mevcut metin korunur. */
+        caption?: string;
+        /** Yeni görsel URL'leri; verilmezse görseller olduğu gibi kalır. */
+        imageUrls?: string[];
+        altTexts?: (string | null | undefined)[];
+        /** Ajansın "şunu değiştirdim" notu. */
+        message?: string | null;
+      }): Promise<
+        | {
+            ok: true;
+            round: number;
+            caption: string;
+            token: string;
+            expiresAt: Date;
+            client: { id: string; name: string; email: string };
+            /** Müşterinin bu turda ne istediği — bildirime geri konur. */
+            lastRequest: string | null;
+            /** Yerini yenilerine bırakan görseller — blob temizliği çağıranın işi. */
+            removedImageUrls: string[];
+          }
+        | {
+            ok: false;
+            reason: "not_found" | "not_revision_requested" | "published";
+            status?: string;
+          }
+      > => {
+        const post = await db.post.findFirst({
+          where: { id: input.id, agencyId },
+          include: {
+            client: { select: { id: true, name: true, email: true } },
+            approvalLink: true,
+            images: { select: { url: true }, orderBy: { sortOrder: "asc" } },
+            revisions: {
+              where: { event: "revision_requested" },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
+          },
+        });
+        if (!post) return { ok: false, reason: "not_found" };
+        // Yayın kontrolü durum kontrolünden ÖNCE: hata mesajı "yayınlanmış" mı
+        // "revizyon beklemiyor" mu, ajansa doğrusu söylensin.
+        if (post.publishStatus === "published") return { ok: false, reason: "published" };
+        if (post.status !== "revision_requested") {
+          return { ok: false, reason: "not_revision_requested", status: post.status };
+        }
+
+        const caption = input.caption ?? post.caption;
+        const replacingImages = input.imageUrls !== undefined;
+        const oldImageUrls = post.images.map((image) => image.url);
+
+        // Link aynı token'la yaşamaya devam eder; yoksa (teorik: eski veri)
+        // oluşturulur. Süre her turda tazelenir.
+        const token = post.approvalLink?.token ?? generateApprovalToken();
+        const expiresAt = approvalLinkExpiry();
+
+        const committed = await db.$transaction(async (tx) => {
+          // Yarış koruması: `updateCaption`/onay yolundaki desenin aynısı. Aynı
+          // anda gelen ikinci "tekrar gönder" ya da araya giren bir karar
+          // olduğunda satır eşleşmez ve tur ikinci kez açılmaz.
+          const result = await tx.post.updateMany({
+            where: {
+              id: input.id,
+              agencyId,
+              status: "revision_requested",
+              publishStatus: { not: "published" },
+            },
+            data: {
+              status: "pending",
+              caption,
+              // Bu tur için verilmiş bir red gerekçesi yok; eski turdan kalan
+              // metnin panelde asılı kalması yanlış bilgi olurdu.
+              rejectionReason: null,
+              // Hatırlatmalar TEK SEFERLİK ve postun ömrüne bağlı. Yeni tur yeni
+              // bir bekleyiştir: sıfırlanmasaydı bu turda müşteri hiç
+              // dürtülmezdi (F3 sayaçları `null` = "henüz gitmedi" demek).
+              reminderSentAt: null,
+              expiryNoticeSentAt: null,
+            },
+          });
+          if (result.count === 0) return false;
+
+          if (replacingImages) {
+            await tx.postImage.deleteMany({ where: { postId: input.id } });
+            await tx.postImage.createMany({
+              data: input.imageUrls!.map((url, index) => ({
+                postId: input.id,
+                url,
+                altText: input.altTexts?.[index] ?? null,
+                sortOrder: index,
+              })),
+            });
+          }
+
+          await tx.approvalLink.upsert({
+            where: { postId: input.id },
+            update: { expiresAt },
+            create: { postId: input.id, token, expiresAt },
+          });
+
+          await tx.postRevision.create({
+            data: {
+              postId: input.id,
+              round: post.revisionRound,
+              actor: "agency",
+              event: "resubmitted",
+              message: input.message ?? null,
+              caption,
+            },
+          });
+          return true;
+        });
+
+        if (!committed) {
+          const current = await db.post.findFirst({
+            where: { id: input.id, agencyId },
+            select: { status: true },
+          });
+          return {
+            ok: false,
+            reason: "not_revision_requested",
+            status: current?.status,
+          };
+        }
+
+        return {
+          ok: true,
+          round: post.revisionRound,
+          caption,
+          token,
+          expiresAt,
+          client: post.client,
+          lastRequest: post.revisions[0]?.message ?? null,
+          // Yalnızca GERÇEKTEN yerini kaybeden görseller dönüyor: değişiklik
+          // yoksa liste boş, yoksa çağıran taraf hâlâ kullanılan dosyaları siler.
+          removedImageUrls: replacingImages ? oldImageUrls : [],
+        };
+      },
+
+      /**
        * Post silme (F2). Görsel URL'lerini döndürür ki çağıran taraf blob
        * dosyalarını da temizleyebilsin (F13) — DB satırı gidip dosya kalırsa
        * depolama sınırsız birikir.
@@ -424,6 +599,9 @@ export function getScopedDb(session: ScopedSession) {
 
         const imageUrls = post.images.map((image) => image.url);
         await db.$transaction(async (tx) => {
+          // `PostRevision`'ın FK'sı RESTRICT: elle silinmezse post silme yolu
+          // çıplak bir Prisma hatasıyla düşerdi (F10).
+          await tx.postRevision.deleteMany({ where: { postId: post.id } });
           await tx.approvalAudit.deleteMany({ where: { postId: post.id } });
           await tx.postImage.deleteMany({ where: { postId: post.id } });
           await tx.approvalLink.deleteMany({ where: { postId: post.id } });

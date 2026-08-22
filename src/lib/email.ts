@@ -204,6 +204,102 @@ export async function sendApprovalReminderEmail(
   );
 }
 
+// ------------------------------------------------- revize post bildirimi (F10)
+
+/**
+ * Müşteriye "istediğin düzeltme yapıldı, tekrar bakar mısın" e-postası.
+ *
+ * İlk onay e-postasının kopyası DEĞİL, çünkü müşterinin bu kez sorduğu soru
+ * farklı: "yeni bir post mu geldi" değil, "benim dediğim yapılmış mı". Bu yüzden
+ * gövde müşterinin KENDİ isteğini geri okur — hatırlaması için başka yere
+ * bakmak zorunda kalmasın — ve ajansın notu varsa onu ekler.
+ *
+ * Link BİLEREK aynı token: revizyon aynı işin devamı, müşteri elindeki eski
+ * maildeki linke dönse de doğru yere düşer (bkz. `resubmitForApproval`).
+ */
+export type RevisedPostEmailInput = ApprovalEmailInput & {
+  /** Müşterinin bu tur ne istediği — kendi cümlesi. */
+  revisionRequest?: string | null;
+  /** Ajansın "şunu değiştirdim" notu. */
+  agencyNote?: string | null;
+  /** Kaçıncı tur — ikinci turdan sonrası için konu satırında anlamlı. */
+  round: number;
+};
+
+export function revisedPostEmailSubject(agencyName: string): string {
+  return `${agencyName} istediğin düzeltmeyi yaptı`;
+}
+
+function revisedPostLines({
+  agencyName,
+  revisionRequest,
+  agencyNote,
+  round,
+}: Omit<RevisedPostEmailInput, "to">): string[] {
+  const lines = [
+    `${agencyName} istediğin düzeltmeleri yaptı ve postu tekrar onayına gönderdi` +
+      (round > 1 ? ` (${round}. tur).` : "."),
+  ];
+  if (revisionRequest) lines.push(`Senin isteğin: ${revisionRequest}`);
+  if (agencyNote) lines.push(`Ajansın notu: ${agencyNote}`);
+  lines.push("Aşağıdaki bağlantıdan güncel hâlini görebilirsin.");
+  return lines;
+}
+
+export function renderRevisedPostEmailText(
+  input: Omit<RevisedPostEmailInput, "to">
+): string {
+  return `Merhaba ${input.clientName},
+
+${revisedPostLines(input).join("\n\n")}
+
+${input.approvalUrl}
+
+Giriş yapmanız gerekmez.`;
+}
+
+export function renderRevisedPostEmailHtml(
+  input: Omit<RevisedPostEmailInput, "to">
+): string {
+  const client = escapeHtml(input.clientName);
+  const url = escapeHtml(input.approvalUrl);
+  const accent =
+    input.brandColor && HEX_COLOR_RE.test(input.brandColor)
+      ? input.brandColor
+      : DEFAULT_ACCENT;
+  const logoHtml = input.logoUrl
+    ? `<img src="${escapeHtml(input.logoUrl)}" alt="${escapeHtml(input.agencyName)}" style="height: 40px; max-width: 160px; object-fit: contain; margin-bottom: 16px;" />\n    `
+    : "";
+  const body = revisedPostLines(input)
+    .map(
+      (line) =>
+        `<p style="font-size: 16px; line-height: 1.5; margin: 0 0 12px;">${escapeHtml(line)}</p>`
+    )
+    .join("\n    ");
+  return `<div style="font-family: 'Public Sans', Arial, sans-serif; background: #fafaf8; color: #1a1a1a; padding: 32px 16px;">
+  <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 32px;">
+    ${logoHtml}<p style="font-size: 16px; margin: 0 0 8px;">Merhaba ${client},</p>
+    ${body}
+    <a href="${url}" style="display: inline-block; background: ${accent}; color: #ffffff; text-decoration: none; font-size: 16px; padding: 14px 28px; border-radius: 6px; margin-top: 12px;">G&uuml;ncel h&acirc;lini g&ouml;r</a>
+    <p style="font-size: 13px; color: #6b6b6b; margin: 24px 0 0;">Giriş yapmanız gerekmez.</p>
+  </div>
+</div>`;
+}
+
+export async function sendRevisedPostEmail(
+  input: RevisedPostEmailInput
+): Promise<EmailResult> {
+  return gonder(
+    {
+      to: input.to,
+      subject: revisedPostEmailSubject(input.agencyName),
+      html: renderRevisedPostEmailHtml(input),
+      text: renderRevisedPostEmailText(input),
+    },
+    "revize post bildirimi"
+  );
+}
+
 // ----------------------------------------------------------- ajans bildirimi
 
 /**
@@ -216,7 +312,13 @@ export type AgencyNoticeEvent =
   | "approved"
   | "rejected"
   /** Onay linki öldü ama post hâlâ bekliyor — yalnızca ajans çözebilir (F3). */
-  | "link_expired";
+  | "link_expired"
+  /**
+   * Müşteri düzeltme istedi (F10). `rejected`'dan ayrı bir olay: reddedilmiş
+   * postta yapılacak bir şey yok, burada TOP AJANSTA — mailin de bunu söylemesi
+   * gerekiyor, yoksa ajans "reddedildi" sanıp işi kapatır.
+   */
+  | "revision_requested";
 
 export type AgencyNoticeInput = {
   to: string;
@@ -234,6 +336,10 @@ export type AgencyNoticeInput = {
   daysPending?: number;
   /** F8: publishStatus "scheduled" ise yayının planlandığı an — TR saatiyle gösterilir. */
   publishAt?: Date | null;
+  /** revision_requested: müşterinin kendi cümlesiyle ne istediği (F10). */
+  revisionRequest?: string | null;
+  /** revision_requested: kaçıncı tur. */
+  revisionRound?: number;
 };
 
 const YAYIN_METNI: Record<string, string> = {
@@ -252,6 +358,7 @@ export function agencyNoticeSubject(input: AgencyNoticeInput): string {
     approved: "Onaylandı",
     rejected: "Reddedildi",
     link_expired: "Link süresi doldu",
+    revision_requested: "Revizyon istendi",
   }[input.event];
   return `[${etiket}] ${input.clientName} — ${input.postRef}`;
 }
@@ -283,6 +390,24 @@ function agencyNoticeLines(input: AgencyNoticeInput): string[] {
       );
     }
     if (input.igPermalink) lines.push(`Post: ${input.igPermalink}`);
+  } else if (input.event === "revision_requested") {
+    // "Reddetti" demiyoruz bilerek: post ölmedi, sırada ajans var. Cümlenin
+    // eylem çağrısıyla bitmesi bu yüzden önemli.
+    lines.push(
+      `${input.clientName} postta DÜZELTME istedi` +
+        (input.revisionRound && input.revisionRound > 1
+          ? ` (${input.revisionRound}. tur).`
+          : ".")
+    );
+    lines.push(
+      input.revisionRequest
+        ? `İsteği: ${input.revisionRequest}`
+        : "Ne istediğini yazmadı — müşteriyle konuşman gerekebilir."
+    );
+    lines.push(
+      "Panelden postu düzeltip \"Düzeltip tekrar gönder\" ile onaya geri yolla; " +
+        "müşteriye aynı linkten haber gider."
+    );
   } else if (input.event === "link_expired") {
     // Müşteriye hatırlatma göndermenin anlamı yok: elindeki link çalışmıyor.
     // Yapabilecek tek kişi ajans, o yüzden ne yapması gerektiği açıkça yazıyor.

@@ -44,6 +44,15 @@ export default async function ApprovePage({
           agency: true,
           client: true,
           images: { orderBy: { sortOrder: "asc" } },
+          // Müşterinin SON isteği (F10): hem revizyon beklerken "ben ne
+          // demiştim"i, hem düzeltme geldiğinde "neye bakmam gerekiyor"u
+          // yanıtlıyor. Zincirin tamamı burada gösterilmiyor — müşterinin
+          // ihtiyacı geçmiş değil, elindeki tur.
+          revisions: {
+            where: { event: "revision_requested" },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
         },
       },
     },
@@ -70,6 +79,7 @@ export default async function ApprovePage({
   // Bu müşteride onay = yayın. O yüzden postlar toplu onaylanmaz, tek tek
   // onaylanır (bkz. api/approve/[token]/batch).
   const publishTargeted = isPublishTarget(post.client);
+  const lastRequest = post.revisions[0] ?? null;
 
   // Toplu onay: aynı müşterinin onay bekleyen (linki geçerli) diğer postları.
   // Token zaten bu müşteriye ait bir postu açtığı için aynı müşterinin kendi
@@ -134,11 +144,33 @@ export default async function ApprovePage({
         />
       )}
       <p className="approve-caption">{post.caption}</p>
+      {/* İkinci turda müşteri "bu neyin nesi" diye bakmasın: kendi isteği geri
+          okunuyor ki yeni metni neyle karşılaştıracağını bilsin (F10). */}
+      {post.status === "pending" && post.revisionRound > 0 && lastRequest?.message && (
+        <p className="rejection-reason">
+          İstediğin düzeltme yapıldı. Senin isteğin: {lastRequest.message}
+        </p>
+      )}
       {post.status === "pending" ? (
         <ApprovalActions
           token={token}
           instagramConnected={Boolean(post.client.instagramUserId)}
         />
+      ) : post.status === "revision_requested" ? (
+        // Revizyon turu sürüyor: top ajansta (F10). Buton GÖSTERİLMEZ — müşteri
+        // istediği düzeltmeyi görmeden karar veremez, karar butonları burada
+        // yalnızca yanlışlıkla basılmayı davet ederdi. Sayfanın işi, müşteriye
+        // "isteğin ulaştı, sıradaki adım bende değil" demek.
+        <div className="approve-actions">
+          <p className="approve-confirmation" role="status">
+            Düzeltme isteğin ajansa iletildi
+            {post.revisionRound > 1 ? ` (${post.revisionRound}. tur)` : ""}. Güncel hâli
+            hazır olduğunda e-posta ile haber vereceğiz — aynı bağlantıdan bakabilirsin.
+          </p>
+          {lastRequest?.message && (
+            <p className="rejection-reason">Son isteğin: {lastRequest.message}</p>
+          )}
+        </div>
       ) : (
         <div className="approve-actions">
           <p className="approve-confirmation" role="status">

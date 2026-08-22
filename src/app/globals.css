@@ -770,3 +770,61 @@ button:disabled {
     flex-direction: column;
   }
 }
+
+/* --- Revizyon zinciri (F10) --- */
+/* Karar geçmişiyle aynı görsel dilde ama SOL ÇİZGİLİ: iki liste üst üste
+   durduğunda hangisinin hangisi olduğu katlıyken de anlaşılsın. */
+.revision-trail {
+  margin-top: 0.35rem;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.revision-trail summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.revision-trail ol {
+  list-style: none;
+  padding: 0.35rem 0 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.revision-entry {
+  border-left: 2px solid var(--color-border);
+  padding-left: 0.6rem;
+}
+
+/* Müşteri satırı vurgulu: turu başlatan taraf o, göz önce oraya gitmeli. */
+.revision-client {
+  border-left-color: var(--color-warning-text);
+}
+
+.revision-message {
+  color: var(--color-text);
+  margin: 0.2rem 0 0;
+}
+
+.revision-round {
+  font-variant-numeric: tabular-nums;
+}
+
+.revision-caption summary {
+  font-size: 12px;
+}
+
+.revision-caption p {
+  margin: 0.2rem 0 0;
+  white-space: pre-wrap;
+}
+
+/* Rozet: "Reddedildi"nin kırmızısı DEĞİL — ortada kapanmış bir iş değil,
+   ajansta bekleyen bir iş var. Uyarı tonu bunu daha doğru söylüyor. */
+.status-revision_requested {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+}

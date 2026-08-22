@@ -23,13 +23,16 @@ export function ApprovalActions({
   /** Yayın hiç denenmemişse "tekrar dene" demek yanıltıcı olur. */
   retryLabel?: string;
 }) {
-  const [mode, setMode] = useState<"idle" | "rejecting">("idle");
+  // "revising" (F10) reddetmenin bir çeşidi değil, ayrı bir mod: müşteri postu
+  // gömmüyor, düzeltilmesini istiyor. Aynı kutuyu paylaşsalardı müşteri "ne
+  // yapmış oluyorum" sorusunu ancak butonun rengine bakarak yanıtlardı.
+  const [mode, setMode] = useState<"idle" | "rejecting" | "revising">("idle");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<Decision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
 
-  async function decide(action: "approve" | "reject", isRetry = false) {
+  async function decide(action: "approve" | "reject" | "request_revision", isRetry = false) {
     // Çift tıklama koruması: istek uçuştayken veya karar verilmişken ikinci
     // istek atılmaz; butonlar da disabled (D6 double-submit).
     // Tek istisna: yayın başarısız olduysa "tekrar dene".
@@ -43,6 +46,8 @@ export function ApprovalActions({
         body: JSON.stringify({
           action,
           rejectionReason: action === "reject" && reason.trim() ? reason : undefined,
+          revisionMessage:
+            action === "request_revision" && reason.trim() ? reason : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -66,9 +71,13 @@ export function ApprovalActions({
     // retryOnly'de karar zaten verilmişti; mesaj yalnızca yayını anlatır.
     const decisionText = retryOnly
       ? ""
-      : `Teşekkürler, kararın kaydedildi. ${
-          result.status === "approved" ? "Post onaylandı." : "Post reddedildi."
-        }`;
+      : result.status === "revision_requested"
+        ? // Revizyonda "kararın kaydedildi" demek yanlış olurdu: karar
+          // ertelendi, sıra ajansta. Müşteriye SONRA ne olacağı söyleniyor.
+          "Teşekkürler, düzeltme isteğin ajansa iletildi. Güncel hâli hazır olduğunda haber vereceğiz — aynı bağlantıdan bakabilirsin."
+        : `Teşekkürler, kararın kaydedildi. ${
+            result.status === "approved" ? "Post onaylandı." : "Post reddedildi."
+          }`;
     const publishText =
       result.publishStatus === "published"
         ? "Instagram'da yayınlandı."
@@ -140,9 +149,15 @@ export function ApprovalActions({
 
   return (
     <div className="approve-actions">
-      {mode === "rejecting" && (
+      {mode !== "idle" && (
         <label className="form" style={{ margin: 0 }}>
-          Reddetme sebebi (opsiyonel)
+          {/* Revizyonda metin OPSİYONEL değil denecek kadar önemli — ajans "ne
+              düzeltilecek" bilmeden hiçbir şey yapamaz. Yine de zorunlu
+              tutulmuyor: boş bırakan müşteriyi duvara çarptırmaktansa ajansa
+              "müşteriyle konuş" demek daha az kırıcı (bkz. ajans bildirimi). */}
+          {mode === "revising"
+            ? "Neyin değişmesini istiyorsun?"
+            : "Reddetme sebebi (opsiyonel)"}
           <textarea
             value={reason}
             onChange={(event) => setReason(event.target.value)}
@@ -162,6 +177,17 @@ export function ApprovalActions({
           >
             {submitting ? approveBusyLabel : approveLabel}
           </button>
+          {/* Sıralama bilinçli: onay, revizyon, red. Reddetmek en sert ve en
+              nadir yol; "şu cümleyi değiştir" demek isteyen müşterinin tek
+              çıkışı reddetmek olmasın diye araya bu düşüyor (F10). */}
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={submitting}
+            onClick={() => setMode("revising")}
+          >
+            Revizyon iste
+          </button>
           <button
             type="button"
             className="button-reject"
@@ -175,11 +201,15 @@ export function ApprovalActions({
         <>
           <button
             type="button"
-            className="button-reject"
+            className={mode === "revising" ? "button-primary" : "button-reject"}
             disabled={submitting}
-            onClick={() => decide("reject")}
+            onClick={() => decide(mode === "revising" ? "request_revision" : "reject")}
           >
-            {submitting ? "Kaydediliyor…" : "Reddet"}
+            {submitting
+              ? "Kaydediliyor…"
+              : mode === "revising"
+                ? "Düzeltme iste"
+                : "Reddet"}
           </button>
           <button
             type="button"

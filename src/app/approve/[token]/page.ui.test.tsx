@@ -34,11 +34,16 @@ function seedPage({
   status = "pending",
   publishStatus = "idle",
   igPermalink = null,
+  revisionRound = 0,
+  revisions = [],
 }: {
   instagramConnected: boolean;
   status?: string;
   publishStatus?: string;
   igPermalink?: string | null;
+  /** Revizyon turu (F10) — varsayılan 0: mevcut akış aynen çalışmalı. */
+  revisionRound?: number;
+  revisions?: { id: string; message: string | null }[];
 }) {
   const client = {
     id: "client-1",
@@ -57,6 +62,8 @@ function seedPage({
       status,
       publishStatus,
       igPermalink,
+      revisionRound,
+      revisions,
       client,
       agency: { name: "Ajans", logoUrl: null, brandColor: null },
       images: [{ id: "img-1", url: "/uploads/a.png" }],
@@ -122,5 +129,43 @@ describe("Onay sayfası — mükerrer yayın engellenmiş post", () => {
 
     expect(screen.queryByRole("button", { name: /tekrar dene/i })).toBeNull();
     expect(screen.queryByRole("button", { name: "Instagram'a yayınla" })).toBeNull();
+  });
+});
+
+describe("Onay sayfası — revizyon turu (F10)", () => {
+  it("bekleyen postta 'Revizyon iste' üçüncü bir yol olarak sunulur", async () => {
+    seedPage({ instagramConnected: false });
+    render(await ApprovePage({ params: Promise.resolve({ token: "tok" }) }));
+
+    expect(screen.getByRole("button", { name: "Revizyon iste" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reddet" })).toBeTruthy();
+  });
+
+  it("revizyon beklerken KARAR BUTONU ÇIKMAZ — müşteri görmediğine karar veremez", async () => {
+    seedPage({
+      instagramConnected: false,
+      status: "revision_requested",
+      revisionRound: 1,
+      revisions: [{ id: "r1", message: "İkinci cümleyi yumuşat" }],
+    });
+    render(await ApprovePage({ params: Promise.resolve({ token: "tok" }) }));
+
+    expect(screen.queryByRole("button", { name: /Onayla/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Revizyon iste" })).toBeNull();
+    expect(screen.getByText(/Düzeltme isteğin ajansa iletildi/)).toBeTruthy();
+    expect(screen.getByText(/İkinci cümleyi yumuşat/)).toBeTruthy();
+  });
+
+  it("düzeltme geldiğinde müşterinin kendi isteği geri okunur", async () => {
+    seedPage({
+      instagramConnected: false,
+      status: "pending",
+      revisionRound: 1,
+      revisions: [{ id: "r1", message: "Logo büyüsün" }],
+    });
+    render(await ApprovePage({ params: Promise.resolve({ token: "tok" }) }));
+
+    expect(screen.getByText(/İstediğin düzeltme yapıldı/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Onayla" })).toBeTruthy();
   });
 });

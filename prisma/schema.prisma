@@ -164,6 +164,26 @@ enum PostStatus {
   pending
   approved
   rejected
+  // Revizyon turu (F10). `rejected`'ın bir çeşidi DEĞİL, ayrı bir durum:
+  // "reddedildi" yolun sonudur (panel, rozet, ajans bildirimi hepsi böyle
+  // okuyor), "revizyon istendi" ise topun ajansa geçmesidir — yapılacak iş var.
+  // Aynı değeri paylaşsalardı panel bu iki hâli ayırt edemez, `rejected`ı
+  // "bitti" sayan mevcut kolların hepsi revizyonu da sessizce gömerdi.
+  revision_requested
+}
+
+/** Revizyon zincirindeki satırı kimin yazdığı. */
+enum RevisionActor {
+  client
+  agency
+}
+
+/** Zincirdeki olayın türü — bir tur bu ikisinden oluşur. */
+enum RevisionEvent {
+  /** Müşteri "şunu düzelt" dedi; post ajansa döndü. */
+  revision_requested
+  /** Ajans düzeltip yeniden onaya gönderdi; post tekrar `pending`. */
+  resubmitted
 }
 
 enum PublishStatus {
@@ -232,6 +252,13 @@ model Post {
 
   audits ApprovalAudit[]
 
+  // Revizyon turu (F10). Turu zincirdeki satırları sayarak da bulabilirdik ama
+  // sayma, koşullu UPDATE'in kazandığı yarışın İÇİNDE ikinci bir okuma demek;
+  // sayaç `increment` ile aynı UPDATE'te atomik artıyor. Panelde "2. tur"
+  // yazabilmenin de tek ucuz yolu bu. Mevcut postlarda 0 — geriye dönük uyumlu.
+  revisionRound Int            @default(0)
+  revisions     PostRevision[]
+
   @@index([agencyId])
   @@index([clientId])
   @@index([externalRef])
@@ -263,6 +290,41 @@ model ApprovalLink {
   createdAt DateTime @default(now())
 }
 
+/**
+ * Revizyon zinciri (F10) — "kim, ne zaman, ne dedi, o an metin neydi".
+ *
+ * Neden `ApprovalAudit` yeterli DEĞİL:
+ * • `ApprovalAudit` bir KARAR defteri; `ip` zorunlu ve satırları müşterinin
+ *   tıklamasından doğuyor. Ajansın "düzelttim, tekrar gönderdim" adımının ne
+ *   IP'si var ne de kararı — o tabloya sıkıştırmak `ip`'yi yalan hâline getirirdi.
+ * • Serbest metni taşıyacak alanı yok. `Post.rejectionReason` de tek metin:
+ *   ikinci tur birincinin üstüne yazar, yani zincir zaten orada kopuyordu.
+ * • Asıl eksik SÜRÜM: hangi metne itiraz edildiği, hangi metnin gönderildiği.
+ *   `caption` her satırda o anki metni dondurur; F4'ün karar defteri bunu
+ *   tutmuyor ve tutmamalı da (orası "ne karar verildi", burası "ne konuşuldu").
+ *
+ * `ApprovalAudit` yine de yazılmaya devam ediyor: revizyon talebi de müşterinin
+ * verdiği bir karardır ve anlaşmazlıkta bakılacak yer orası.
+ */
+model PostRevision {
+  id     String @id @default(cuid())
+  postId String
+  post   Post   @relation(fields: [postId], references: [id])
+  /** Kaçıncı tur — `Post.revisionRound`'un o satır yazılırkenki değeri. */
+  round  Int
+  actor  RevisionActor
+  event  RevisionEvent
+  /** Müşterinin isteği ya da ajansın notu. Serbest metin, opsiyonel. */
+  message String?
+  /** Olay anındaki post metni — zincirin "sürüm" tarafı budur. */
+  caption String
+  /** Yalnızca müşteri satırlarında dolu; ajans tarafı oturumla yetkileniyor. */
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([postId])
+}
+
 model ApprovalAudit {
   id     String @id @default(cuid())
   postId String
@@ -272,7 +334,9 @@ model ApprovalAudit {
   // ve panelin karar geçmişini `include` ile okumasını mümkün kılıyor.
   // Migration öncesi prod'da öksüz satır olmadığı ölçüldü (8 kayıt, 0 öksüz).
   post      Post     @relation(fields: [postId], references: [id])
-  action    String // "approved" | "rejected"
+  // String olduğu için yeni değer migration istemiyor — "revision_requested"
+  // (F10) bu yüzden buraya sorunsuz eklendi.
+  action    String // "approved" | "rejected" | "revision_requested"
   ip        String
   createdAt DateTime @default(now())
 

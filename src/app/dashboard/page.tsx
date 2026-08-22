@@ -7,6 +7,7 @@ import { EmailBadge, PublishBadge, StatusBadge } from "@/components/status-badge
 import { CopyLinkButton } from "@/components/copy-link-button";
 import { PostActions } from "@/components/post-actions";
 import { AuditTrail } from "@/components/audit-trail";
+import { RevisionTrail } from "@/components/revision-trail";
 import { TokenAlerts } from "@/components/token-alert";
 import { instagramTokenAlerts } from "@/lib/instagram-token";
 
@@ -38,7 +39,16 @@ export default async function DashboardPage() {
           <p className="empty-state">Henüz post yok. İlk postunu oluştur.</p>
         ) : (
           <ul className="post-list">
-            {posts.map((post) => (
+            {posts.map((post) => {
+              // Bekleyen düzeltme isteği katlı geçmişin içinde kalmamalı: ajansın
+              // yapacağı iş TAM OLARAK bu cümle, satırın üstünde durması gerek (F10).
+              const openRequest =
+                post.status === "revision_requested"
+                  ? ([...post.revisions]
+                      .reverse()
+                      .find((revision) => revision.event === "revision_requested") ?? null)
+                  : null;
+              return (
               <li key={post.id} className="post-row">
                 <div className="post-thumb-wrap">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -59,6 +69,13 @@ export default async function DashboardPage() {
                   {post.status === "rejected" && post.rejectionReason && (
                     <p className="rejection-reason">
                       Reddetme sebebi: {post.rejectionReason}
+                    </p>
+                  )}
+                  {post.status === "revision_requested" && (
+                    <p className="rejection-reason">
+                      Müşteri düzeltme istedi ({post.revisionRound}. tur):{" "}
+                      {openRequest?.message ??
+                        "ne istediğini yazmadı — müşteriyle konuşman gerekebilir."}
                     </p>
                   )}
                   {post.publishStatus === "failed" && post.publishError && (
@@ -93,6 +110,7 @@ export default async function DashboardPage() {
                       })}
                     </p>
                   )}
+                  <RevisionTrail entries={post.revisions} />
                   <AuditTrail entries={post.audits} />
                   {/* Mükerrer: hata değil, atlama. "Yayın hatası:" öneki olmadan,
                       publishError'daki açıklama olduğu gibi gösterilir. */}
@@ -139,10 +157,12 @@ export default async function DashboardPage() {
                     publishStatus={post.publishStatus}
                     caption={post.caption}
                     linkExpiresAt={post.approvalLink?.expiresAt.toISOString() ?? null}
+                    revisionRequest={openRequest?.message ?? null}
                   />
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </main>
