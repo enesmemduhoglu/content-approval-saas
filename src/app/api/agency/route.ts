@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { InvalidImageError, uploadPostImage } from "@/lib/blob";
+import { checkOrigin } from "@/lib/origin";
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
@@ -23,6 +24,13 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.agencyId) {
     return NextResponse.json({ error: "Giriş gerekli" }, { status: 401 });
+  }
+
+  // Origin kontrolü (S8, CSRF ikinci katman) — bu route her zaman çerez
+  // tabanlı oturumla çalışır (API anahtarı yolu yok), bu yüzden koşulsuz.
+  const originCheck = checkOrigin(request);
+  if (!originCheck.ok) {
+    return NextResponse.json({ error: originCheck.message }, { status: 403 });
   }
 
   let formData: FormData;

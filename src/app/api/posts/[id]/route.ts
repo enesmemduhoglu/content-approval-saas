@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { deletePostImages } from "@/lib/blob";
+import { checkOrigin } from "@/lib/origin";
 import { getScopedDb } from "@/lib/scoped-db";
 import { validateCaption } from "@/lib/validation";
 
@@ -28,6 +29,13 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   const session = await auth();
   if (!session?.agencyId) {
     return NextResponse.json({ error: "Giriş gerekli" }, { status: 401 });
+  }
+
+  // Origin kontrolü (S8, CSRF ikinci katman) — bu route her zaman çerez
+  // tabanlı oturumla çalışır (API anahtarı yolu yok), bu yüzden koşulsuz.
+  const originCheck = checkOrigin(request);
+  if (!originCheck.ok) {
+    return NextResponse.json({ error: originCheck.message }, { status: 403 });
   }
 
   let body: unknown;
@@ -67,10 +75,17 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(_request: Request, { params }: RouteParams) {
+export async function DELETE(request: Request, { params }: RouteParams) {
   const session = await auth();
   if (!session?.agencyId) {
     return NextResponse.json({ error: "Giriş gerekli" }, { status: 401 });
+  }
+
+  // Origin kontrolü (S8, CSRF ikinci katman) — bu route her zaman çerez
+  // tabanlı oturumla çalışır (API anahtarı yolu yok), bu yüzden koşulsuz.
+  const originCheck = checkOrigin(request);
+  if (!originCheck.ok) {
+    return NextResponse.json({ error: originCheck.message }, { status: 403 });
   }
 
   const { id } = await params;

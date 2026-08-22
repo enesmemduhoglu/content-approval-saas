@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { authenticateApiKey } from "@/lib/api-key";
+import { checkOrigin } from "@/lib/origin";
 import { db } from "@/lib/db";
 import { ClientNotOwnedError, getScopedDb } from "@/lib/scoped-db";
 import { InvalidImageError, uploadPostImage } from "@/lib/blob";
@@ -114,10 +115,24 @@ export async function POST(request: Request) {
   // Oturum yoksa API anahtarı denenir (makine erişimi). Anahtar yalnızca
   // agencyId üretir; sorgular yine getScopedDb üzerinden gider — IDOR koruması
   // her iki yolda da aynıdır.
-  const session = (await auth()) ?? (await authenticateApiKey(request));
+  const cookieSession = await auth();
+  const session = cookieSession ?? (await authenticateApiKey(request));
   if (!session?.agencyId) {
     return NextResponse.json({ error: "Giriş gerekli" }, { status: 401 });
   }
+
+  // Origin kontrolü (S8, CSRF ikinci katman) yalnızca ÇEREZ tabanlı oturumda
+  // uygulanır. API anahtarı `Authorization: Bearer` ile geliyor — tarayıcılar
+  // cross-site isteklerde bu başlığı otomatik EKLEMEZ, dolayısıyla bu yol
+  // zaten CSRF'e açık değil; furi gibi makine istemcileri de Origin başlığı
+  // göndermez, muaf tutmazsak makine yolu kırılırdı.
+  if (cookieSession) {
+    const originCheck = checkOrigin(request);
+    if (!originCheck.ok) {
+      return NextResponse.json({ error: originCheck.message }, { status: 403 });
+    }
+  }
+
   const scoped = getScopedDb(session);
 
   const isJson = (request.headers.get("content-type") ?? "").includes("application/json");
