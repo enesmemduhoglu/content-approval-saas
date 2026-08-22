@@ -60,6 +60,8 @@ export async function createPendingPostWithLink(
     imageUrls?: string[];
     /** Dış sistemin (furi) tanımlayıcısı — mükerrer yayın koruması testleri için. */
     externalRef?: string;
+    /** F8 — zamanlanmış yayın testleri için. */
+    publishAt?: Date | null;
   } = {}
 ) {
   const post = await db.post.create({
@@ -69,6 +71,7 @@ export async function createPendingPostWithLink(
       caption: "Test caption",
       status: overrides.status ?? "pending",
       externalRef: overrides.externalRef ?? null,
+      publishAt: overrides.publishAt ?? null,
       images: {
         create: (overrides.imageUrls ?? ["/uploads/test.png"]).map((url, index) => ({
           url,

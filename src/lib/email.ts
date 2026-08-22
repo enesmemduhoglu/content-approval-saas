@@ -231,6 +231,8 @@ export type AgencyNoticeInput = {
   igPermalink?: string | null;
   /** link_expired: post kaç gündür bekliyor. */
   daysPending?: number;
+  /** F8: publishStatus "scheduled" ise yayının planlandığı an — TR saatiyle gösterilir. */
+  publishAt?: Date | null;
 };
 
 const YAYIN_METNI: Record<string, string> = {
@@ -239,6 +241,8 @@ const YAYIN_METNI: Record<string, string> = {
   skipped: "Yayınlanmadı: müşteride Instagram bağlı değil",
   duplicate: "Yayınlanmadı: aynı post zaten Instagram'da",
   idle: "Yayın henüz denenmedi",
+  // F8: "yayınlandı" değil — yanıltıcı olurdu, aşağıda gerçek zaman eklenir.
+  scheduled: "Onaylandı, planlanan saatte yayınlanacak",
 };
 
 export function agencyNoticeSubject(input: AgencyNoticeInput): string {
@@ -266,6 +270,17 @@ function agencyNoticeLines(input: AgencyNoticeInput): string[] {
   } else if (input.event === "approved") {
     lines.push(`${input.clientName} postu ONAYLADI.`);
     lines.push(YAYIN_METNI[input.publishStatus ?? "idle"] ?? `Yayın durumu: ${input.publishStatus}`);
+    // F8: "onaylandı ama şu saatte yayınlanacak" — hangi saat sorusunun
+    // cevabı burada, aksi halde "planlanan saatte" belirsiz kalırdı.
+    if (input.publishStatus === "scheduled" && input.publishAt) {
+      lines.push(
+        `Planlanan zaman: ${input.publishAt.toLocaleString("tr-TR", {
+          timeZone: "Europe/Istanbul",
+          dateStyle: "medium",
+          timeStyle: "short",
+        })} (TR saati)`
+      );
+    }
     if (input.igPermalink) lines.push(`Post: ${input.igPermalink}`);
   } else if (input.event === "link_expired") {
     // Müşteriye hatırlatma göndermenin anlamı yok: elindeki link çalışmıyor.

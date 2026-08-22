@@ -477,3 +477,66 @@ describe("POST /api/approve/[token] — Instagram yayını", () => {
     expect(data.post.instagramConnected).toBe(true);
   });
 });
+
+describe("POST /api/approve/[token] — F8 zamanlanmış yayın", () => {
+  async function seedWithInstagram(publishAt: Date | null) {
+    const agency = await createAgency();
+    const client = await createInstagramClient(agency.id);
+    const seeded = await createPendingPostWithLink(agency.id, client.id, { publishAt });
+    return { agency, client, ...seeded };
+  }
+
+  it("publishAt GELECEKTEYSE onay ANINDA yayınlamaz — publishStatus 'scheduled' olur", async () => {
+    const gelecek = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const { post, link } = await seedWithInstagram(gelecek);
+
+    const res = await POST(postRequest({ action: "approve" }), makeParams(link.token));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.status).toBe("approved");
+    expect(data.publishStatus).toBe("scheduled");
+
+    // Yayın hiç tetiklenmedi — kilit "publishing"e hiç geçmedi.
+    expect(mockPublish).not.toHaveBeenCalled();
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.status).toBe("approved");
+    expect(updated?.publishStatus).toBe("scheduled");
+    expect(updated?.igMediaId).toBeNull();
+
+    // Ajans "onaylandı ama şu saatte yayınlanacak" bilgisini alır — "yayınlandı" değil.
+    expect(mockAgencyNotice).toHaveBeenCalledOnce();
+    expect(mockAgencyNotice.mock.calls[0][0]).toMatchObject({ publishStatus: "scheduled" });
+  });
+
+  it("publishAt GEÇMİŞTEYSE mevcut davranış aynen korunur — hemen yayınlanır", async () => {
+    const gecmis = new Date(Date.now() - 60_000);
+    const { post, link } = await seedWithInstagram(gecmis);
+    mockPublish.mockResolvedValue({
+      mediaId: "media-gecmis",
+      permalink: "https://instagram.com/p/GECMIS/",
+    });
+
+    const res = await POST(postRequest({ action: "approve" }), makeParams(link.token));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.publishStatus).toBe("published");
+
+    expect(mockPublish).toHaveBeenCalledOnce();
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.publishStatus).toBe("published");
+  });
+
+  it("publishAt BOŞSA mevcut davranış aynen korunur — hemen yayınlanır", async () => {
+    const { post, link } = await seedWithInstagram(null);
+    mockPublish.mockResolvedValue({
+      mediaId: "media-bos",
+      permalink: "https://instagram.com/p/BOS/",
+    });
+
+    const res = await POST(postRequest({ action: "approve" }), makeParams(link.token));
+    expect((await res.json()).publishStatus).toBe("published");
+
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.publishStatus).toBe("published");
+  });
+});

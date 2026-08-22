@@ -26,6 +26,15 @@ export function PostForm({ clients }: { clients: { id: string; name: string }[] 
     setSubmitting(true);
     setError(null);
     const formData = new FormData(event.currentTarget);
+    // F8: datetime-local girdisi tarayıcının kendi saat dilimini DEĞİL, hep
+    // TÜRKİYE saatini temsil eder (ajans Türkiye'de, girdiği "09:00" 09:00
+    // TR demektir). Sunucu UTC çalıştığı için burada +03:00 ofsetiyle ISO'ya
+    // çevrilir — Türkiye 2016'dan beri DST uygulamadığından sabit ofset güvenli.
+    const publishAtLocal = formData.get("publishAtLocal");
+    formData.delete("publishAtLocal");
+    if (typeof publishAtLocal === "string" && publishAtLocal) {
+      formData.set("publishAt", `${publishAtLocal}:00+03:00`);
+    }
     try {
       const res = await fetch("/api/posts", { method: "POST", body: formData });
       const data = await res.json().catch(() => ({}));
@@ -84,6 +93,11 @@ export function PostForm({ clients }: { clients: { id: string; name: string }[] 
         <textarea name="caption" maxLength={2000} rows={4} required />
       </label>
       {error?.field === "caption" && <p className="field-error">{error.message}</p>}
+      <label>
+        Yayın zamanı (opsiyonel, TR saati — boş bırakılırsa onayda hemen yayınlanır)
+        <input type="datetime-local" name="publishAtLocal" />
+      </label>
+      {error?.field === "publishAt" && <p className="field-error">{error.message}</p>}
       {error && !error.field && <p className="field-error">{error.message}</p>}
       <div className="form-actions">
         <button type="submit" className="button-primary" disabled={submitting}>

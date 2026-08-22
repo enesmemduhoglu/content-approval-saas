@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CAPTION_MAX_LENGTH,
   MAX_IMAGES_PER_POST,
+  MAX_PUBLISH_AHEAD_DAYS,
   validateCaption,
   validateClientEmail,
   validateClientName,
@@ -9,6 +10,7 @@ import {
   validateInstagramAccessToken,
   validateInstagramTokenExpiry,
   validateInstagramUserId,
+  validatePublishAt,
 } from "./validation";
 
 describe("validateImageUrls", () => {
@@ -140,5 +142,34 @@ describe("validateInstagramTokenExpiry", () => {
 
   it("gelecekteki tarihi kabul eder", () => {
     expect(validateInstagramTokenExpiry("2099-10-15")).toBeNull();
+  });
+});
+
+describe("validatePublishAt", () => {
+  it("boş/undefined/null'ı kabul eder — zamanlama yok demek", () => {
+    expect(validatePublishAt(undefined)).toBeNull();
+    expect(validatePublishAt(null)).toBeNull();
+    expect(validatePublishAt("")).toBeNull();
+  });
+
+  it("string olmayanı ve anlamsız tarihi reddeder", () => {
+    expect(validatePublishAt(123)).not.toBeNull();
+    expect(validatePublishAt("yarin")).not.toBeNull();
+  });
+
+  it("geçmiş tarihi reddeder", () => {
+    expect(validatePublishAt("2020-01-01T09:00:00+03:00")).not.toBeNull();
+  });
+
+  it(`${MAX_PUBLISH_AHEAD_DAYS} günden uzağı reddeder`, () => {
+    const cokUzak = new Date(
+      Date.now() + (MAX_PUBLISH_AHEAD_DAYS + 5) * 24 * 60 * 60 * 1000
+    ).toISOString();
+    expect(validatePublishAt(cokUzak)).not.toBeNull();
+  });
+
+  it("makul gelecekteki tarihi kabul eder", () => {
+    const yarin = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    expect(validatePublishAt(yarin)).toBeNull();
   });
 });

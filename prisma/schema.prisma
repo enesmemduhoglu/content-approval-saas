@@ -57,6 +57,13 @@ enum PublishStatus {
   // bilinçli olarak atlandı. `failed` DEĞİL: failed "tekrar dene" yolunu açar,
   // burada tekrar denemek tam da engellemek istediğimiz şeyi yapar.
   duplicate
+  // F8 — zamanlanmış yayın: post onaylandı ama `publishAt` gelecekte, yayın
+  // `publish-scheduled` cron'una bırakıldı. `idle` KULLANILMADI çünkü panelde
+  // "onaylandı + idle" zaten "yayın hiç denenmedi" (awaitingPublish) anlamına
+  // geliyor — eski toplu onaylardan kalan, unutulmuş postların işareti. Aynı
+  // durumu zamanlanmış bir posta da versek ajans "bu post unutulmuş" sanıp
+  // paniğe kapılırdı; oysa burada her şey planlandığı gibi gidiyor.
+  scheduled
 }
 
 model Post {
@@ -83,6 +90,13 @@ model Post {
   // Dış sistemin (furi) kendi tanımlayıcısı — "bu slug daha önce gönderildi mi"
   externalRef   String?
 
+  // F8 — zamanlanmış yayın. `null` = mevcut davranış (onayda ANINDA yayınla).
+  // Doluysa ve onay anında gelecekteyse yayın `publish-scheduled` cron'una
+  // bırakılır; UTC olarak saklanır (bkz. validation.ts — girdi Türkiye saati
+  // kabul edilip +03:00 ofsetiyle UTC'ye çevrilir, sunucu her zaman UTC'de
+  // çalışır ve Türkiye 2016'dan beri DST uygulamadığı için sabit +03:00 güvenli).
+  publishAt DateTime?
+
   // Onay e-postasının akıbeti. #31 bu bilgiyi /api/posts YANITINA koymuştu ama
   // hiçbir yerde saklamıyordu: yanıtı gören otomasyon öğreniyor, panele bakan
   // insan asla öğrenemiyordu. `null` = henüz hiç denenmedi.
@@ -104,6 +118,9 @@ model Post {
   @@index([externalRef])
   // Hatırlatma cron'u "bekleyen ve linki olan" postları tarıyor.
   @@index([status])
+  // Zamanlanmış yayın cron'u "scheduled" + "zamanı geçmiş" postları tarıyor —
+  // bileşik index olmadan her koşu publishStatus'a göre tam tablo taraması yapar.
+  @@index([publishStatus, publishAt])
 }
 
 model PostImage {

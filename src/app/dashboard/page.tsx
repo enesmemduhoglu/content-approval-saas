@@ -81,6 +81,18 @@ export default async function DashboardPage() {
                       {post.reminderSentAt.toLocaleDateString("tr-TR")}
                     </p>
                   )}
+                  {/* F8: zamanlanmış postta "ne zaman" sorusunun cevabı — TR
+                      saatiyle, aksi halde "Zamandı" rozeti tek başına belirsiz. */}
+                  {post.publishStatus === "scheduled" && post.publishAt && (
+                    <p className="post-note">
+                      Yayın zamanı ·{" "}
+                      {post.publishAt.toLocaleString("tr-TR", {
+                        timeZone: "Europe/Istanbul",
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </p>
+                  )}
                   <AuditTrail entries={post.audits} />
                   {/* Mükerrer: hata değil, atlama. "Yayın hatası:" öneki olmadan,
                       publishError'daki açıklama olduğu gibi gösterilir. */}

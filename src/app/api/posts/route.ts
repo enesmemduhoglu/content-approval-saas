@@ -11,6 +11,7 @@ import {
   MAX_IMAGES_PER_POST,
   validateCaption,
   validateImageUrls,
+  validatePublishAt,
 } from "@/lib/validation";
 
 export async function GET() {
@@ -32,6 +33,8 @@ type ParsedBody = {
   images: { kind: "urls"; urls: string[] } | { kind: "files"; files: File[] };
   altTexts?: (string | null)[];
   externalRef?: string | null;
+  /** F8: doluysa ve onay anında gelecekteyse yayın crona bırakılır. */
+  publishAt?: Date | null;
 };
 
 function badRequest(error: string, field?: string, status = 400) {
@@ -49,12 +52,13 @@ async function parseJsonBody(request: Request): Promise<ParsedBody | NextRespons
   } catch {
     return badRequest("Geçersiz istek");
   }
-  const { caption, clientId, imageUrls, altTexts, externalRef } = (body ?? {}) as {
+  const { caption, clientId, imageUrls, altTexts, externalRef, publishAt } = (body ?? {}) as {
     caption?: unknown;
     clientId?: unknown;
     imageUrls?: unknown;
     altTexts?: unknown;
     externalRef?: unknown;
+    publishAt?: unknown;
   };
 
   const captionError = validateCaption(caption);
@@ -64,6 +68,10 @@ async function parseJsonBody(request: Request): Promise<ParsedBody | NextRespons
   }
   const urlError = validateImageUrls(imageUrls);
   if (urlError) return badRequest(urlError, "imageUrls");
+  // F8: makine yolu (furi) UTC ISO string gönderir — Türkiye saati yorumu
+  // yalnızca panel formunda gerekli, çünkü makine tarafı zaten UTC'ye çevirip yollar.
+  const publishAtError = validatePublishAt(publishAt);
+  if (publishAtError) return badRequest(publishAtError, "publishAt");
 
   return {
     caption: (caption as string).trim(),
@@ -76,6 +84,7 @@ async function parseJsonBody(request: Request): Promise<ParsedBody | NextRespons
       typeof externalRef === "string" && externalRef.trim()
         ? externalRef.trim().slice(0, 500)
         : null,
+    publishAt: typeof publishAt === "string" && publishAt.trim() ? new Date(publishAt) : null,
   };
 }
 
@@ -105,10 +114,18 @@ async function parseFormBody(request: Request): Promise<ParsedBody | NextRespons
     return badRequest(`En fazla ${MAX_IMAGES_PER_POST} görsel yükleyebilirsin`, "image");
   }
 
+  // F8: panel formu Türkiye saatini +03:00 ofsetiyle UTC ISO'ya çevirip
+  // BURAYA gelmeden önce yollar (bkz. post-form.tsx) — burada tekrar tz
+  // yorumu yapmıyoruz, tıpkı makine yolundaki gibi ISO string bekliyoruz.
+  const publishAt = formData.get("publishAt");
+  const publishAtError = validatePublishAt(publishAt);
+  if (publishAtError) return badRequest(publishAtError, "publishAt");
+
   return {
     caption: (caption as string).trim(),
     clientId,
     images: { kind: "files", files: images },
+    publishAt: typeof publishAt === "string" && publishAt.trim() ? new Date(publishAt) : null,
   };
 }
 
@@ -204,6 +221,7 @@ export async function POST(request: Request) {
       caption: parsed.caption,
       altTexts: parsed.altTexts,
       externalRef: parsed.externalRef,
+      publishAt: parsed.publishAt,
     });
 
     const approvalUrl = `${appBaseUrl(request)}/approve/${approvalLink.token}`;

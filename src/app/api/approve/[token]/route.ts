@@ -56,6 +56,9 @@ export async function GET(request: Request, { params }: RouteParams) {
       // Onay ≠ yayın: ikisi ayrı alan, ayrı gösterilir.
       publishStatus: post.publishStatus,
       igPermalink: post.igPermalink,
+      // F8: müşteri/ajans "ne zaman yayınlanacak" sorusunu onay sayfasından
+      // görebilsin diye — null ise zamanlama yok, onayda hemen yayınlanır.
+      publishAt: post.publishAt,
       instagramConnected: Boolean(post.client.instagramUserId),
     },
   });
@@ -120,12 +123,25 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? rejectionReason.trim().slice(0, 2000)
       : null;
 
+  // F8: publishAt gelecekteyse onay ANINDA yayınlamaz — yayın `publish-scheduled`
+  // cron'una bırakılır. Boş ya da GEÇMİŞTEYSE (ör. onay linki günlerce beklemiş)
+  // mevcut davranış aynen korunur: aşağıda hemen publishApprovedPost çağrılır.
+  // Karar `status` update'iyle AYNI transaction'da yazılır (publishStatus da) —
+  // aksi halde iki ayrı yazma arasında cron'un status='approved' ama
+  // publishStatus hâlâ 'idle' bir postu yakalayıp ERKEN yayınlaması mümkün olurdu.
+  const willSchedule =
+    newStatus === "approved" && !!link.post.publishAt && link.post.publishAt.getTime() > Date.now();
+
   // Yarış koruması: UPDATE yalnızca `status = 'pending'` iken çalışır — aynı anda
   // gelen ikinci karar 0 satır etkiler ve 409 alır. Audit kaydı aynı transaction'da.
   const decided = await db.$transaction(async (tx) => {
     const result = await tx.post.updateMany({
       where: { id: link.postId, status: "pending" },
-      data: { status: newStatus, rejectionReason: reason },
+      data: {
+        status: newStatus,
+        rejectionReason: reason,
+        ...(willSchedule ? { publishStatus: "scheduled" } : {}),
+      },
     });
     if (result.count === 0) return false;
     await tx.approvalAudit.create({
@@ -147,6 +163,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({ status: newStatus });
   }
 
+  if (willSchedule) {
+    // Yayın hemen tetiklenmez — "yayınlandı" demek yanıltıcı olurdu.
+    await notifyAgency(link, "approved", {
+      publishStatus: "scheduled",
+      publishAt: link.post.publishAt,
+    });
+    return NextResponse.json({ status: newStatus, publishStatus: "scheduled" });
+  }
+
   // Onay commit oldu; buradan sonrası onayı ETKİLEMEZ. publishApprovedPost
   // throw etmez, en kötü ihtimalle publishStatus "failed" döner.
   const outcome = await publishApprovedPost(link.postId);
@@ -164,7 +189,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 async function notifyAgency(
   link: NonNullable<Awaited<ReturnType<typeof findLink>>>,
   event: "approved" | "rejected",
-  extra: { rejectionReason?: string | null } & Partial<PublishOutcome>
+  extra: { rejectionReason?: string | null; publishAt?: Date | null } & Partial<PublishOutcome>
 ): Promise<void> {
   const { post } = link;
   if (!post.agency.email) return;
@@ -176,5 +201,6 @@ async function notifyAgency(
     rejectionReason: extra.rejectionReason ?? null,
     publishStatus: extra.publishStatus ?? null,
     igPermalink: extra.igPermalink ?? null,
+    publishAt: extra.publishAt ?? null,
   }).catch((error) => console.error("[approve] ajans bildirimi hatası:", error));
 }

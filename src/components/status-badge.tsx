@@ -27,6 +27,10 @@ const PUBLISH_LABELS: Partial<Record<PublishStatus, string>> = {
   // Aynı externalRef'li kardeş post hâlâ canlıdaydı, yayın atlandı. "Yayınlanamadı"
   // demek yanıltıcı olur — ortada hata yok, içerik zaten yerinde.
   duplicate: "Zaten yayında",
+  // F8: onaylandı, publishAt gelecekte — yayın crona bırakıldı. "Yayınlanmadı"
+  // (awaitingPublish'in idle etiketi) DEĞİL: o "unutulmuş" çağrışımı yapar,
+  // burada her şey planlandığı gibi bekliyor.
+  scheduled: "Zamanlandı",
 };
 
 export function PublishBadge({

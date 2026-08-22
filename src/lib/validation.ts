@@ -99,6 +99,34 @@ export function validateInstagramAccessToken(value: unknown): string | null {
 }
 
 /**
+ * F8 — zamanlanmış yayın için azami ileri tarih. Instagram long-lived token
+ * 60 gün sürüyor (bkz. instagram-token.ts); daha uzağa zamanlama, `publishAt`
+ * geldiğinde token'ın süresi dolmuş olma ihtimalini SESSİZCE büyütür — yayın
+ * o gün "token süresi doldu" diye `failed` düşer ve kimse neden diye sormaz.
+ * Tavan bunu üstünkörü engelliyor; token daha erken yenilenirse sorun olmaz.
+ */
+export const MAX_PUBLISH_AHEAD_DAYS = 60;
+
+/**
+ * `Post.publishAt` (F8). `value` UTC'ye çevrilmiş ISO string olarak beklenir
+ * (form yolu Türkiye saatini +03:00 ofsetiyle burada, request'e girmeden ÖNCE
+ * çevirir — bkz. post-form.tsx). Boş/`undefined` GEÇERLİDİR: "zamanlama yok,
+ * onayda hemen yayınla" anlamına gelir, mevcut davranışın ta kendisi.
+ */
+export function validatePublishAt(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") return "Yayın zamanı geçersiz";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Geçerli bir yayın zamanı gir";
+  if (date.getTime() <= Date.now()) return "Yayın zamanı gelecekte olmalı";
+  const maxAheadMs = MAX_PUBLISH_AHEAD_DAYS * 24 * 60 * 60 * 1000;
+  if (date.getTime() > Date.now() + maxAheadMs) {
+    return `Yayın zamanı en fazla ${MAX_PUBLISH_AHEAD_DAYS} gün sonrası olabilir`;
+  }
+  return null;
+}
+
+/**
  * IG professional account id — yalnızca rakam. Arayüzde bu alan boş bırakılabilir;
  * boşsa token'dan türetilir, doluysa token'ın hesabıyla eşleştiği ayrıca kontrol edilir.
  */
