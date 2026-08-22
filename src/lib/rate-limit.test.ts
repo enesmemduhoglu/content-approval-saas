@@ -113,4 +113,30 @@ describe("getClientIp", () => {
   it("header boş string ise 'unknown' döner", () => {
     expect(getClientIp(new Headers({ "x-forwarded-for": "" }))).toBe("unknown");
   });
+
+  it("x-vercel-forwarded-for varsa x-forwarded-for'a tercih edilir (sahtelenemeyen başlık öncelikli)", () => {
+    const headers = new Headers({
+      "x-vercel-forwarded-for": "1.1.1.1",
+      "x-forwarded-for": "9.9.9.9",
+    });
+    expect(getClientIp(headers)).toBe("1.1.1.1");
+  });
+
+  it("x-vercel-forwarded-for çoklu değerin ilkini alır", () => {
+    const headers = new Headers({ "x-vercel-forwarded-for": "1.1.1.1, 2.2.2.2" });
+    expect(getClientIp(headers)).toBe("1.1.1.1");
+  });
+
+  it("x-vercel-forwarded-for yoksa x-forwarded-for'a düşer", () => {
+    const headers = new Headers({ "x-forwarded-for": "9.9.9.9" });
+    expect(getClientIp(headers)).toBe("9.9.9.9");
+  });
+
+  it("x-vercel-forwarded-for boş string ise x-forwarded-for'a düşer", () => {
+    const headers = new Headers({
+      "x-vercel-forwarded-for": "",
+      "x-forwarded-for": "9.9.9.9",
+    });
+    expect(getClientIp(headers)).toBe("9.9.9.9");
+  });
 });

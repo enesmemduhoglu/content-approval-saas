@@ -87,9 +87,23 @@ export async function checkRateLimit(ip: string, now: number = Date.now()): Prom
   return isRateLimited(ip, now);
 }
 
-// `x-forwarded-for` yoksa (yerel geliştirme, proxy'siz ortam) sessiz boş değer yerine
-// "unknown" sabitine düşer — audit kayıtları hiçbir zaman boş IP içermez (TENSION 4).
+// Öncelik `x-vercel-forwarded-for`'da: bu başlığı Vercel'in kendi edge katmanı
+// yazar ve istemci tarafından ÜZERİNE YAZILAMAZ (Vercel istemciden gelen aynı
+// adlı başlığı siler/yeniden yazar). `x-forwarded-for` standart bir proxy
+// başlığıdır — bugün Vercel'in dışına sızmıyor çünkü platform onu da kendi
+// yazıyor, ama bu garanti Vercel'e ÖZGÜ: proje başka bir platforma taşınır ya
+// da araya güvenilmeyen bir proxy girerse istemci bu başlığı sahteleyip hem
+// rate limit'i atlatabilir hem de `ApprovalAudit.ip` içine (bir onayın kanıtı
+// olarak saklanan) sahte bir IP yazdırabilir. Bu yüzden Vercel'e özgü, sahte
+// lenemeyen başlık öncelikli; `x-forwarded-for` yalnızca ondan yoksun ortamlar
+// (yerel geliştirme, Vercel dışı barındırma) için geriye dönük fallback.
+// Hiçbiri yoksa sessiz boş değer yerine "unknown" sabitine düşer — audit
+// kayıtları hiçbir zaman boş IP içermez (TENSION 4).
 export function getClientIp(headers: Headers): string {
+  const vercelForwarded = headers.get("x-vercel-forwarded-for");
+  const vercelFirst = vercelForwarded?.split(",")[0]?.trim();
+  if (vercelFirst) return vercelFirst;
+
   const forwarded = headers.get("x-forwarded-for");
   if (!forwarded) return "unknown";
   const first = forwarded.split(",")[0]?.trim();
