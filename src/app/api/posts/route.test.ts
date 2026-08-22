@@ -306,6 +306,107 @@ describe("POST /api/posts", () => {
   });
 });
 
+// F7 — ajans başına kaba post tavanı. Panel (oturum) yolu buradan test edilir;
+// makine (API anahtarı) yolu aşağıdaki "JSON yolu" describe'ında.
+describe("POST /api/posts — kota (F7)", () => {
+  const ORIGINAL_ENV = process.env.QUOTA_MAX_POSTS;
+  const ORIGINAL_DAILY_ENV = process.env.QUOTA_MAX_POSTS_PER_DAY;
+
+  afterEach(() => {
+    if (ORIGINAL_ENV === undefined) delete process.env.QUOTA_MAX_POSTS;
+    else process.env.QUOTA_MAX_POSTS = ORIGINAL_ENV;
+    if (ORIGINAL_DAILY_ENV === undefined) delete process.env.QUOTA_MAX_POSTS_PER_DAY;
+    else process.env.QUOTA_MAX_POSTS_PER_DAY = ORIGINAL_DAILY_ENV;
+  });
+
+  it("tavanın altındayken oluşturmaya izin verir", async () => {
+    process.env.QUOTA_MAX_POSTS = "2";
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(
+      postRequest({ caption: "İlk post", clientId: client.id, image: makeImage() })
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("tavana ulaşıldığında 403 döner (429 DEĞİL), Blob'a yazılmaz", async () => {
+    process.env.QUOTA_MAX_POSTS = "1";
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    await POST(postRequest({ caption: "İlk post", clientId: client.id, image: makeImage() }));
+    mockUpload.mockClear();
+
+    const res = await POST(
+      postRequest({ caption: "Fazla post", clientId: client.id, image: makeImage() })
+    );
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toContain("tavan");
+    expect(await db.post.count({ where: { agencyId: agency.id } })).toBe(1);
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
+  it("günlük hız tavanına ulaşıldığında 403 döner ve Blob'a yazılmaz", async () => {
+    // Ömür boyu tavanı yolun dışında tut — burada sınanan HIZ tavanı.
+    process.env.QUOTA_MAX_POSTS = "1000";
+    process.env.QUOTA_MAX_POSTS_PER_DAY = "1";
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    await POST(postRequest({ caption: "İlk post", clientId: client.id, image: makeImage() }));
+    mockUpload.mockClear();
+
+    const res = await POST(
+      postRequest({ caption: "Aynı gün ikinci post", clientId: client.id, image: makeImage() })
+    );
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toContain("Günlük");
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
+  it("pencere DIŞINDA kalan post günlük tavanı doldurmaz", async () => {
+    process.env.QUOTA_MAX_POSTS = "1000";
+    process.env.QUOTA_MAX_POSTS_PER_DAY = "1";
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    await POST(postRequest({ caption: "Eski post", clientId: client.id, image: makeImage() }));
+    // 25 saat geriye it: kayan pencerenin dışına düşsün.
+    await db.post.updateMany({
+      where: { agencyId: agency.id },
+      data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+    });
+
+    const res = await POST(
+      postRequest({ caption: "Yeni post", clientId: client.id, image: makeImage() })
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("sayım ajans kapsamındadır — başka ajansın postları tavana dahil değildir", async () => {
+    process.env.QUOTA_MAX_POSTS = "1";
+    const agencyA = await createAgency();
+    const agencyB = await createAgency();
+    const clientA = await createClient(agencyA.id);
+    const clientB = await createClient(agencyB.id);
+    mockAuth.mockResolvedValue({ agencyId: agencyB.id } as never);
+    await POST(postRequest({ caption: "B'nin postu", clientId: clientB.id, image: makeImage() }));
+
+    mockAuth.mockResolvedValue({ agencyId: agencyA.id } as never);
+    const res = await POST(
+      postRequest({ caption: "A'nın postu", clientId: clientA.id, image: makeImage() })
+    );
+    expect(res.status).toBe(201);
+  });
+});
+
 describe("POST /api/posts — JSON yolu (makine erişimi)", () => {
   const API_KEY = "f".repeat(48);
 
@@ -467,6 +568,39 @@ describe("POST /api/posts — JSON yolu (makine erişimi)", () => {
     );
     expect(res.status).toBe(400);
     expect(await db.post.count()).toBe(0);
+  });
+
+  it("makine yolu da post tavanına tabidir — 403 döner (F7)", async () => {
+    const ORIGINAL_ENV = process.env.QUOTA_MAX_POSTS;
+    process.env.QUOTA_MAX_POSTS = "1";
+    try {
+      const agency = await createAgency();
+      const client = await createClient(agency.id);
+      enableApiKey(agency.id);
+
+      await POST(
+        jsonRequest({
+          clientId: client.id,
+          caption: "İlk",
+          imageUrls: ["https://raw.githubusercontent.com/a/1.jpg"],
+        })
+      );
+
+      const res = await POST(
+        jsonRequest({
+          clientId: client.id,
+          caption: "Fazla",
+          imageUrls: ["https://raw.githubusercontent.com/a/2.jpg"],
+        })
+      );
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("tavan");
+      expect(await db.post.count({ where: { agencyId: agency.id } })).toBe(1);
+    } finally {
+      if (ORIGINAL_ENV === undefined) delete process.env.QUOTA_MAX_POSTS;
+      else process.env.QUOTA_MAX_POSTS = ORIGINAL_ENV;
+    }
   });
 
   it("oturumlu kullanıcı da JSON gövde gönderebilir (anahtar gerekmez)", async () => {

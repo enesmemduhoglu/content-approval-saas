@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/auth", () => ({
   auth: vi.fn(),
@@ -99,5 +99,59 @@ describe("POST /api/clients", () => {
     mockAuth.mockResolvedValue(null as never);
     const res = await POST(jsonRequest({ name: "Ad", email: "a@b.com" }));
     expect(res.status).toBe(401);
+  });
+});
+
+// F7 — ajans başına kaba müşteri tavanı.
+describe("POST /api/clients — kota (F7)", () => {
+  const ORIGINAL_ENV = process.env.QUOTA_MAX_CLIENTS;
+
+  afterEach(() => {
+    if (ORIGINAL_ENV === undefined) delete process.env.QUOTA_MAX_CLIENTS;
+    else process.env.QUOTA_MAX_CLIENTS = ORIGINAL_ENV;
+  });
+
+  it("tavanın altındayken oluşturmaya izin verir", async () => {
+    process.env.QUOTA_MAX_CLIENTS = "2";
+    const agency = await createAgency();
+    await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(jsonRequest({ name: "İkinci Müşteri", email: "b@ornek.com" }));
+    expect(res.status).toBe(201);
+  });
+
+  it("tavana ulaşıldığında 403 döner (429 DEĞİL) ve DB'ye yazmaz", async () => {
+    process.env.QUOTA_MAX_CLIENTS = "1";
+    const agency = await createAgency();
+    await createClient(agency.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(jsonRequest({ name: "Fazla Müşteri", email: "c@ornek.com" }));
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toContain("tavan");
+    expect(await db.client.count({ where: { agencyId: agency.id } })).toBe(1);
+  });
+
+  it("sayım ajans kapsamındadır — başka ajansın müşterileri tavana dahil değildir", async () => {
+    process.env.QUOTA_MAX_CLIENTS = "1";
+    const agencyA = await createAgency();
+    const agencyB = await createAgency();
+    // agencyB zaten tavanda ama bu agencyA'yı etkilememeli.
+    await createClient(agencyB.id);
+    mockAuth.mockResolvedValue({ agencyId: agencyA.id } as never);
+
+    const res = await POST(jsonRequest({ name: "Ad", email: "d@ornek.com" }));
+    expect(res.status).toBe(201);
+  });
+
+  it("env tanımsızsa varsayılan tavan kullanılır (tavan altındaysa geçer)", async () => {
+    delete process.env.QUOTA_MAX_CLIENTS;
+    const agency = await createAgency();
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(jsonRequest({ name: "Ad", email: "e@ornek.com" }));
+    expect(res.status).toBe(201);
   });
 });

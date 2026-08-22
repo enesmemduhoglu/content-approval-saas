@@ -81,6 +81,13 @@ export function getScopedDb(session: ScopedSession) {
       },
       create: async (data: { name: string; email: string }): Promise<ClientView> =>
         toClientView(await db.client.create({ data: { ...data, agencyId } })),
+      /**
+       * Kota kontrolü (F7) için ajans kapsamlı sayım. Ham `db.client.count`
+       * route'ta çağrılmaz — o zaman `agencyId` filtresi unutulabilir ve kota
+       * yanlışlıkla TÜM ajansların toplamına bakar (kendi başına bir IDOR/DoS
+       * çeşidi: bir ajans başkasının kullanımı yüzünden tavana çarpar).
+       */
+      count: async (): Promise<number> => db.client.count({ where: { agencyId } }),
 
       /**
        * Müşteri silme (F2). Postu olan müşteri SİLİNMEZ — `Post.clientId` FK'sı
@@ -257,6 +264,19 @@ export function getScopedDb(session: ScopedSession) {
         });
       },
       findById: (id: string) => db.post.findFirst({ where: { id, agencyId } }),
+      /** Kota kontrolü (F7) için ajans kapsamlı sayım — bkz. `clients.count`. */
+      count: async (): Promise<number> => db.post.count({ where: { agencyId } }),
+      /**
+       * Kayan pencere içinde açılan post sayısı (F7, hız tavanı).
+       *
+       * `createdAt` kullanılıyor çünkü tüketilen kaynak postun KAYIT ANINDA
+       * yaratılıyor (Blob'a görseller o an yazılıyor); postun sonraki durumu
+       * — onaylanması, reddedilmesi, hatta silinmesi — bu tüketimi geri
+       * almıyor. Silinen post sayımdan düşer ve bu bilinçli: F13 ile silinen
+       * postun blob'ları da siliniyor, yani kaynak gerçekten geri veriliyor.
+       */
+      countSince: async (since: Date): Promise<number> =>
+        db.post.count({ where: { agencyId, createdAt: { gte: since } } }),
 
       /**
        * Post yönetimi işlemlerinin (link yenileme, mail tekrar gönderme)
