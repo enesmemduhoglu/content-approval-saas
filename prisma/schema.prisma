@@ -11,15 +11,134 @@ datasource db {
 }
 
 model Agency {
-  id         String   @id @default(cuid())
-  email      String   @unique
-  name       String?
-  googleId   String   @unique
+  id String @id @default(cuid())
+
+  /**
+   * Ajansın BİLDİRİM adresi — kimlik değil. F6 öncesinde `@unique` idi çünkü
+   * "bir Google hesabı = bir ajans" varsayımı geçerliydi. Artık kimliği
+   * `AgencyMember` taşıyor ve iki ayrı ajansın aynı iletişim adresini
+   * kullanması meşru bir durum (ör. aynı kişi hem kendi ajansını açtı hem
+   * başka bir ajansa davet edildi, ya da bir ajans kapanıp yenisi açıldı).
+   * `@unique` bırakılsaydı bu senaryolarda GİRİŞ ANINDA unique ihlali fırlar,
+   * yani kullanıcı panele hiç giremezdi. Bu yüzden kısıt kaldırıldı; kolon ve
+   * içindeki veri olduğu gibi duruyor (ajans bildirimleri buradan gidiyor).
+   */
+  email String
+
+  name String?
+
+  /**
+   * @deprecated F6 — ARTIK OKUNMUYOR, ARTIK YAZILMIYOR.
+   *
+   * Üyelik çözümü `AgencyMember.googleId` üzerinden yapılıyor. Bu kolon
+   * SİLİNMEDİ çünkü (a) migration ile veri `AgencyMember`'a kopyalandı ve
+   * kaynağı yok etmek geri dönüşü olmayan bir kayıp olurdu — deploy'dan sonra
+   * bir sorun çıkarsa hangi ajansın hangi Google hesabına ait olduğunu
+   * yalnızca bu kolon söyleyebilir; (b) kolonu düşürmek eski deployment'lar
+   * (rollback) için kırıcıdır.
+   *
+   * NULLABLE yapıldı: yeni ajanslar bu alanı doldurmuyor. Doldurmaya devam
+   * etseydik gerçek bir çakışma riski vardı — iki owner'lı bir ajanstan
+   * çıkarılan kurucu tekrar giriş yaptığında kendisine yeni bir ajans
+   * açılıyor, ama eski ajansın satırında hâlâ ONUN googleId'si duruyor:
+   * `@unique` ihlali ve giriş sırasında patlayan bir hata. `@unique` yine de
+   * duruyor; Postgres'te birden çok NULL serbest olduğu için yeni kayıtları
+   * engellemez, eski verinin bütünlüğünü ise korur.
+   */
+  googleId String? @unique
+
   logoUrl    String?
   brandColor String? // "#rrggbb" — onay sayfası ve e-postada accent olarak kullanılır
   createdAt  DateTime @default(now())
   clients    Client[]
   posts      Post[]
+  members    AgencyMember[]
+  invites    AgencyInvite[]
+}
+
+enum AgencyRole {
+  /** Davet edebilir, üye çıkarabilir. Her ajansta EN AZ BİR tane olmak zorunda. */
+  owner
+  /** Post/müşteri işlerinin tamamını yapar, ekip yönetimine dokunamaz. */
+  member
+}
+
+/**
+ * F6 — ajansta çalışan kişi. `Agency.googleId`'nin yerini alan kimlik tablosu.
+ *
+ * ─── Neden `session.agencyId` sözleşmesi DEĞİŞMEDİ ─────────────────────────
+ * Depoda 78 yerde `agencyId` kullanılıyor ve IDOR koruması tamamen
+ * `getScopedDb(session)` kuralına dayanıyor. Üyeliği aşağı akışa taşımak
+ * (ör. `session.memberId` + her sorguda üyelik join'i) o 78 çağrı yerinin
+ * hepsini dolaylamak demekti; her dolaylama kapsam filtresinin unutulabileceği
+ * yeni bir yer açardı. Bunun yerine çözüm TEK BİR yerde, auth katmanında
+ * yapılıyor: jwt callback `googleId` → `AgencyMember` → `agencyId` zincirini
+ * kurup token'a yine düz bir `agencyId` koyuyor. Aşağı akıştaki hiçbir şey
+ * değişmiyor, IDOR koruması aynen duruyor.
+ */
+model AgencyMember {
+  id       String @id @default(cuid())
+  agencyId String
+  agency   Agency @relation(fields: [agencyId], references: [id])
+
+  /**
+   * Kimliğin ta kendisi: Google `providerAccountId` (ya da test girişinde
+   * `test:` önekli e-posta — bkz. auth.ts). GLOBAL `@unique`, ajans kapsamlı
+   * değil: bir kişi aynı anda yalnızca TEK bir ajansa ait olabilir. Bu kısıt
+   * bilinçli — çoklu üyelik `session.agencyId`'yi tek değerli olmaktan
+   * çıkarır, "hangi ajanstasın" sorusunu bir ajans-değiştirici arayüzüne
+   * bağlar ve yukarıda korumaya çalıştığımız sözleşmeyi bozardı.
+   */
+  googleId String @unique
+
+  /** Giriş yapılan Google hesabının e-postası; davet eşleştirmesi buna bakar. */
+  email     String
+  name      String?
+  role      AgencyRole @default(member)
+  createdAt DateTime   @default(now())
+
+  @@index([agencyId])
+  // Davet kabulü ve "bu e-posta zaten ekipte mi" kontrolü e-postadan gidiyor.
+  @@index([email])
+}
+
+/**
+ * F6 — bekleyen ekip daveti.
+ *
+ * ─── Token ne işe YARIYOR, ne işe YARAMIYOR ────────────────────────────────
+ * Token yalnızca davet mailindeki linkin adresidir: `/invite/<token>` sayfası
+ * "seni X ajansı davet etti, Google ile giriş yap" bağlamını gösterebilsin
+ * diye. Katılımı BAŞLATMAZ ve tek başına YETMEZ.
+ *
+ * Asıl kabul koşulu e-posta eşleşmesi: giriş yapılan Google hesabının
+ * e-postası davetin `email` alanıyla birebir (küçük harfe indirgenerek) aynı
+ * olmalı. Kabul, token'dan değil e-postadan sorgulanır (bkz. membership.ts).
+ * Sebebi bir güvenlik sınırı: token tabanlı kabulde linki ele geçiren HERKES
+ * — mail kutusuna erişimi olmasa bile — ajansa girerdi. E-posta tabanlı
+ * kabulde çalınan link hiçbir şeye yaramaz; kabul edebilecek tek kişi, davetin
+ * gittiği kutunun sahibi.
+ */
+model AgencyInvite {
+  id       String @id @default(cuid())
+  agencyId String
+  agency   Agency @relation(fields: [agencyId], references: [id])
+
+  /** DAİMA küçük harfe indirgenerek saklanır — eşleştirme buna güveniyor. */
+  email String
+  role  AgencyRole @default(member)
+
+  /** `randomUUID` (122 bit) — bkz. tokens.ts, onay linkiyle aynı gerekçe. */
+  token String @unique
+
+  expiresAt DateTime
+  /** Dolu = kullanılmış. Aynı davet ikinci kez kabul edilemez. */
+  acceptedAt DateTime?
+  /** Kimin davet ettiği; panelde "kim çağırdı" sorusunun cevabı. */
+  invitedByEmail String?
+  createdAt      DateTime @default(now())
+
+  @@index([agencyId])
+  @@index([email])
 }
 
 model Client {

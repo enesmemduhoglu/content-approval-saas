@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { INVITE_TTL_DAYS } from "@/lib/tokens";
 
 export type ApprovalEmailInput = {
   to: string;
@@ -333,6 +334,86 @@ export async function sendAgencyNoticeEmail(input: AgencyNoticeInput): Promise<E
       text: renderAgencyNoticeText(input),
     },
     "ajans bildirimi"
+  );
+}
+
+// ------------------------------------------------------------- ekip daveti (F6)
+
+/**
+ * Ekip daveti maili. Müşteriye giden onay maillerinden AYRI bir metin: burada
+ * karşı taraf bir müşteri değil, ajansın kendi çalışanı — istenen eylem de
+ * onay değil, hesap açmak.
+ *
+ * Mail, hangi ADRESE gönderildiğini gövdede açıkça yazıyor. Sebebi kozmetik
+ * değil: katılım o adresle giriş yapmayı gerektiriyor (bkz. membership.ts),
+ * yani "başka Google hesabımla girdim, çalışmadı" en olası destek sorusu.
+ * Cevabı mailin içine koymak, o soruyu hiç sordurmamak demek.
+ */
+export type TeamInviteInput = {
+  to: string;
+  agencyName: string;
+  inviteUrl: string;
+  /** Daveti kimin gönderdiği — alıcı "bu mail gerçek mi" sorusunu yanıtlayabilsin. */
+  invitedByEmail?: string | null;
+  logoUrl?: string | null;
+  brandColor?: string | null;
+};
+
+export function teamInviteSubject(agencyName: string): string {
+  return `${agencyName} seni ekibine davet etti`;
+}
+
+function teamInviteLines(input: Omit<TeamInviteInput, "to">, to: string): string[] {
+  const lines = [
+    `${input.agencyName} seni Content Approval panelindeki ekibine davet etti.`,
+  ];
+  if (input.invitedByEmail) lines.push(`Daveti gönderen: ${input.invitedByEmail}`);
+  lines.push(
+    `Katılmak için aşağıdaki bağlantıyı aç ve Google ile giriş yap. ` +
+      `Giriş yaparken MUTLAKA ${to} adresine bağlı Google hesabını kullan — ` +
+      `davet yalnızca bu adresle kabul edilir.`
+  );
+  lines.push(`Bu davet ${INVITE_TTL_DAYS} gün boyunca geçerlidir.`);
+  return lines;
+}
+
+export function renderTeamInviteText(input: TeamInviteInput): string {
+  return `${teamInviteLines(input, input.to).join("\n\n")}\n\n${input.inviteUrl}`;
+}
+
+export function renderTeamInviteHtml(input: TeamInviteInput): string {
+  const accent =
+    input.brandColor && HEX_COLOR_RE.test(input.brandColor)
+      ? input.brandColor
+      : DEFAULT_ACCENT;
+  const logoHtml = input.logoUrl
+    ? `<img src="${escapeHtml(input.logoUrl)}" alt="${escapeHtml(input.agencyName)}" style="height: 40px; max-width: 160px; object-fit: contain; margin-bottom: 16px;" />\n    `
+    : "";
+  const body = teamInviteLines(input, input.to)
+    .map(
+      (line) =>
+        `<p style="font-size: 15px; line-height: 1.5; margin: 0 0 12px;">${escapeHtml(line)}</p>`
+    )
+    .join("\n    ");
+  return `<div style="font-family: 'Public Sans', Arial, sans-serif; background: #fafaf8; color: #1a1a1a; padding: 32px 16px;">
+  <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 32px;">
+    ${logoHtml}${body}
+    <a href="${escapeHtml(input.inviteUrl)}" style="display: inline-block; background: ${accent}; color: #ffffff; text-decoration: none; font-size: 16px; padding: 14px 28px; border-radius: 6px;">Daveti kabul et</a>
+  </div>
+</div>`;
+}
+
+export async function sendTeamInviteEmail(input: TeamInviteInput): Promise<EmailResult> {
+  // `gonder()` üzerinden — `resend.emails.send` DOĞRUDAN çağrılmaz; gerekçe
+  // için bkz. `gonder` ve `sendRawEmail` yorumları (resend@4 throw etmez).
+  return gonder(
+    {
+      to: input.to,
+      subject: teamInviteSubject(input.agencyName),
+      html: renderTeamInviteHtml(input),
+      text: renderTeamInviteText(input),
+    },
+    "ekip daveti"
   );
 }
 
