@@ -4,7 +4,7 @@ Son güncelleme: 2026-08-22 (Faz E–I — güvenlik hijyeni, kota, zamanlanmı�
 ekip üyeleri, revizyon turu).
 Canlı: https://content-approval-saas.vercel.app · **Depo private.**
 
-**5 açık PR var ve YIĞILMIŞ — sırayla merge edilmeli:**
+**#40–#44 merge edildi ve prod'a deploy edildi** (2026-08-22):
 
 | Sıra | PR | Ne | Test |
 |---|---|---|---|
@@ -18,7 +18,7 @@ Her PR bir öncekini baz alıyor; sıra bozulursa diff'ler karışır. Hepsi
 `master`'dan sonra gelen iki commit'le (`next.config.ts` CSP düzeltmesi,
 PR #39) çakışmıyor — o dosyaya hiçbiri dokunmuyor.
 
-Prod envanteri (2026-08-22, ölçüldü): **2 ajans / 1 müşteri / 12 post.**
+Prod envanteri (2026-08-22, ölçüldü): **2 ajans / 1 müşteri / 13 post.**
 22 Temmuz'dan kalma iki boş test ajansı `bos-ajans-temizligi.mjs --apply` ile
 silindi (tek transaction, atlanan yok).
 
@@ -34,12 +34,20 @@ F11 (hata izleme), F12 (`/api/health`). Kalan açık maddeler aşağıda: hepsi 
 
 ### Elle yapılması gerekenler (repo yapamaz)
 
-- [ ] **`ALERT_EMAIL`'i Vercel prod env'ine ekle** (#40 merge edildikten sonra).
-      Eklenmezse F11 hata izleme **hiçbir yere gitmez** — uyarı sessizce atlanır
-      ve yalnızca sunucu loguna düşer. Cron çökmesi, Resend reddi ve yayın
-      hatası bu adrese gider. `.env.example`'a işlendi.
-      *Dikkat:* bu adres ajans/müşteri bildirimlerinden AYRI bir kutu olmalı —
-      buraya "hattın kendisi bozuk" sinyali gider, tek bir postun akıbeti değil.
+- [x] **`ALERT_EMAIL` Vercel prod env'ine eklendi** (2026-08-22).
+      Değer: `eneshan034@gmail.com` — bilerek ajans bildirimlerinden
+      (`enesmemduhoglu0@gmail.com`) AYRI bir kutu: buraya "hattın kendisi bozuk"
+      sinyali gider, tek bir postun akıbeti değil.
+      **Non-sensitive olarak eklendi**, çünkü CLI varsayılanı Sensitive'di ve
+      deponun kayıtlı tuzağı gereği sensitive değişkenin değeri bir daha geri
+      okunamıyor — bir e-posta adresi için bu gereksiz bir körlük. Değer
+      `vercel env pull` ile geri okunarak doğrulandı.
+      *Env yalnızca yeni deploy'da okunur:* alias'ın bulunduğu prod deployment'ı
+      aynı commit'le yeniden deploy edildi (`vercel redeploy`), alias yeni
+      deployment'a taşındı ve `/api/health` 200 `{"status":"ok"}` döndü.
+      **Doğrulanmayan tek şey:** gerçek bir uyarı e-postasının teslim edildiği
+      görülmedi — bunun için kasten bir hata üretmek gerekirdi. Değişken yerinde
+      ve canlı; ilk gerçek cron/yayın hatasında teslim gözlenmeli.
 
 - [ ] **İkinci Google hesabını asıl ajansa davet et** (#43 merge edildikten sonra).
       Prod'da `Enes Memduhoğlu <eneshan034@gmail.com>` adında **boş bir ajans**
@@ -171,6 +179,27 @@ gerekenler"de; yeniden taranmasın.
 - [x] **F13 — kapatıldı** (F2'ye bindi).
 
 ## Bilinmesi gerekenler
+
+**Prod göçleri `vercel-build` ile OTOMATİK uygulanıyor — merge = prod şema
+değişikliği.** `package.json > vercel-build` = `prisma migrate deploy && next build`.
+Yani master'a merge edilen bir migration, elle hiçbir şey yapılmadan prod
+veritabanına gider. #40–#44 turunda üç migration (F8, F6, F10) bu yolla uygulandı
+ve `_prisma_migrations` tablosundan `finished_at` dolu olarak doğrulandı.
+*Sonuç:* hatalı bir migration doğrudan prod'u vurur, ayrı bir "deploy et" adımı
+yok — bu yüzden şema göçleri merge ÖNCESİ boş DB + prod benzeri veriyle sınanmalı.
+
+**Vercel env değişikliği çalışan deployment'ı ETKİLEMEZ — yeni deploy gerekir.**
+`vercel env add` sonrası mevcut prod deployment eski değerlerle çalışmaya devam
+eder. Aynı commit'i `vercel redeploy <deployment-url>` ile yeniden deploy etmek
+yeterli (yeniden build eder, `migrate deploy` idempotent olduğu için zararsız) ve
+alias otomatik yeni deployment'a taşınır.
+
+**`vercel env add` bu projede varsayılan olarak SENSITIVE ekliyor.** Sır olmayan
+değerler için `--no-sensitive` ver, yoksa değer bir daha geri okunamaz (bkz.
+yukarıdaki sensitive maddesi). Eklendikten sonra `vercel env pull` ile değeri
+gerçekten geri okuyarak doğrula — listede "Non-sensitive" görünmesi değerin
+doğru olduğunu kanıtlamaz.
+
 
 **Vercel Hobby planı cron'ları GÜNDE BİRE sınırlıyor — F8'in çözünürlüğü buna
 bağlı.** Saatlik/dakikalık desenler deploy sırasında reddediliyor ve tanımlı tek
