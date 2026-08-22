@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import { approvalLinkExpiry } from "@/lib/tokens";
-import type { PostStatus } from "@prisma/client";
+import type { PostStatus, PublishStatus } from "@prisma/client";
 
 export async function resetDb() {
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "ApprovalAudit", "ApprovalLink", "Post", "Client", "AgencyInvite", "AgencyMember", "Agency" CASCADE'
+    'TRUNCATE TABLE "PostRevision", "ApprovalAudit", "ApprovalLink", "Post", "Client", "AgencyInvite", "AgencyMember", "Agency" CASCADE'
   );
 }
 
@@ -91,6 +91,9 @@ export async function createPendingPostWithLink(
     externalRef?: string;
     /** F8 — zamanlanmış yayın testleri için. */
     publishAt?: Date | null;
+    /** Kaç tur revizyon yaşandığı (F10) — `revision_requested` testleri için. */
+    revisionRound?: number;
+    publishStatus?: PublishStatus;
   } = {}
 ) {
   const post = await db.post.create({
@@ -101,6 +104,8 @@ export async function createPendingPostWithLink(
       status: overrides.status ?? "pending",
       externalRef: overrides.externalRef ?? null,
       publishAt: overrides.publishAt ?? null,
+      revisionRound: overrides.revisionRound ?? 0,
+      publishStatus: overrides.publishStatus ?? "idle",
       images: {
         create: (overrides.imageUrls ?? ["/uploads/test.png"]).map((url, index) => ({
           url,
@@ -117,6 +122,43 @@ export async function createPendingPostWithLink(
     },
   });
   return { post, link };
+}
+
+/**
+ * Müşterinin düzeltme istediği post (F10) — revizyon turunun ortasındaki hâl.
+ * Zincirde müşteri satırı hazır durur ki ajans yolu gerçek veriyle test edilsin.
+ */
+export async function createRevisionRequestedPost(
+  agencyId: string,
+  clientId: string,
+  overrides: {
+    round?: number;
+    message?: string | null;
+    expiresAt?: Date;
+    token?: string;
+    publishStatus?: PublishStatus;
+  } = {}
+) {
+  const round = overrides.round ?? 1;
+  const { post, link } = await createPendingPostWithLink(agencyId, clientId, {
+    status: "revision_requested",
+    revisionRound: round,
+    expiresAt: overrides.expiresAt,
+    token: overrides.token,
+    publishStatus: overrides.publishStatus,
+  });
+  const revision = await db.postRevision.create({
+    data: {
+      postId: post.id,
+      round,
+      actor: "client",
+      event: "revision_requested",
+      message: overrides.message === undefined ? "İkinci cümleyi değiştir" : overrides.message,
+      caption: post.caption,
+      ip: "9.9.9.9",
+    },
+  });
+  return { post, link, revision };
 }
 
 /**

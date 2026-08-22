@@ -1,20 +1,32 @@
 # TODOS
 
-Son güncelleme: 2026-08-17 (Faz D — hatırlatma + karar geçmişi).
-Canlı: https://content-approval-saas.vercel.app · **Depo artık private.**
+Son güncelleme: 2026-08-22 (Faz E–I — güvenlik hijyeni, kota, zamanlanmış yayın,
+ekip üyeleri, revizyon turu).
+Canlı: https://content-approval-saas.vercel.app · **Depo private.**
 
-**Açık PR yok, açık issue yok.** #21–#23, #28–#32 merge edildi; `master` = `origin/master`
-ve **prod'a deploy edildi** (`content-approval-saas.vercel.app` alias'ı #32'nin
-deployment'ında, canlı doğrulandı).
-Prod envanteri (2026-08-17, ölçüldü): **3 ajans / 1 müşteri / 6 post** — çöp veri kalmadı.
+**5 açık PR var ve YIĞILMIŞ — sırayla merge edilmeli:**
 
-Kod tabanı baştan sona okunup güvenlik açıkları (S1–S9) ve ürün boşlukları (F1–F13)
-"Açık işler" altına işlendi. Sonra sırasıyla: **S2 + S4 kapatıldı** ve bu belge açık bir
-açık listesi taşıdığı için **depo private'a alındı**; ardından **F1 + F2 + F5** (post
-yönetimi) yapıldı, F13 ve S9 da onlara bindi.
-Sonra **S1** (token şifreleme) ve **Faz D**'den F3 + F4 kapatıldı. **Kalanların hiçbiri
-bugün sömürülebilir değil**; kalan güvenlik maddeleri (S3, S5–S8) hijyen ve derinlemesine
-savunma. F11 (hata izleme) bilinçli olarak bu tura alınmadı.
+| Sıra | PR | Ne | Test |
+|---|---|---|---|
+| 1 | #40 | S3, S5, S6, S7, S8 + F11, F12 | 385 |
+| 2 | #41 | F7 kota tavanları | 395 |
+| 3 | #42 | F8 zamanlanmış yayın | 417 |
+| 4 | #43 | F6 ekip üyeleri | 476 |
+| 5 | #44 | F10 revizyon turu | 527 |
+
+Her PR bir öncekini baz alıyor; sıra bozulursa diff'ler karışır. Hepsi
+`master`'dan sonra gelen iki commit'le (`next.config.ts` CSP düzeltmesi,
+PR #39) çakışmıyor — o dosyaya hiçbiri dokunmuyor.
+
+Prod envanteri (2026-08-22, ölçüldü): **2 ajans / 1 müşteri / 12 post.**
+22 Temmuz'dan kalma iki boş test ajansı `bos-ajans-temizligi.mjs --apply` ile
+silindi (tek transaction, atlanan yok).
+
+**S1–S9 ve F1–F13'ün tamamı kapandı.** Bu turda kapananlar: S3, S5, S6, S7, S8
+(güvenlik hijyeni — hiçbiri sömürülebilir değildi, derinlemesine savunma),
+F7 (kota), F8 (zamanlanmış yayın), F6 (ekip üyeleri), F10 (revizyon turu),
+F11 (hata izleme), F12 (`/api/health`). Kalan açık maddeler aşağıda: hepsi ya
+**merge sonrası elle yapılacak işler** ya da **bilinçli kapsam dışı**.
 
 ---
 
@@ -22,27 +34,29 @@ savunma. F11 (hata izleme) bilinçli olarak bu tura alınmadı.
 
 ### Elle yapılması gerekenler (repo yapamaz)
 
-- [ ] **Boş test ajanslarını sil** — betik hazır, koşulmayı bekliyor (düşük öncelik).
-      22 Temmuz'dan kalma iki ajans prod'da duruyor ve **tamamen boş** (post=0, client=0):
-      `Enes Memduh` (`cmrw9cu730000l404sekzspv4`) ve `enes can` (`cmrwa781m0001ky04liyy3f5d`).
-      Kardeş betik `prod-test-verisi-temizligi.mjs` kural gereği `Agency`'ye hiç dokunmuyor,
-      bu yüzden ayrı betik yazıldı: **`scripts/bos-ajans-temizligi.mjs`** (PR #28).
-      Dry-run prod'a karşı koşuldu, iki ajans da "boş ve teyitli" çıktı.
-      *Çalıştır:* `node scripts/bos-ajans-temizligi.mjs --apply`
-      *Emniyet zinciri:* hedefler **sabit id listesi** (betik başka ajans silemez),
-      canlı ajans `Enes MEMDUHOĞLU` hem id hem ad ile kara listede ve kontrol üç ayrı
-      noktada, silme tek transaction içinde ve **transaction İÇİNDE** ad/kara liste/post/
-      client yeniden doğrulanıyor, `information_schema`'dan FK haritası okunup şemaya
-      yeni bağlı tablo eklenmişse betik duruyor.
-      *Bilinmesi gereken:* betiğin okuduğu `FURI_API_AGENCY_ID` **yerel** `.env.local`'dan
-      geliyor ve orada dev değeri (`dev-agency-a`) duruyor — prod'daki hiçbir ajansla
-      eşleşmiyor, betik bunu yüksek sesle uyarıyor. Yani o teyit tek başına anlamsız;
-      asıl koruma kara liste. Prod değeri (Vercel env) kayda göre
-      `cmsw2ajnq0000jm04d6m9puei` = `Enes MEMDUHOĞLU`, yani silinecek ikisi furi'ye
-      bağlı değil — istersen `--apply` öncesi Vercel'den bir kez daha bak.
-      *Yan etki:* `Agency.googleId` unique; bu iki kayıt silinince o Google hesapları
-      tekrar giriş yaparsa sıfırdan yeni ajans oluşur. Beklenen davranış.
+- [ ] **`ALERT_EMAIL`'i Vercel prod env'ine ekle** (#40 merge edildikten sonra).
+      Eklenmezse F11 hata izleme **hiçbir yere gitmez** — uyarı sessizce atlanır
+      ve yalnızca sunucu loguna düşer. Cron çökmesi, Resend reddi ve yayın
+      hatası bu adrese gider. `.env.example`'a işlendi.
+      *Dikkat:* bu adres ajans/müşteri bildirimlerinden AYRI bir kutu olmalı —
+      buraya "hattın kendisi bozuk" sinyali gider, tek bir postun akıbeti değil.
 
+- [ ] **İkinci Google hesabını asıl ajansa davet et** (#43 merge edildikten sonra).
+      Prod'da `Enes Memduhoğlu <eneshan034@gmail.com>` adında **boş bir ajans**
+      duruyor (2026-08-18'de oluşmuş, 0 post / 0 client). Sebebi F6 öncesi
+      `Agency.googleId @unique` kısıtıydı: kendi ikinci hesabınla girince asıl
+      ajansına katılamayıp sıfırdan yeni ajans açıldı. F6'dan sonra asıl ajanstan
+      (`enesmemduhoglu0@gmail.com`) o adrese davet gönderilebilir.
+      *Boş ajans temizliği:* davet kabul edildikten sonra o ajans hâlâ boş
+      kalacak; silinmesi istenirse `bos-ajans-temizligi.mjs`'in hedef listesine
+      eklenmesi gerekir (betik sabit id listesiyle çalışıyor, keyfi ajans silemez).
+
+- [ ] **Vercel planını gözden geçir — F8 bu yüzden yarım çalışıyor.**
+      Hobby planı cron'ları **günde bire** sınırlıyor ve o tek koşu dakika
+      hassasiyetinde değil (tanımlı saat içinde herhangi bir an, ±59dk). Yani
+      `publishAt` şu an "en iyi saatte yayınla" DEĞİL, **±24 saat isabet**.
+      Kod tarafında yapılacak bir şey yok: Pro'ya geçilince `vercel.json`'daki
+      tek satır saatlik desene çevrilir ve özellik tam çözünürlüğe kavuşur.
 
 ### Temizlik
 
@@ -60,116 +74,136 @@ savunma. F11 (hata izleme) bilinçli olarak bu tura alınmadı.
 
 ### Bilinçli kapsam dışı
 
-- [ ] **Toplu onayda (`/batch`) ajans bildirimi yok** — #32 tekil onay/red yolunu
-      kapsıyor, batch'i bilerek kapsamadı: o yol zaten yayın yapmıyor (aşağıdaki
-      "Toplu onay yayın yapmıyordu" maddesi) ve her post için ayrı mail atmak istenmez.
-      Batch yeniden ele alınırsa tek bir özet bildirim mantıklı olur.
+- [ ] **Toplu onayda (`/batch`) ajans bildirimi yok** — #32 tekil yolu kapsıyor,
+      batch'i bilerek kapsamadı: o yol zaten yayın yapmıyor ve her post için ayrı
+      mail istenmez. Batch yeniden ele alınırsa tek bir özet bildirim mantıklı.
 
-- [ ] **Toplu reddetme** — reddetme sebebi post başına anlamlı olduğu için toplu onayın
-      simetriği yapılmadı. Yeniden değerlendirilirse "ortak sebep" alanı gerekir.
+- [ ] **Toplu reddetme** — reddetme sebebi post başına anlamlı olduğu için toplu
+      onayın simetriği yapılmadı. Yeniden değerlendirilirse "ortak sebep" alanı gerekir.
 
-### Güvenlik (2026-08-17 inceleme turu)
+- [ ] **F9 · Yalnızca Instagram, yalnızca görsel.** Reels/video yok
+      (`ALLOWED_IMAGE_TYPES` üç format), başka platform yok. Bilinçli kapsam;
+      yol haritasında adı geçsin diye burada duruyor.
 
-Kod okunarak yapılan tur. **Sömürülebilir olan iki madde (S2, S4) kapatıldı** — aşağıda
-"Tamamlananlar"da. Kalanlar ya derinlemesine savunma ya da koşula bağlı; hiçbiri bugün
-sömürülebilir değil. Temiz çıkan alanların listesi "Bilinmesi gerekenler"de —
-yeniden taranmasın.
+- [ ] **Zamanlanmış yayın `failed` olursa otomatik tekrar denenmiyor** (F8, #42).
+      Cron yalnızca `scheduled` tarıyor. Sessiz DEĞİL — F11 uyarısı ve ajans
+      bildirimi gidiyor — ama tekrar deneme müşterinin onay sayfasından manuel.
+      Otomatik tekrar deneme bilerek eklenmedi: çift yayın riski taşır ve ayrı
+      bir tasarım kararı hak ediyor.
+
+- [ ] **Revizyon bekleyen posta hatırlatma yok** (F10, #44). `reminders.ts` ve
+      cron yalnızca `pending` tarıyor; top ajanstayken kimse dürtülmüyor.
+      F3'ün simetriği, ayrı bir iş.
+
+- [ ] **Görsel revizyonu yalnızca JSON `imageUrls` yolundan** (F10, #44).
+      Panelden dosya yükleyerek görsel değiştirme yok — mevcut
+      `PATCH /api/posts/[id]` de bunu bilinçli kapsam dışı bırakmıştı, aynı
+      sınır korundu. Yani akış API'da var, UI'da yok.
+
+- [ ] **Revizyon turunda onay linki AYNI token'la devam ediyor** (F10, #44).
+      Müşterinin elindeki maildeki link ölmesin diye; yalnızca süre tazeleniyor.
+      Bedeli: çok turlu bir postta link fiilen aylarca yaşayabilir. Sızmış link
+      senaryosunda ajansın ayrıca `renew: true` demesi gerekiyor — o yol duruyor.
+      *Bu, F10'un en az emin olunan kararı; yeniden ele alınabilir.*
+
+### Güvenlik (S1–S9 — HEPSİ KAPANDI)
+
+Kod okunarak yapılan 2026-08-17 turu. Sömürülebilir olan ikisi (S2, S4) o gün
+kapatıldı; S1 (token şifreleme) ayrı turda; kalanlar (S3, S5–S8) 2026-08-22'de
+**#40** ile kapandı. Kalanların hiçbiri sömürülebilir bir açık DEĞİLDİ — hijyen
+ve derinlemesine savunmaydı. Temiz çıkan alanların listesi "Bilinmesi
+gerekenler"de; yeniden taranmasın.
 
 - [x] **S1 — kapatıldı.** Bkz. "Tamamlananlar → token şifreleme".
-
 - [x] **S2 — kapatıldı.** Bkz. "Tamamlananlar → 2026-08-17 güvenlik turu".
-
-- [ ] **S3 · Orta — bağımlılıklarda 8 high seviye açık.** (`npm audit --omit=dev`)
-
-      | Paket | Sorun | Çözüm |
-      |---|---|---|
-      | `@vercel/blob@1.x` → `undici` | request smuggling, CRLF injection, response queue poisoning | `@vercel/blob@2.8.0` (semver-major, ama kullanım yüzeyi tek `put()` çağrısı) |
-      | `prisma` → `@prisma/config` → `deepmerge-ts` | stack exhaustion | `npm audit fix`, breaking değil |
-      | `nanoid` | sonsuz döngü | `npm audit fix`, breaking değil |
-
+- [x] **S3 — kapatıldı (#40).** `npm audit --omit=dev` **8 high → 3 high**.
+      `@vercel/blob` 2.8.0 (undici zinciri), `nanoid`, ve `deepmerge-ts`
+      (`@prisma/config` sabit pinlediği için `overrides` ile zorlandı).
+      *Kalan 3 high BİLİNÇLİ:* hepsi `next` → `postcss`/`sharp` zincirinde ve
+      düzeltmesi Next 16'ya semver-major sıçrama. Proje `next/image`
+      kullanmıyor, `sharp` istek yoluna hiç girmiyor; `postcss` build zamanı.
+      Next 16 kendi başına planlanmalı — güvenlik gerekçesiyle aceleye gelmez.
 - [x] **S4 — kapatıldı.** Bkz. "Tamamlananlar → 2026-08-17 güvenlik turu".
+- [x] **S5 — kapatıldı (#40).** Token uç noktasına rate limit (mevcut
+      `checkRateLimit` yeniden kullanıldı, kontrol auth'tan ÖNCE) ve sır
+      taşımayan erişim kaydı (`clientId` + zaman + sonuç) eklendi.
+- [x] **S6 — kapatıldı (#40).** Magic-byte kontrolü: ilk baytlardan gerçek tip
+      tespit ediliyor, beyanla uyuşmayan dosya reddediliyor, uzantı gerçek
+      tipten türetiliyor. *Kazanç güvenlikten çok teşhis:* sahte MIME'lı dosya
+      artık yayın anında değil yükleme anında patlıyor.
+- [x] **S7 — kapatıldı (#40).** `x-vercel-forwarded-for` önceliği.
+- [x] **S8 — kapatıldı (#40).** `Origin` kontrolü ikinci katman olarak eklendi.
+      İzin verilen origin isteğin kendi host'undan türetiliyor (preview
+      dağıtımları env listesi gerektirmeden çalışsın diye); API anahtarlı
+      makine yolu muaf.
+- [x] **S9 — kapatıldı** (F2 ile: post ve müşteri panelden silinebiliyor).
 
-- [ ] **S5 · Orta — sır dağıtan uç noktada rate limit ve erişim kaydı yok.**
-      `src/app/api/clients/[id]/instagram-token/route.ts` ham token döndüren tek yol.
-      Kimlik doğrulama sabit zamanlı, `Cache-Control` düşünülmüş, ajans kapsamı yerinde —
-      ama **rate limit yok** (diğer public yollarda var) ve **hiçbir erişim kaydı yok**.
-      `FURI_API_KEY` sızarsa token'ın ne zaman, kaç kez çekildiği hiçbir yerde görünmez.
-      *Düzeltme:* mevcut `checkRateLimit` yeniden kullanılır; log satırı token içermeden
-      `clientId` + zaman yazar.
+### Ürün boşlukları (F1–F13 — HEPSİ KAPANDI)
 
-- [ ] **S6 · Düşük-Orta — görsel doğrulaması istemci beyanına güveniyor.**
-      `src/lib/blob.ts:15-26` kararı `file.type` ile veriyor (istemci gönderir),
-      magic-byte kontrolü yok.
-      *Etkisi sınırlı:* Blob ayrı origin'de servis ediliyor ve uzantı `.jpg/.png/.webp`
-      olarak zorlanıyor, yani depolanmış XSS uygulama origin'ine ulaşamaz. Asıl kazanç
-      güvenlikten çok teşhiste: sahte MIME'lı dosya bugün ancak **yayın anında** `failed`
-      olarak patlıyor; ilk baytlardan imza kontrolü hatayı yükleme anına çeker.
-
-- [ ] **S7 · Düşük — `x-forwarded-for`'un ilk değerine güveniliyor.**
-      `src/lib/rate-limit.ts:92-97`. Vercel bu başlığı kendi yazdığı için **bugün
-      sömürülebilir değil**. Ama `ApprovalAudit.ip` bir onayın *kanıtı* olarak saklanıyor;
-      proje Vercel dışına taşınır ya da araya bir proxy girerse hem rate limit hem o kanıt
-      aynı anda sahteleşir. `x-vercel-forwarded-for`'a öncelik vermek tek satır.
-
-- [ ] **S8 · Düşük/bilgi — CSRF koruması yalnızca SameSite'a bağımlı.**
-      NextAuth v5 session cookie'si `SameSite=Lax`; cross-site POST'ta cookie gitmiyor,
-      yani **şu an sömürülebilir değil**. Ancak `/api/posts` ve `/api/agency`
-      `multipart/form-data` kabul ediyor (CORS'un "basit istek"i), dolayısıyla tek savunma
-      bu tek katman. `Origin` başlığı kontrolü ucuz bir ikinci katman olur.
-
-- [x] **S9 — kapatıldı** (F2 ile birlikte: post ve müşteri artık panelden silinebiliyor).
-
-### Ürün boşlukları (2026-08-17 inceleme turu)
-
-Aynı turun ürün tarafı; sıralama "temel akışın deliği mi, büyüme maddesi mi" ayrımına
-göre. **Temel akışın delikleri kapandı** (F1, F2, F5 + F13); kalanlar şema ya da ürün
-kararı gerektiriyor.
-
-**Temel akışın delikleri — yüksek değer, düşük maliyet**
-
-- [x] **F1 — kapatıldı.** Bkz. "Tamamlananlar → post yönetimi".
-- [x] **F2 — kapatıldı** (S9'u da kapattı). Bkz. "Tamamlananlar → post yönetimi".
-- [x] **F3 — kapatıldı.** Bkz. "Tamamlananlar → Faz D".
-- [x] **F4 — kapatıldı.** Bkz. "Tamamlananlar → Faz D".
-- [x] **F5 — kapatıldı.** Bkz. "Tamamlananlar → post yönetimi".
-
-**SaaS eksikleri — şema/ürün kararı gerektirir**
-
-- [ ] **F6 · Ajans başına tek kullanıcı.** `Agency.googleId @unique`; ekip üyesi davet
-      edilemiyor, oysa küçük ajanslarda bile 2-3 kişi çalışıyor. `AgencyMember` tablosu
-      gerekir. **Erken yapılmazsa pahalılaşır** — her `session.agencyId` kullanımı dolaylanır.
-- [ ] **F7 · Kota/plan yok.** Sınırsız müşteri, sınırsız post, post başına 10 MB × 10 görsel.
-      Ücretsiz katmanlarda duruyor ama tek kötü niyetli hesap Blob ve Resend kotasını
-      tüketebilir. En azından ajans başına kaba tavanlar.
-- [ ] **F8 · Zamanlanmış yayın yok.** Onay = anında yayın. Sosyal medya ajansı aracında
-      "en iyi saatte yayınla" temel beklenti. `Post.publishAt` + cron; `publishApprovedPost`
-      zaten idempotent kilide sahip olduğu için yayın kodu olduğu gibi kullanılabilir.
-- [ ] **F9 · Yalnızca Instagram, yalnızca görsel.** Reels/video yok
-      (`ALLOWED_IMAGE_TYPES` üç format), başka platform yok. Bilinçli kapsam olabilir ama
-      yol haritasında adı geçmeli.
-- [ ] **F10 · Revizyon turu yok.** Müşteri reddedince akış bitiyor; "şu cümleyi değiştir"
-      demek için ajans yeni post açmak zorunda ve geçmiş kopuyor. Sürüm + yorum zinciri,
-      ürünün asıl farklılaşma noktası olurdu.
-
-**Operasyon**
-
-- [ ] **F11 · Hata izleme yok.** Her şey `console.error` ile Vercel loglarına gidiyor ve
-      kimseye ulaşmıyor: cron'un sessizce patlaması, Resend'in reddetmesi, yayın hataları
-      ancak biri bakarsa görünür. "İki gündür mail gitmiyor" olayının tekrar etmemesinin yolu.
-      *2026-08-17'de bilinçli olarak ertelendi* (Faz D'de F3 + F4 yapıldı, bu alınmadı).
-      Seçenekler: sıfır bağımlılıkla e-posta uyarıları (mevcut `gonder()` üzerinden) ya da
-      Sentry (`@sentry/nextjs` + `SENTRY_DSN`). İlki yakalanmamış istisnaları göremez,
-      ikincisi yeni bağımlılık ve dış servis getirir.
-- [ ] **F12 · `/api/health` yok.** Uptime/canary izlemesi için uç nokta yok.
-- [x] **F13 — kapatıldı** (F2'ye bindi: silinen postun blob'ları da siliniyor).
-
-**Yapılırsa önerilen sıra:** Faz A (S2 → S3 → S4 → S5 → S7, hepsi küçük) · Faz B (S1 token
-şifreleme, tek başına PR) · Faz C (F1 + F2 + F5, tek "post yönetimi" PR'ı) · Faz D
-(F3 + F4 + F11, görünürlük turu) · sonra F6/F7/F8 ayrı ayrı tartışılır.
-
----
+- [x] **F1, F2, F5, F13** — post yönetimi turu. Bkz. "Tamamlananlar".
+- [x] **F3, F4** — Faz D (hatırlatma + karar geçmişi).
+- [x] **F6 — kapatıldı (#43).** `AgencyMember` + davet akışı.
+      `session.agencyId` sözleşmesi BİLEREK korundu: 78 çağrı yerini dolaylamak
+      yerine üyelik çözümü tek yerde, auth katmanında yapılıyor.
+      *JWT bayatlığı çözüldü:* üyelik 5 dakikada bir DB'den yeniden doğrulanıyor
+      (yoksa çıkarılan üye token ömrü boyunca — 30 gün — erişmeye devam ederdi).
+      **Kalan sınır:** erişim anında kesilmiyor, en fazla 5 dk sürebilir; acil
+      durumda kesin çözüm `AUTH_SECRET` döndürmek.
+- [x] **F7 — kapatıldı (#41).** Kaba kötüye kullanım tavanları; plan/faturalama
+      sistemi DEĞİL, şemaya dokunulmadı. İki ayrı tavan iki ayrı iş yapıyor:
+      `QUOTA_MAX_POSTS_PER_DAY` (kayan 24 saat) **asıl koruma** çünkü tehdit hız;
+      `QUOTA_MAX_POSTS` (ömür boyu) depolamayı bağlıyor. Ömür boyu tavan tek
+      başına yetmiyordu — kaçak bir script tavanın tamamını tek seferde tüketir.
+- [x] **F8 — kapatıldı (#42).** `Post.publishAt` + `publish-scheduled` cron'u.
+      **Vercel Hobby planı yüzünden yarım çalışıyor** — bkz. "Açık işler → elle
+      yapılacaklar". Cron yayının SONUCUNU ajansa bildiriyor; olmasaydı
+      zamanlanmış yayın ajans için sessiz bir kutu olurdu.
+- [x] **F9 — kapsam kararı verildi, aşağıda "Bilinçli kapsam dışı"da.**
+- [x] **F10 — kapatıldı (#44).** Revizyon turu: `PostStatus.revision_requested`
+      + `PostRevision` zinciri + `Post.revisionRound`.
+- [x] **F11 — kapatıldı (#40).** E-posta uyarıları; Sentry ve yeni bağımlılık
+      eklenmedi. **`ALERT_EMAIL` Vercel'e eklenmeden çalışmaz.**
+      *Bilinen sınır:* uyarı bastırması process-içi bir `Map`; serverless'ta
+      instance'lar arası paylaşılmaz, soğuk başlangıçta aynı hata için birden
+      fazla mail gidebilir. Kalıcı çözüm DB/Redis ister.
+- [x] **F12 — kapatıldı (#40).** `GET /api/health`, `SELECT 1` ile DB canlılığı.
+      Public olduğu için yanıt bilerek sığ: sürüm/sayı/env/hata mesajı yok.
+- [x] **F13 — kapatıldı** (F2'ye bindi).
 
 ## Bilinmesi gerekenler
+
+**Vercel Hobby planı cron'ları GÜNDE BİRE sınırlıyor — F8'in çözünürlüğü buna
+bağlı.** Saatlik/dakikalık desenler deploy sırasında reddediliyor ve tanımlı tek
+koşu da dakika hassasiyetinde değil (o saat içinde herhangi bir an, ±59dk).
+Mevcut üç cron'un da günde bir olmasının sebebi bu. Zamanlanmış yayın koduna
+bakıp "neden saatlik değil" diye sorulduğunda cevap burada — kod değil plan sınırı.
+
+**`ALTER TYPE ... ADD VALUE` Prisma'nın transaction'ı içinde sorunsuz koşuyor
+(PG 12+), AMA bu varsayılmadı — ölçüldü.** `vercel-build` prod'a
+`prisma migrate deploy` uyguladığı için enum ekleyen her migration boş bir
+veritabanında baştan sona koşularak doğrulanmalı:
+```
+docker exec cas-test-pg psql -U postgres -c "CREATE DATABASE chain_check;"
+DATABASE_URL=...chain_check npx prisma migrate deploy
+npx prisma migrate diff --from-url ...chain_check   --to-schema-datamodel prisma/schema.prisma --exit-code   # "No difference detected" beklenir
+```
+*Tuzak:* `migrate diff`'in bayrakları yanlış verilirse komut yardım metni basıp
+**çıkış kodu 0** döner — yani "fark yok" gibi görünür. Çıktıda gerçekten
+"No difference detected" yazdığını gör.
+
+**Şema göçü olan bir migration'ı prod'a benzeyen VERİYLE sına, boş DB yetmez.**
+F6'nın backfill'i (her ajans için `owner` üyesi) tam da bu yüzden kritikti: şema
+değişikliği tek başına prod'u kırıyordu — üye satırı olmayan ajansın sahibi
+deploy'dan sonra kendi verisine giremez ve girişte kendisine boş yeni bir ajans
+açılırdı. Doğrulama şöyle yapıldı: boş DB → önceki sürümün şeması → prod'a
+benzeyen veri (iki ajans, biri postlu) → yeni migration → sonuç sorgulandı.
+
+**Yerel test veritabanı Docker'da ve otomatik ayakta değil.** `npm test`
+`localhost:5455`'te Postgres bekliyor (`vitest.global-setup.ts` → `prisma db push`).
+Konteyner yoksa testler tek satır kod okumadan patlar:
+`docker run -d --name cas-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres
+-e POSTGRES_DB=content_approval_test -p 5455:5432 postgres:16-alpine`
+
 
 **Vercel'de `Sensitive` işaretli env değişkeninin DEĞERİ geri okunamaz — doğrulamayı
 buna göre planla.** `vercel env ls` yalnızca adı/kapsamı gösterir; `vercel env pull` ise
@@ -282,6 +316,43 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ---
 
 ## Tamamlananlar
+
+### 2026-08-22 — Faz E–I: güvenlik hijyeni, kota, zamanlanmış yayın, ekip, revizyon
+
+Beş yığılmış PR (#40–#44). Taban 353 test → **527 test**. Her turda `npm test`,
+`npx tsc --noEmit` ve `npm run build` yeşil; şema göçü olan iki PR'ın migration
+zinciri boş veritabanında `migrate deploy` ile ayrıca koşuldu.
+
+**#40 — güvenlik hijyeni + operasyon görünürlüğü** (S3, S5, S6, S7, S8, F11, F12).
+Kalan güvenlik maddelerinin hiçbiri sömürülebilir değildi; tur derinlemesine
+savunmaydı. F11/F12 ise gerçek bir kör noktayı kapattı: her şey `console.error`
+ile Vercel loglarına gidip kimseye ulaşmıyordu.
+
+**#41 — kota tavanları** (F7). Asıl bulgu: ömür boyu tavan tek başına bir HIZ
+sınırı değil, kaçak bir script onu tek seferde tüketebilir. Günlük kayan pencere
+eklendi; ömür boyu tavan yalnızca depolamayı bağlıyor.
+
+**#42 — zamanlanmış yayın** (F8). Onay kararı ve `publishStatus` aynı
+transaction'da yazılıyor — aksi halde cron `approved` ama `idle` bir postu
+yakalayıp erken yayınlayabilirdi. Cron sonucu ajansa bildiriyor.
+
+**#43 — ekip üyeleri** (F6). En riskli göç: backfill olmadan şema değişikliği
+tek başına prod'u kırıyordu. JWT bayatlığı 5 dakikalık yeniden doğrulamayla
+çözüldü. Davet kabulü token'dan değil e-postadan sorgulanıyor — token tabanlı
+kabulde linki ele geçiren herkes ajansa girerdi.
+
+**#44 — revizyon turu** (F10). `rejected` her yerde "yolun sonu" olarak
+okunduğu için revizyon ayrı bir `PostStatus` değeri oldu; aynı değeri
+paylaşsalardı mevcut kollar revizyonu sessizce gömerdi. `ApprovalAudit` bu işi
+yapamazdı: `ip` zorunlu, serbest metin alanı yok ve asıl eksik olan **sürüm** —
+hangi metne itiraz edildiği. `PostRevision.caption` her satırda o anki metni
+donduruyor.
+
+**Prod temizliği.** 22 Temmuz'dan kalma iki boş test ajansı
+`bos-ajans-temizligi.mjs --apply` ile silindi (4 → 2 ajans, tek transaction,
+atlanan yok). Bu sırada TODOS'ta kaydı olmayan üçüncü bir boş ajans bulundu —
+sebebi F6'nın kendisiydi, "Açık işler"e işlendi.
+
 
 ### 2026-08-17 — Faz D: hatırlatma (F3) + karar geçmişi (F4)
 

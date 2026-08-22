@@ -5,6 +5,9 @@ const LABELS: Record<PostStatus, string> = {
   pending: "Onay bekliyor",
   approved: "Onaylandı",
   rejected: "Reddedildi",
+  // "Reddedildi"den ayrı bir rozet olmasının bütün mesele bu: ajans panele
+  // baktığında hangi postlarda TOP KENDİSİNDE olduğunu tek bakışta görsün (F10).
+  revision_requested: "Revizyon istendi",
 };
 
 export function StatusBadge({ status }: { status: PostStatus }) {

@@ -51,6 +51,9 @@ export async function GET(request: Request, { params }: RouteParams) {
       caption: post.caption,
       status: post.status,
       rejectionReason: post.rejectionReason,
+      // Revizyon turu (F10): müşteri en son ne istediğini görebilsin — aksi
+      // hâlde "ben ne demiştim" sorusunun yanıtı yalnızca ajansta olurdu.
+      revisionRound: post.revisionRound,
       clientName: post.client.name,
       agencyName: post.agency.name,
       // Onay ≠ yayın: ikisi ayrı alan, ayrı gösterilir.
@@ -81,11 +84,16 @@ export async function POST(request: Request, { params }: RouteParams) {
   } catch {
     body = {};
   }
-  const { action, rejectionReason } = (body ?? {}) as {
+  const { action, rejectionReason, revisionMessage } = (body ?? {}) as {
     action?: unknown;
     rejectionReason?: unknown;
+    revisionMessage?: unknown;
   };
-  if (action !== "approve" && action !== "reject") {
+  // "request_revision" (F10) üçüncü bir KARAR, red'in bir çeşidi değil: post
+  // ölmüyor, ajansa geri dönüyor. Bu yüzden ayrı bir action adı ve ayrı bir
+  // durum — `reject` gövdesine bir bayrak eklemek iki farklı sonucu tek isim
+  // altında gizlerdi.
+  if (action !== "approve" && action !== "reject" && action !== "request_revision") {
     return NextResponse.json({ error: "Geçersiz işlem" }, { status: 400 });
   }
 
@@ -111,10 +119,76 @@ export async function POST(request: Request, { params }: RouteParams) {
       await notifyAgency(link, "approved", outcome);
       return NextResponse.json({ status: "approved", ...outcome });
     }
+    // Revizyon turu sürerken top ajansta: müşteri aynı link üzerinden ikinci
+    // kez karar veremez. "Zaten karar verildi" demek yanıltıcı olurdu — ortada
+    // kapanmış bir iş yok, beklenen bir düzeltme var.
+    if (link.post.status === "revision_requested") {
+      return NextResponse.json(
+        {
+          error:
+            "Bu post için düzeltme istedin; ajans güncel hâlini gönderdiğinde bu sayfadan karar verebilirsin.",
+          status: link.post.status,
+        },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
       { error: "Zaten karar verildi", status: link.post.status },
       { status: 409 }
     );
+  }
+
+  // ---------------------------------------------- revizyon talebi (F10)
+  if (action === "request_revision") {
+    const message =
+      typeof revisionMessage === "string" && revisionMessage.trim()
+        ? revisionMessage.trim().slice(0, 2000)
+        : null;
+    // Tur numarası UPDATE'in içinde `increment` ile artıyor; buradaki değer
+    // yalnızca zincire yazılacak satırın etiketi. İki eşzamanlı talepte
+    // ikincisi WHERE'e takılıp hiç yazmadığı için ikisi aynı numarayı almaz.
+    const round = link.post.revisionRound + 1;
+
+    const requested = await db.$transaction(async (tx) => {
+      const result = await tx.post.updateMany({
+        where: { id: link.postId, status: "pending" },
+        data: { status: "revision_requested", revisionRound: { increment: 1 } },
+      });
+      if (result.count === 0) return false;
+      await tx.postRevision.create({
+        data: {
+          postId: link.postId,
+          round,
+          actor: "client",
+          event: "revision_requested",
+          message,
+          // O ANKİ metin donduruluyor: ajans postu düzelttiğinde "müşteri neye
+          // itiraz etmişti" sorusunun yanıtı kaybolmasın.
+          caption: link.post.caption,
+          ip,
+        },
+      });
+      // Karar defterine de yazılır: revizyon talebi de müşterinin verdiği bir
+      // karardır ve anlaşmazlıkta bakılacak yer orası (F4).
+      await tx.approvalAudit.create({
+        data: { postId: link.postId, action: "revision_requested", ip },
+      });
+      return true;
+    });
+
+    if (!requested) {
+      const current = await db.post.findUnique({ where: { id: link.postId } });
+      return NextResponse.json(
+        { error: "Zaten karar verildi", status: current?.status },
+        { status: 409 }
+      );
+    }
+
+    await notifyAgency(link, "revision_requested", {
+      revisionRequest: message,
+      revisionRound: round,
+    });
+    return NextResponse.json({ status: "revision_requested", revisionRound: round });
   }
 
   const newStatus = action === "approve" ? "approved" : "rejected";
@@ -188,8 +262,16 @@ export async function POST(request: Request, { params }: RouteParams) {
  */
 async function notifyAgency(
   link: NonNullable<Awaited<ReturnType<typeof findLink>>>,
-  event: "approved" | "rejected",
-  extra: { rejectionReason?: string | null; publishAt?: Date | null } & Partial<PublishOutcome>
+  event: "approved" | "rejected" | "revision_requested",
+  extra: {
+    rejectionReason?: string | null;
+    /** F8 — zamanlanmış yayında "ne zaman" bilgisi. */
+    publishAt?: Date | null;
+    /** F10 — müşterinin kendi cümlesiyle ne istediği. */
+    revisionRequest?: string | null;
+    /** F10 — kaçıncı tur. */
+    revisionRound?: number;
+  } & Partial<PublishOutcome>
 ): Promise<void> {
   const { post } = link;
   if (!post.agency.email) return;
@@ -199,6 +281,8 @@ async function notifyAgency(
     clientName: post.client.name,
     postRef: post.externalRef ?? post.caption.split("\n")[0].slice(0, 60),
     rejectionReason: extra.rejectionReason ?? null,
+    revisionRequest: extra.revisionRequest ?? null,
+    revisionRound: extra.revisionRound,
     publishStatus: extra.publishStatus ?? null,
     igPermalink: extra.igPermalink ?? null,
     publishAt: extra.publishAt ?? null,

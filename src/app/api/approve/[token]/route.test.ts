@@ -540,3 +540,202 @@ describe("POST /api/approve/[token] — F8 zamanlanmış yayın", () => {
     expect(updated?.publishStatus).toBe("published");
   });
 });
+
+// ------------------------------------------------- revizyon turu (F10)
+
+describe("POST /api/approve/[token] · revizyon talebi", () => {
+  it("pending postu revision_requested yapar, turu artırır, zincire yazar", async () => {
+    const { post, link } = await seedPendingPost();
+
+    const res = await POST(
+      postRequest({
+        action: "request_revision",
+        revisionMessage: "  İkinci cümleyi yumuşat  ",
+      }),
+      makeParams(link.token)
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: "revision_requested",
+      revisionRound: 1,
+    });
+
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.status).toBe("revision_requested");
+    expect(updated?.revisionRound).toBe(1);
+    // Red DEĞİL: `rejectionReason` alanına dokunulmamalı, yoksa panel bunu
+    // reddedilmiş post gibi gösterirdi.
+    expect(updated?.rejectionReason).toBeNull();
+
+    const revisions = await db.postRevision.findMany({ where: { postId: post.id } });
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0]).toMatchObject({
+      round: 1,
+      actor: "client",
+      event: "revision_requested",
+      message: "İkinci cümleyi yumuşat",
+      // O anki metin donduruluyor — ajans düzeltince neye itiraz edildiği kaybolmasın.
+      caption: "Test caption",
+      ip: "1.2.3.4",
+    });
+  });
+
+  it("karar defterine de yazılır (anlaşmazlıkta bakılacak yer orası)", async () => {
+    const { post, link } = await seedPendingPost();
+    await POST(postRequest({ action: "request_revision" }), makeParams(link.token));
+
+    const audits = await db.approvalAudit.findMany({ where: { postId: post.id } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe("revision_requested");
+    expect(audits[0].ip).toBe("1.2.3.4");
+  });
+
+  it("mesaj boş bırakılabilir — müşteri duvara çarpmaz", async () => {
+    const { post, link } = await seedPendingPost();
+    const res = await POST(
+      postRequest({ action: "request_revision", revisionMessage: "   " }),
+      makeParams(link.token)
+    );
+    expect(res.status).toBe(200);
+    const revisions = await db.postRevision.findMany({ where: { postId: post.id } });
+    expect(revisions[0].message).toBeNull();
+  });
+
+  it("ajansa bildirim gider ve `gonder()` yolundan geçer", async () => {
+    const { link } = await seedPendingPost();
+    await POST(
+      postRequest({ action: "request_revision", revisionMessage: "Logo büyüsün" }),
+      makeParams(link.token)
+    );
+    expect(mockAgencyNotice).toHaveBeenCalledTimes(1);
+    expect(mockAgencyNotice.mock.calls[0][0]).toMatchObject({
+      event: "revision_requested",
+      revisionRequest: "Logo büyüsün",
+      revisionRound: 1,
+    });
+  });
+
+  it("bildirim patlasa da revizyon talebi kaydı yerinde kalır", async () => {
+    const { post, link } = await seedPendingPost();
+    mockAgencyNotice.mockRejectedValue(new Error("resend down"));
+
+    const res = await POST(
+      postRequest({ action: "request_revision" }),
+      makeParams(link.token)
+    );
+    expect(res.status).toBe(200);
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.status).toBe("revision_requested");
+  });
+
+  it("YARIŞ: onay ile revizyon aynı anda gelirse yalnızca biri kazanır", async () => {
+    const { post, link } = await seedPendingPost();
+
+    const [approveRes, revisionRes] = await Promise.all([
+      POST(postRequest({ action: "approve" }), makeParams(link.token)),
+      POST(
+        postRequest({ action: "request_revision", revisionMessage: "dur" }),
+        makeParams(link.token)
+      ),
+    ]);
+
+    expect([approveRes.status, revisionRes.status].sort()).toEqual([200, 409]);
+
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    // Kazanan hangisiyse durum ODUR; iki karar üst üste yazılmaz.
+    expect(["approved", "revision_requested"]).toContain(updated?.status);
+    const revisionCount = await db.postRevision.count({ where: { postId: post.id } });
+    expect(revisionCount).toBe(updated?.status === "revision_requested" ? 1 : 0);
+    expect(updated?.revisionRound).toBe(
+      updated?.status === "revision_requested" ? 1 : 0
+    );
+  });
+
+  it("YARIŞ: iki revizyon talebi aynı anda gelirse tur bir kez artar", async () => {
+    const { post, link } = await seedPendingPost();
+
+    const results = await Promise.all([
+      POST(
+        postRequest({ action: "request_revision", revisionMessage: "a" }),
+        makeParams(link.token)
+      ),
+      POST(
+        postRequest({ action: "request_revision", revisionMessage: "b" }),
+        makeParams(link.token)
+      ),
+    ]);
+    expect(results.map((res) => res.status).sort()).toEqual([200, 409]);
+
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.revisionRound).toBe(1);
+    expect(await db.postRevision.count({ where: { postId: post.id } })).toBe(1);
+  });
+
+  it("revizyon beklerken gelen karar 409 alır, mesaj 'zaten karar verildi' DEMEZ", async () => {
+    const { link } = await seedPendingPost();
+    await POST(postRequest({ action: "request_revision" }), makeParams(link.token));
+
+    const res = await POST(postRequest({ action: "approve" }), makeParams(link.token));
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.status).toBe("revision_requested");
+    expect(data.error).toContain("düzeltme istedin");
+  });
+
+  it("geçersiz token 404, süresi dolmuş token 410 — onay yolundaki koruma aynen", async () => {
+    const yok = await POST(
+      postRequest({ action: "request_revision" }),
+      makeParams("boyle-bir-token-yok")
+    );
+    expect(yok.status).toBe(404);
+
+    const { link } = await seedPendingPost({ expiresAt: new Date(Date.now() - 1000) });
+    const olmus = await POST(
+      postRequest({ action: "request_revision" }),
+      makeParams(link.token)
+    );
+    expect(olmus.status).toBe(410);
+  });
+
+  it("rate limit revizyon yolunda da geçerli", async () => {
+    const { link } = await seedPendingPost();
+    for (let i = 0; i < RATE_LIMIT_MAX; i += 1) {
+      await GET(getRequest("5.5.5.5"), makeParams(link.token));
+    }
+    const res = await POST(
+      postRequest({ action: "request_revision" }, "5.5.5.5"),
+      makeParams(link.token)
+    );
+    expect(res.status).toBe(429);
+  });
+
+  it("bilinmeyen action 400 alır — yeni değer eskileri gevşetmedi", async () => {
+    const { link } = await seedPendingPost();
+    const res = await POST(postRequest({ action: "revise" }), makeParams(link.token));
+    expect(res.status).toBe(400);
+  });
+
+  it("GET yanıtı revizyon turunu bildirir", async () => {
+    const { link } = await seedPendingPost();
+    await POST(postRequest({ action: "request_revision" }), makeParams(link.token));
+    const res = await GET(getRequest(), makeParams(link.token));
+    const data = await res.json();
+    expect(data.post.status).toBe("revision_requested");
+    expect(data.post.revisionRound).toBe(1);
+  });
+
+  it("yayınlanmış posta revizyon istenemez", async () => {
+    const { post, link } = await seedPendingPost();
+    await db.post.update({
+      where: { id: post.id },
+      data: { status: "approved", publishStatus: "published", igMediaId: "media-1" },
+    });
+
+    const res = await POST(
+      postRequest({ action: "request_revision" }),
+      makeParams(link.token)
+    );
+    expect(res.status).toBe(409);
+    expect(await db.postRevision.count({ where: { postId: post.id } })).toBe(0);
+  });
+});
