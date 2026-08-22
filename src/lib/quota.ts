@@ -12,6 +12,7 @@
  * sayıyı koda gömmeden operasyonel olarak ayarlanabilmesi için.
  */
 
+const DEFAULT_MAX_PENDING_INVITES = 20;
 const DEFAULT_MAX_CLIENTS = 50;
 const DEFAULT_MAX_POSTS = 2000;
 const DEFAULT_MAX_POSTS_PER_DAY = 100;
@@ -32,6 +33,21 @@ function envNumber(name: string, fallback: number): number {
     return fallback;
   }
   return Math.floor(parsed);
+}
+
+/**
+ * F6 — ajans başına azami AÇIK (kabul edilmemiş, süresi dolmamış) davet.
+ * `QUOTA_MAX_PENDING_INVITES` ile ezilebilir.
+ *
+ * Davet butonu, keyfi bir adrese ajansın markasıyla mail attırabilen tek
+ * yüzey: kötüye kullanılırsa hem Resend kotasını hem de gönderen alan adının
+ * itibarını yakar. Tavan 20, gerçek bir ekibin (2-3 kişi) kat kat üstünde ama
+ * toplu göndermeye yetmeyecek kadar dar. `checkRateLimit` ile birlikte
+ * çalışıyor: rate limit HIZI, bu tavan TOPLAMI bağlıyor — kota.ts'teki
+ * "günlük pencere + ömür boyu tavan" ikilisinin aynısı.
+ */
+export function maxPendingInvitesPerAgency(): number {
+  return envNumber("QUOTA_MAX_PENDING_INVITES", DEFAULT_MAX_PENDING_INVITES);
 }
 
 /** Ajans başına azami müşteri sayısı. `QUOTA_MAX_CLIENTS` ile ezilebilir. */

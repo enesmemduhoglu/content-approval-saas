@@ -1,8 +1,14 @@
-import type { Client, Prisma } from "@prisma/client";
+import type { AgencyRole, Client, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { normalizeEmail } from "@/lib/membership";
 import { decryptSecret, encryptSecret, tryDecryptSecret } from "@/lib/crypto";
 import { isPublishTarget, type TokenAlertClient } from "@/lib/instagram-token";
-import { approvalLinkExpiry, generateApprovalToken } from "@/lib/tokens";
+import {
+  approvalLinkExpiry,
+  generateApprovalToken,
+  generateInviteToken,
+  inviteExpiry,
+} from "@/lib/tokens";
 
 export type ScopedSession = { agencyId: string };
 
@@ -11,6 +17,31 @@ export class ClientNotOwnedError extends Error {
     super("Bu müşteri bulunamadı");
   }
 }
+
+/** F6 — ekip yönetimi işlemlerinin dönüş sözleşmesi. */
+export type MemberView = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: AgencyRole;
+  createdAt: Date;
+};
+
+export type InviteView = {
+  id: string;
+  email: string;
+  role: AgencyRole;
+  expiresAt: Date;
+  invitedByEmail: string | null;
+  createdAt: Date;
+  /** Token yanıta ÇIKMAZ; panelin bilmesi gereken tek şey davetin ölü olup olmadığı. */
+  expired: boolean;
+};
+
+export type InviteCreateFailure =
+  | "already_member"
+  | "already_invited"
+  | "invite_quota";
 
 /**
  * Client kaydının dışarı çıkabilen hâli. `instagramAccessToken` BİLEREK yok:
@@ -451,6 +482,161 @@ export function getScopedDb(session: ScopedSession) {
         });
 
         return { post, approvalLink, client };
+      },
+    },
+
+    /**
+     * F6 — ekip üyeleri. Client/Post ile AYNI gerekçeyle burada: route
+     * handler'lar `db.agencyMember.*` çağırmaz. Üyelik sorguları en az
+     * müşteri sorguları kadar IDOR'a açık — "üye id'si" gövdeden geliyor ve
+     * kapsam filtresi unutulursa bir ajans başka ajansın ekibini çıkarabilir.
+     */
+    members: {
+      findMany: async (): Promise<MemberView[]> =>
+        db.agencyMember.findMany({
+          where: { agencyId },
+          // owner'lar üstte, sonra katılım sırası — panelde okunaklı bir düzen.
+          orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+          select: { id: true, email: true, name: true, role: true, createdAt: true },
+        }),
+
+      count: async (): Promise<number> => db.agencyMember.count({ where: { agencyId } }),
+
+      /**
+       * Üye çıkarma. `owner`ın SON owner olması durumu burada, tek bir
+       * transaction içinde çözülüyor — route katmanında "önce say, sonra sil"
+       * yapılsaydı iki owner'ın aynı anda birbirini çıkarması ajansı sahipsiz
+       * bırakabilirdi (ikisi de "2 owner var" okur, ikisi de siler).
+       *
+       * Sahipsiz ajans teorik bir kayıp değil: kimse davet edemez, kimse üye
+       * çıkaramaz ve ajansı kurtarmanın panelden hiçbir yolu kalmaz.
+       */
+      removeById: async (
+        id: string
+      ): Promise<
+        { ok: true } | { ok: false; reason: "not_found" | "last_owner" }
+      > =>
+        db.$transaction(async (tx) => {
+          const member = await tx.agencyMember.findFirst({
+            where: { id, agencyId },
+            select: { id: true, role: true },
+          });
+          // Kapsam dışı bir id "yetkin yok" değil "yok" döner: başka ajansta
+          // böyle bir üyenin VAR OLDUĞU bilgisi bile sızmasın.
+          if (!member) return { ok: false, reason: "not_found" as const };
+
+          if (member.role === "owner") {
+            const ownerCount = await tx.agencyMember.count({
+              where: { agencyId, role: "owner" },
+            });
+            if (ownerCount <= 1) return { ok: false, reason: "last_owner" as const };
+          }
+
+          const result = await tx.agencyMember.deleteMany({ where: { id, agencyId } });
+          return result.count === 1
+            ? { ok: true as const }
+            : { ok: false, reason: "not_found" as const };
+        }),
+    },
+
+    /** F6 — bekleyen davetler. Kapsam gerekçesi `members` ile birebir aynı. */
+    invites: {
+      /** Panelde gösterilen liste: yalnızca KABUL EDİLMEMİŞ davetler. */
+      findPending: async (): Promise<InviteView[]> => {
+        const now = new Date();
+        const rows = await db.agencyInvite.findMany({
+          where: { agencyId, acceptedAt: null },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            expiresAt: true,
+            invitedByEmail: true,
+            createdAt: true,
+          },
+        });
+        // Süresi dolmuş davet listeden DÜŞÜRÜLMÜYOR, işaretleniyor: ajans
+        // "davet ettim ama gelmedi" durumunu görüp yeniden davet edebilsin.
+        return rows.map((row) => ({
+          ...row,
+          expired: row.expiresAt.getTime() <= now.getTime(),
+        }));
+      },
+
+      /**
+       * Davet oluşturur. Token'ı DÖNDÜRÜR (mail linki için) ama `InviteView`
+       * içine koymaz — panelin listelediği hiçbir yanıtta token geçmesin.
+       */
+      create: async (input: {
+        email: string;
+        role: AgencyRole;
+        invitedByEmail: string | null;
+        /** Ajans başına azami bekleyen davet — davet spam'ine karşı tavan. */
+        maxPending: number;
+      }): Promise<
+        { ok: true; invite: InviteView; token: string } | { ok: false; reason: InviteCreateFailure }
+      > => {
+        const email = normalizeEmail(input.email);
+
+        // Zaten ekipteyse davet anlamsız — ve mail göndermek de gereksiz.
+        const member = await db.agencyMember.findFirst({
+          where: { agencyId, email },
+          select: { id: true },
+        });
+        if (member) return { ok: false, reason: "already_member" };
+
+        const now = new Date();
+        const pending = await db.agencyInvite.findMany({
+          where: { agencyId, acceptedAt: null, expiresAt: { gt: now } },
+          select: { id: true, email: true },
+        });
+        // Aynı adrese ikinci kez davet: yeni mail göndermeyi reddediyoruz.
+        // Bu hem spam tavanı hem de bir güvenlik tercihi — davet mailini
+        // tetikleyen düğme, keyfi bir adrese sınırsız mail atma aracına
+        // dönüşmemeli.
+        if (pending.some((row) => row.email === email)) {
+          return { ok: false, reason: "already_invited" };
+        }
+        if (pending.length >= input.maxPending) {
+          return { ok: false, reason: "invite_quota" };
+        }
+
+        const created = await db.agencyInvite.create({
+          data: {
+            agencyId,
+            email,
+            role: input.role,
+            token: generateInviteToken(),
+            expiresAt: inviteExpiry(),
+            invitedByEmail: input.invitedByEmail,
+          },
+        });
+        return {
+          ok: true,
+          invite: {
+            id: created.id,
+            email: created.email,
+            role: created.role,
+            expiresAt: created.expiresAt,
+            invitedByEmail: created.invitedByEmail,
+            createdAt: created.createdAt,
+            expired: false,
+          },
+          token: created.token,
+        };
+      },
+
+      /**
+       * Daveti iptal eder. Kabul EDİLMİŞ davet silinmez (`acceptedAt: null`
+       * koşulu): o satır artık bir kayıt, "kim ne zaman katıldı" sorusunun
+       * cevabı. Silmek geçmişi yok etmek olurdu.
+       */
+      cancelById: async (id: string): Promise<boolean> => {
+        const result = await db.agencyInvite.deleteMany({
+          where: { id, agencyId, acceptedAt: null },
+        });
+        return result.count === 1;
       },
     },
   };

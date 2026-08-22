@@ -5,17 +5,46 @@ import type { PostStatus } from "@prisma/client";
 
 export async function resetDb() {
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "ApprovalAudit", "ApprovalLink", "Post", "Client", "Agency" CASCADE'
+    'TRUNCATE TABLE "ApprovalAudit", "ApprovalLink", "Post", "Client", "AgencyInvite", "AgencyMember", "Agency" CASCADE'
   );
 }
 
-export function createAgency(overrides: { name?: string } = {}) {
+/**
+ * Ajans + `owner` rolünde BİR ÜYE (F6). İkisi birlikte üretiliyor çünkü
+ * gerçekte üyesiz ajans yok: her ajans birinin giriş yapmasıyla doğuyor.
+ * Üyesiz ajans kurmak, testleri prod'da imkânsız bir duruma göre yazmak
+ * olurdu.
+ */
+export function createAgency(overrides: { name?: string; email?: string } = {}) {
   const suffix = randomUUID().slice(0, 8);
+  const email = overrides.email ?? `agency-${suffix}@test.local`;
   return db.agency.create({
     data: {
-      email: `agency-${suffix}@test.local`,
+      email,
+      // `Agency.googleId` deprecate; eski kayıtları taklit etmek için hâlâ
+      // doldurulabiliyor ama üyelik çözümü artık buraya BAKMIYOR.
       googleId: `google-${suffix}`,
       name: overrides.name ?? `Ajans ${suffix}`,
+      members: {
+        create: { googleId: `google-${suffix}`, email, role: "owner" },
+      },
+    },
+    include: { members: true },
+  });
+}
+
+/** Ajansa ek üye — çoklu owner / son owner testleri için. */
+export function createMember(
+  agencyId: string,
+  overrides: { role?: "owner" | "member"; email?: string; googleId?: string } = {}
+) {
+  const suffix = randomUUID().slice(0, 8);
+  return db.agencyMember.create({
+    data: {
+      agencyId,
+      googleId: overrides.googleId ?? `google-${suffix}`,
+      email: overrides.email ?? `uye-${suffix}@test.local`,
+      role: overrides.role ?? "member",
     },
   });
 }
