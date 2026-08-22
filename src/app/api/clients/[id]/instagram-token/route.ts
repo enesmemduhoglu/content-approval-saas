@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authenticateApiKey } from "@/lib/api-key";
 import { getScopedDb } from "@/lib/scoped-db";
 import { isInstagramTokenExpired } from "@/lib/instagram-token";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 /**
  * Instagram token'ının TEK KAYNAKTAN dağıtımı (makine erişimi, furi).
@@ -27,6 +28,18 @@ import { isInstagramTokenExpired } from "@/lib/instagram-token";
  *   taşımaz — `refresh-instagram-tokens` route'undaki kalıp aynen sürüyor.
  * • Yanıt minimum: hangi müşteri, token, bitiş tarihi, hesap kimliği. Müşteri
  *   adı, e-postası, post sayısı — hiçbiri yok.
+ * • Rate limit (S5): `/api/approve/[token]` ile aynı `checkRateLimit` +
+ *   `getClientIp` — yeni bir limitleyici yazılmadı. `FURI_API_KEY` sızarsa bu
+ *   uç nokta ham token'ı ne kadar hızlı boşaltabilir sınırlanmış olur.
+ *   Varsayılan tavan (60sn'de 10 istek) korunuyor: bu bir makine yolu, furi
+ *   token'ı cron/publish tetiklemesinde çeker, saniyede onlarca istek atan bir
+ *   kullanım deseni yok — ayrı, daha yüksek bir tavan gerektirecek bir
+ *   gerekçe görülmedi. İleride furi çok müşteriyi paralel yayınlayıp aynı
+ *   IP'den dakikada 10'u aşarsa, bu tavan burada (rate-limit.ts) tek
+ *   noktadan yükseltilir.
+ * • Erişim logu (S5): her sonuç (başarılı/401/404/409) `clientId` + zaman +
+ *   sonuçla loglanır — token sızarsa "ne zaman, kaç kez çekildi" sorusuna
+ *   yanıt buradan çıkar. Token'ın kendisi ya da bir parçası ASLA loglanmaz.
  */
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -42,13 +55,31 @@ function secretJson(body: unknown, status = 200) {
   });
 }
 
+type AccessOutcome = "basarili" | "401_yetkisiz" | "404_bulunamadi" | "409_baglanmamis";
+
+// Token'ın kendisi ya da bir parçası burada ASLA yer almaz — yalnızca hangi
+// müşteri, ne zaman, hangi sonuçla erişildiği. `clientId` bile ham token'dan
+// farklı bir şey sızdırmaz: hangi müşterilerin var olduğu zaten ajans içinden
+// biliniyor.
+function logAccess(clientId: string, outcome: AccessOutcome): void {
+  console.log(
+    `[ig-token] erişim: clientId=${clientId} zaman=${new Date().toISOString()} sonuc=${outcome}`
+  );
+}
+
 export async function GET(request: Request, { params }: RouteParams) {
-  const session = await authenticateApiKey(request);
-  if (!session) {
-    return secretJson({ error: "Yetkisiz" }, 401);
+  const ip = getClientIp(request.headers);
+  if (await checkRateLimit(ip)) {
+    return secretJson({ error: "Çok fazla istek, biraz sonra tekrar deneyin" }, 429);
   }
 
   const { id } = await params;
+
+  const session = await authenticateApiKey(request);
+  if (!session) {
+    logAccess(id, "401_yetkisiz");
+    return secretJson({ error: "Yetkisiz" }, 401);
+  }
 
   // Token DB'de şifreli duruyor (S1); okuma yolu çözüyor. Anahtar kaybolmuş ya
   // da kayıt bozulmuşsa şifreli metni "token" diye göndermek, furi tarafında
@@ -74,6 +105,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   // Başka ajansın müşterisi de, hiç olmayan id de aynı yanıtı alır — hangi
   // id'lerin var olduğu bilgisi de sızmasın.
   if (!client) {
+    logAccess(id, "404_bulunamadi");
     return secretJson({ error: "Bu müşteri bulunamadı", code: "client_not_found" }, 404);
   }
 
@@ -81,6 +113,7 @@ export async function GET(request: Request, { params }: RouteParams) {
     // 404 DEĞİL: müşteri var, sadece Instagram bağlı değil. furi bu ikisini
     // ayırt edebilmeli — biri yanlış yapılandırma (FURI_CLIENT_ID), diğeri
     // panelden hesap bağlanmamış olması.
+    logAccess(id, "409_baglanmamis");
     return secretJson(
       {
         error: "Bu müşteride Instagram hesabı bağlı değil",
@@ -94,6 +127,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   // Süresi dolmuş token'ı gizlemiyoruz — furi'nin eline geçen şey ile SaaS'ın
   // yayınlarken kullandığı şey aynı olsun. Ama "dolmuş" bilgisi açıkça
   // işaretlenir ki furi sessizce 190 hatasına koşmasın.
+  logAccess(id, "basarili");
   return secretJson({
     clientId: client.id,
     instagramUserId: client.instagramUserId,

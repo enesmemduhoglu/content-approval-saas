@@ -7,6 +7,7 @@ vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 import { GET } from "./route";
 import { auth } from "@/lib/auth";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
+import { RATE_LIMIT_MAX, resetRateLimiter } from "@/lib/rate-limit";
 
 const API_KEY = "t".repeat(48);
 const TOKEN = "IGAA-cok-gizli-token";
@@ -43,6 +44,7 @@ function connectedClient(agencyId: string, token = TOKEN, expiryDays = 30) {
 
 beforeEach(async () => {
   await resetDb();
+  resetRateLimiter();
   vi.mocked(auth).mockResolvedValue(null as never);
 });
 
@@ -187,6 +189,81 @@ describe("token dağıtımı", () => {
     const raw = await (await call(client.id)).text();
     expect(raw).not.toContain(client.name);
     expect(raw).not.toContain(client.email);
+  });
+});
+
+describe("rate limit (S5)", () => {
+  it(`${RATE_LIMIT_MAX} istekten sonra 429 döner, token sızmaz`, async () => {
+    const agency = await createAgency();
+    const client = await connectedClient(agency.id);
+    enableApiKey(agency.id);
+
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) {
+      const res = await call(client.id);
+      expect(res.status).toBe(200);
+    }
+
+    const blocked = await call(client.id);
+    expect(blocked.status).toBe(429);
+    const raw = await blocked.text();
+    expect(raw).not.toContain(TOKEN);
+  });
+
+  it("429 yanıtı da secretJson üzerinden gider — Cache-Control korunur", async () => {
+    const agency = await createAgency();
+    const client = await connectedClient(agency.id);
+    enableApiKey(agency.id);
+
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) await call(client.id);
+    const blocked = await call(client.id);
+
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("limit aşıldığında geçersiz anahtarla gelen istek de sayılır (auth'tan önce çalışır)", async () => {
+    const agency = await createAgency();
+    const client = await connectedClient(agency.id);
+    enableApiKey(agency.id);
+
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) await call(client.id, "x".repeat(48));
+    const blocked = await call(client.id);
+    expect(blocked.status).toBe(429);
+  });
+});
+
+describe("erişim logu (S5)", () => {
+  it("başarılı erişimde clientId + sonuç loglanır, token loglanmaz", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const agency = await createAgency();
+    const client = await connectedClient(agency.id);
+    enableApiKey(agency.id);
+
+    await call(client.id);
+
+    const logged = logSpy.mock.calls.map((args) => args.join(" ")).join("\n");
+    expect(logged).toContain(client.id);
+    expect(logged).toContain("basarili");
+    expect(logged).not.toContain(TOKEN);
+    logSpy.mockRestore();
+  });
+
+  it("401/404/409 sonuçları da loglanır, token hiçbir zaman görünmez", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const agency = await createAgency();
+    const notConnected = await createClient(agency.id);
+    enableApiKey(agency.id);
+
+    await call(notConnected.id, null); // 401
+    await call("olmayan-id"); // 404
+    await call(notConnected.id); // 409
+
+    const logged = logSpy.mock.calls.map((args) => args.join(" ")).join("\n");
+    expect(logged).toContain("401_yetkisiz");
+    expect(logged).toContain("404_bulunamadi");
+    expect(logged).toContain("409_baglanmamis");
+    expect(logged).not.toContain(TOKEN);
+    logSpy.mockRestore();
   });
 });
 
