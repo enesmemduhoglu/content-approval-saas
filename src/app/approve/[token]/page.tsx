@@ -153,6 +153,15 @@ export default async function ApprovePage({
                 engellenmek istenen şeyi yapar. */}
             {post.publishStatus === "duplicate" &&
               " Bu içerik zaten Instagram'da yayında olduğu için tekrar yayınlanmadı."}
+            {/* F8: "yayınlandı" DEĞİL — henüz olmadı, zamanı geldiğinde
+                otomatik yayınlanacak. Saat TR ile gösterilir (ajans Türkiye'de). */}
+            {post.publishStatus === "scheduled" &&
+              post.publishAt &&
+              ` Instagram'a ${post.publishAt.toLocaleString("tr-TR", {
+                timeZone: "Europe/Istanbul",
+                dateStyle: "medium",
+                timeStyle: "short",
+              })} itibarıyla otomatik yayınlanacak.`}
             {publishTargeted &&
               post.status === "approved" &&
               post.publishStatus === "idle" &&

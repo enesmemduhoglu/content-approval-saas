@@ -414,6 +414,8 @@ export function getScopedDb(session: ScopedSession) {
         altTexts?: (string | null | undefined)[];
         /** Dış sistemin kendi tanımlayıcısı (furi slug'ı). */
         externalRef?: string | null;
+        /** F8: doluysa ve onay anında gelecekteyse yayın crona bırakılır. */
+        publishAt?: Date | null;
       }) => {
         const client = await db.client.findFirst({
           where: { id: input.clientId, agencyId },
@@ -431,6 +433,7 @@ export function getScopedDb(session: ScopedSession) {
               caption: input.caption,
               status: "pending",
               externalRef: input.externalRef ?? null,
+              publishAt: input.publishAt ?? null,
             },
           });
           await tx.postImage.createMany({

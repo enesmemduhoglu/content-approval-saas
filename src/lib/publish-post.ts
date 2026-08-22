@@ -49,8 +49,13 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   // Çift yayın kilidi (tasarım kararı 3): `status` guard'ıyla aynı desen —
   // koşullu UPDATE. "publishing" ya da "published" ise ikinci istek çıkar.
   // "failed" dahil edilir; onay sayfasındaki "tekrar dene" yolu budur.
+  // "scheduled" de dahildir (F8): `publish-scheduled` cron'u `publishAt`
+  // geçmiş bir postu yayınlamak için BU fonksiyonu çağırıyor — kilit bu
+  // durumdan geçiş yapmazsa cron hiçbir zaman yayın tetikleyemez. Aynı
+  // koşullu UPDATE, cron ile onay yolunun (ör. gecikmiş "tekrar dene") aynı
+  // postu aynı anda yakalaması durumunda da tek kazananı garanti eder.
   const lock = await db.post.updateMany({
-    where: { id: postId, publishStatus: { in: ["idle", "failed"] } },
+    where: { id: postId, publishStatus: { in: ["idle", "failed", "scheduled"] } },
     data: { publishStatus: "publishing", publishError: null },
   });
   if (lock.count === 0) {

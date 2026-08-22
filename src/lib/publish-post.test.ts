@@ -214,6 +214,20 @@ describe("publishApprovedPost — mükerrer yayın koruması", () => {
     expect(mockPublish).not.toHaveBeenCalled();
   });
 
+  it("F8: 'scheduled' post kilidi geçer ve yayınlanır — cron bunu çağırıyor", async () => {
+    // Kilit `idle`/`failed`'e ek olarak `scheduled`'ı da kabul etmeli, yoksa
+    // `publish-scheduled` cron'u zamanı gelmiş bir postu asla yayınlayamaz.
+    const { post } = await seedApprovedPost();
+    await db.post.update({ where: { id: post.id }, data: { publishStatus: "scheduled" } });
+
+    const outcome = await publishApprovedPost(post.id);
+
+    expect(outcome.publishStatus).toBe("published");
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.publishStatus).toBe("published");
+  });
+
   it("'duplicate' post tekrar denenemez — yayın kilidi geçit vermez", async () => {
     const { agency, client, post } = await seedApprovedPost({ externalRef: REF });
     await createPublishedPost(agency.id, client.id, {
