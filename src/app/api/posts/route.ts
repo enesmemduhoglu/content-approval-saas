@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { ClientNotOwnedError, getScopedDb } from "@/lib/scoped-db";
 import { InvalidImageError, uploadPostImage } from "@/lib/blob";
 import { sendAgencyNoticeEmail, sendApprovalRequestEmail, type EmailResult } from "@/lib/email";
+import { maxPostsPerAgency, maxPostsPerDay, QUOTA_WINDOW_MS } from "@/lib/quota";
 import {
   MAX_IMAGES_PER_POST,
   validateCaption,
@@ -144,6 +145,38 @@ export async function POST(request: Request) {
   const client = await scoped.clients.findById(parsed.clientId);
   if (!client) {
     return badRequest("Bu müşteri bulunamadı", "clientId", 403);
+  }
+
+  // Kota (F7): upload'dan ÖNCE kontrol edilir — tavana takılan istek Blob'a
+  // hiç yazmasın (asıl tükenen kaynak zaten bu). 429 DEĞİL 403 dönüyoruz:
+  // bu bir rate limit değil, kaba bir kötüye kullanım tavanı; furi de aynı
+  // `{ error, field? }` şeklini görüyor, ayrıca bir sözleşme yok.
+  // Sayıp-sonra-yazmak yarışa açık (bkz. clients POST) — aynı kabul burada da
+  // geçerli: tavan bir-iki post aşılabilir, amaç kötüye kullanımı DURDURMAK.
+  // Asıl tüketim buradan (makine yolu) geldiği için kontrol iki yolda da
+  // (oturum + API anahtarı) aynı — `getScopedDb` ikisinde de aynı agencyId'yi
+  // taşıyor.
+  const maxPosts = maxPostsPerAgency();
+  const postCount = await scoped.posts.count();
+  if (postCount >= maxPosts) {
+    return badRequest(
+      `Post tavanına ulaşıldı (${maxPosts}). Eski postları temizleyin ya da tavanı yükseltmek için bizimle iletişime geçin.`,
+      undefined,
+      403
+    );
+  }
+
+  // Hız tavanı: ömür boyu tavan tek başına kaçak bir scripti DURDURMAZ, ona
+  // yalnızca tavanın tamamını bir kerede tüketme izni verir (bkz. quota.ts).
+  // Bu yüzden asıl koruma burada — kayan 24 saat.
+  const maxDaily = maxPostsPerDay();
+  const dailyCount = await scoped.posts.countSince(new Date(Date.now() - QUOTA_WINDOW_MS));
+  if (dailyCount >= maxDaily) {
+    return badRequest(
+      `Günlük post tavanına ulaşıldı (24 saatte ${maxDaily}). Lütfen daha sonra tekrar deneyin.`,
+      undefined,
+      403
+    );
   }
 
   let imageUrls: string[];
