@@ -320,3 +320,20 @@ export async function sendAgencyNoticeEmail(input: AgencyNoticeInput): Promise<E
     "ajans bildirimi"
   );
 }
+
+// ------------------------------------------------------------- sistem uyarısı (F11)
+
+/**
+ * `alerts.ts`in DIŞARIDAN erişebildiği tek kapı. `gonder()` bilerek dışa
+ * açılmıyor gibi görünse de burada ince bir sarmalayıcıyla dışa veriliyor:
+ * amaç `alerts.ts`nin `resend.emails.send`'i DOĞRUDAN çağırmasını engellemek.
+ * Sebep yukarıdaki `gonder` yorumundaki ile birebir aynı — resend@4 API
+ * hatalarında THROW ETMEZ, `{ data, error }` döner; bu dönüş okunmazsa
+ * reddedilen uyarı maili de iz bırakmadan kaybolur. Tek doğru yol `gonder()`.
+ */
+export async function sendRawEmail(
+  payload: { to: string; subject: string; html: string; text: string },
+  etiket: string
+): Promise<EmailResult> {
+  return gonder(payload, etiket);
+}

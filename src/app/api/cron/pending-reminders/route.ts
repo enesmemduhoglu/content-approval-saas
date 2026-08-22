@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
 import { sendAgencyNoticeEmail, sendApprovalReminderEmail } from "@/lib/email";
@@ -55,6 +56,12 @@ export async function GET(request: Request) {
   const now = new Date();
   const baseUrl = appBaseUrl(request);
 
+  // Tüm gövde try/catch'e alınıyor (F11): sarmadan önce burada bir DB hatası
+  // ya da beklenmeyen istisna cron'u SESSİZCE çökertiyordu — istek 500 ile
+  // düşüyor ama kimseye haber gitmiyordu. Buradaki `catch` yalnızca cron'un
+  // KENDİSİ patladığında devreye girer; tek bir postun maili patlarsa o zaten
+  // aşağıdaki döngü içi try/catch'te yutulup `failed` sayacına yazılıyor.
+  try {
   // `getScopedDb` BİLEREK kullanılmıyor: cron'un oturumu yok ve işi ajanslar
   // ÜSTÜ. Dışarıya hiçbir müşteri verisi çıkmadığından IDOR yüzeyi yok —
   // token yenileme cron'undaki aynı bilinçli istisna.
@@ -162,4 +169,15 @@ export async function GET(request: Request) {
     skipped,
     failed,
   });
+  } catch (error) {
+    console.error("[cron:reminders] cron çöktü:", error);
+    // `key` sabit: bu cron zaten günde bir kez koşuyor, bastırma penceresi
+    // burada "aynı günde tekrar tetiklenirse iki kez mail gitmesin" içindir.
+    await sendAlert(
+      "cron:pending-reminders:crash",
+      "pending-reminders cron'u beklenmeyen hatayla çöktü",
+      { error: error instanceof Error ? error.message : String(error) }
+    );
+    return NextResponse.json({ ok: false, error: "cron çöktü" }, { status: 500 });
+  }
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
@@ -61,6 +62,11 @@ export async function GET(request: Request) {
 
   const now = new Date();
 
+  // Tüm gövde try/catch'e alınıyor (F11) — aynı gerekçe pending-reminders
+  // cron'undaki gibi: sarmadan önce beklenmeyen bir istisna cron'u sessizce
+  // çökertiyordu. Döngü içindeki try/catch tek müşteri hatasını yutuyor;
+  // buradaki dıştaki catch yalnızca CRON'UN KENDİSİ patladığında çalışır.
+  try {
   // `getScopedDb` BİLEREK kullanılmıyor: cron'un oturumu yok ve işi ajanslar
   // ÜSTÜ — tüm müşterilerin token'ını yeniler. Scoped sarmalayıcı ayrıca
   // `ClientView` döndürdüğü için token'ı hiç vermez; yenileme için token
@@ -140,4 +146,13 @@ export async function GET(request: Request) {
     expired,
     failed,
   });
+  } catch (error) {
+    console.error("[cron:ig-token] cron çöktü:", error);
+    await sendAlert(
+      "cron:refresh-instagram-tokens:crash",
+      "refresh-instagram-tokens cron'u beklenmeyen hatayla çöktü",
+      { error: error instanceof Error ? error.message : String(error) }
+    );
+    return NextResponse.json({ ok: false, error: "cron çöktü" }, { status: 500 });
+  }
 }

@@ -1,4 +1,5 @@
 import type { PublishStatus } from "@prisma/client";
+import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
 import type { MediaLiveness } from "@/lib/instagram";
@@ -226,5 +227,17 @@ async function markFailed(postId: string, detail: string): Promise<PublishOutcom
     where: { id: postId },
     data: { publishStatus: "failed", publishError: detail.slice(0, 1000) },
   });
+  // F11: bu, ajansa giden per-post bildirimin (approve route'undaki
+  // `sendAgencyNoticeEmail`) YERİNE geçmiyor — o zaten "bu post yayınlanamadı"
+  // der. Buradaki operatöre giden EK sinyal: "yayın hattı bozuk olabilir".
+  // `key` hatanın kendisinden türetilir (postId'den DEĞİL) — amaç aynı temel
+  // sebepten (örn. Instagram genel kesintisi) art arda başarısız olan FARKLI
+  // postların operatörün kutusunu tek tek doldurmasını önlemek; "aynı hata"
+  // tekrar ediyorsa tek mail yeter.
+  await sendAlert(
+    `publish:failed:${detail.slice(0, 80)}`,
+    "Instagram yayını başarısız oldu",
+    { postId, detail: detail.slice(0, 300) }
+  );
   return { publishStatus: "failed", publishError: GENERIC_ERROR };
 }
