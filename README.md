@@ -10,12 +10,27 @@ Ajanslar, müşterileri için hazırladıkları postların onayını bugün What
 
 ## Özellikler
 
-- **Ajans paneli** — Google ile giriş, müşteri yönetimi, post oluşturma (1-10 görsel + caption), durum takibi (taslak / onay bekliyor / onaylandı / reddedildi)
+**Onay akışı**
 - **Public onay sayfası** — müşteri için üyelik yok, uygulama yok; mobile-first tek sayfa; onay/red + opsiyonel reddetme sebebi; çoklu görselde kaydırmalı carousel; bekleyen diğer postları listeler ve **toplu onay** sunar
-- **Ajans markalama** — `/settings`'ten logo + marka rengi; onay sayfası ve e-postalar ajansın kimliğiyle görünür
-- **E-posta bildirimi** — post oluşunca müşteriye "İncele ve Onayla" CTA'lı, text+html multipart e-posta (Resend, SPF/DKIM/DMARC doğrulanmış domain)
+- **Revizyon turu** — müşteri "şunu düzelt" diyebilir; ajans düzeltip yeniden gönderir; her tur `PostRevision` zincirinde sürümüyle birlikte durur, geçmiş kopmaz
 - **Güvenli linkler** — `crypto.randomUUID` tabanlı token, 7 gün geçerlilik, süresi dolan link çalışmaz
-- **Audit** — her onay/red işlemi IP + aksiyon + zaman damgasıyla `ApprovalAudit` tablosuna yazılır
+- **Audit** — her onay/red işlemi IP + aksiyon + zaman damgasıyla `ApprovalAudit` tablosuna yazılır; panelde karar geçmişi olarak okunur
+
+**Ajans paneli**
+- Google ile giriş, müşteri yönetimi, post oluşturma (1-10 görsel + caption), durum takibi
+- **Ekip üyeleri** — ajans başına birden çok kişi; e-posta daveti, `owner`/`member` rolleri
+- **Post yönetimi** — post/müşteri silme, onay linkini yenileme, onay mailini tekrar gönderme
+- **Ajans markalama** — `/settings`'ten logo + marka rengi; onay sayfası ve e-postalar ajansın kimliğiyle görünür
+
+**Instagram yayını**
+- Onay = yayın (opt-in): Instagram bağlı müşteride onay aynı istekte yayını tetikler
+- **Zamanlanmış yayın** — `Post.publishAt` doluysa yayın cron'a bırakılır (çözünürlük sınırı için "Cron'lar" bölümüne bak)
+- Karusel desteği, mükerrer yayın koruması, token'ların otomatik yenilenmesi
+
+**Bildirim ve operasyon**
+- Müşteriye onay maili, ajansa karar/yayın bildirimi, bekleyen posta hatırlatma (post başına tek seferlik)
+- **Sistem uyarıları** — cron çökmesi, yayın hatası ve Resend reddi `ALERT_EMAIL`'e düşer
+- **`GET /api/health`** — uptime izlemesi için; DB canlılığını sınar, sır sızdırmaz
 
 ## Stack
 
@@ -36,7 +51,12 @@ Ajanslar, müşterileri için hazırladıkları postların onayını bugün What
 - **Atomiklik:** Post + ApprovalLink tek `$transaction` içinde oluşur; linksiz yarım post kalmaz.
 - **Yarış koruması:** Onay/red, `WHERE status='pending'` koşullu UPDATE ile yapılır — aynı anda gelen ikinci karar 409 alır, çifte karar imkânsızdır.
 - **Rate limit:** Public onay endpoint'i ve sayfası IP başına dakikada 10 istekle sınırlıdır (token brute-force'a karşı). Upstash Redis env değişkenleri varsa sayaç dağıtıktır; yoksa in-memory fallback devrededir. IP bilinemiyorsa audit'e `"unknown"` yazılır, asla boş değer düşmez.
-- **Test girişi izolasyonu:** E2E testlerin kullandığı Credentials provider'ı yalnızca `ENABLE_TEST_AUTH=1` iken var olur; production'da yoktur.
+- **Test girişi izolasyonu:** E2E testlerin kullandığı Credentials provider'ı yalnızca `ENABLE_TEST_AUTH=1` iken var olur; `NODE_ENV === "production"` mutlak bir kapıdır — env yanlış ayarlansa bile provider eklenmez.
+- **CSRF ikinci katmanı:** Oturum çerezi `SameSite=Lax` ama `multipart/form-data` kabul eden yollar CORS'un "basit istek" sınıfına girdiği için tek katmana bırakılmadı; mutasyon route'ları `Origin` başlığını da doğrular (`src/lib/origin.ts`). İzin verilen origin isteğin kendi host'undan türetilir — preview dağıtımları env listesi gerektirmeden çalışır. API anahtarıyla gelen makine yolu muaftır.
+- **Görsel doğrulaması içerikten:** Yüklenen dosyanın gerçek tipi ilk baytlardan (magic number) tespit edilir; istemcinin `Content-Type` beyanına güvenilmez ve uzantı gerçek tipten türetilir.
+- **Sır dağıtan uç nokta izleniyor:** `/api/clients/[id]/instagram-token` rate limit'e tabidir ve her erişim `clientId` + zaman + sonuç olarak loglanır (token'ın kendisi asla loglanmaz).
+- **Kota tavanları:** Ajans başına müşteri/post tavanı ve **kayan 24 saatte** post tavanı (`src/lib/quota.ts`). Bir plan/faturalama sistemi değil; tek bir kaçak script'in Blob ve Resend kotasını tüketmesini engelleyen kaba bir supap.
+- **İstemci IP'si:** `x-vercel-forwarded-for` önceliklidir (platform yazar, istemci üzerine yazamaz); `ApprovalAudit.ip` bir onayın kanıtı olarak saklandığı için bu sıralama önemlidir.
 
 ## Yerel geliştirme
 
@@ -77,71 +97,135 @@ Yerel kolaylıklar (hiçbir dış servis hesabı olmadan tam akış çalışır)
 | `BLOB_READ_WRITE_TOKEN` | prod | Vercel Blob |
 | `RESEND_API_KEY` / `EMAIL_FROM` | prod | E-posta bildirimi |
 | `APP_URL` | prod | Onay linklerinde kullanılan mutlak URL |
-| `CRON_SECRET` | prod | Günlük Instagram token yenileme cron'unun Bearer sırrı (boşsa cron 401 alır, yenileme çalışmaz) |
-| `ENABLE_TEST_AUTH` | — | `1` ise test girişi aktif — **production'da asla** |
+| `CRON_SECRET` | prod | Üç cron'un da ortak Bearer sırrı (boşsa hepsi 401 alır) |
+| `ALERT_EMAIL` | prod | Sistem uyarılarının gideceği adres — cron çökmesi, yayın hatası, Resend reddi. **Boşsa uyarı hiçbir yere gitmez**, sessizce atlanır ve yalnızca sunucu loguna düşer. Ajans/müşteri bildirimlerinden ayrı bir kutu olmalı. |
+| `FURI_API_KEY` / `FURI_API_AGENCY_ID` | — | Makine erişimi (furi otomasyonu). Anahtar en az 32 karakter olmalı, kısa anahtar sessizce değil **loglanarak** devre dışı bırakılır. |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | — | Dağıtık rate limiting. Boşsa in-memory fallback devrede. Vercel Marketplace Upstash entegrasyonu `KV_REST_API_*` adlarıyla ekler; kod iki ad setini de tanır. |
+| `QUOTA_MAX_CLIENTS` / `QUOTA_MAX_POSTS` / `QUOTA_MAX_POSTS_PER_DAY` / `QUOTA_MAX_PENDING_INVITES` | — | Kota tavanları. Hepsi opsiyonel; tanımsız ya da bozuk değer güvenli varsayılana düşer (bozuk env ajansı kilitlemesin diye). |
+| `IG_API_HOST` / `IG_API_VERSION` | — | Instagram Graph API hedefi (testlerde yönlendirmek için) |
+| `ENABLE_TEST_AUTH` | — | `1` ise test girişi aktif — **production'da asla** (kod ayrıca `NODE_ENV=production`'da provider'ı hiç eklemez) |
 
 ## Testler
 
 ```bash
 # Test veritabanları (bir kez)
-docker exec content-approval-pg psql -U postgres \
-  -c "CREATE DATABASE content_approval_test;" -c "CREATE DATABASE content_approval_e2e;"
+docker exec content-approval-pg psql -U postgres   -c "CREATE DATABASE content_approval_test;" -c "CREATE DATABASE content_approval_e2e;"
 
-npm test              # vitest: unit + integration (gerçek Postgres'e karşı)
-npm run test:e2e      # Playwright: 3111 portunda kendi dev sunucusunu açar
+npm test                          # vitest: unit + integration (gerçek Postgres'e karşı)
+npm test -- src/lib/blob.test.ts  # tek dosya
+npm test -- src/app/api/posts     # yol önekiyle bir grup
+npm run test:e2e                  # Playwright: 3111 portunda kendi dev sunucusunu açar
+npx tsc --noEmit                  # tip kontrolü
 ```
 
-Kapsam: token üretimi/expiry, rate limit eşiği, validasyon, e-posta hata toleransı, cross-agency erişim reddi (403), transaction rollback, çifte karar yarışı, süresi dolmuş/geçersiz token, boş durumlar ve tam e2e akışı (giriş → müşteri → post → incognito onay → dashboard doğrulama, double-submit dahil).
+**Testler gerçek Postgres ister ve otomatik ayağa kalkmaz.** Konteyner durmuşsa
+(`docker start content-approval-pg`) `vitest.global-setup.ts` tek satır kod okumadan
+patlar — `prisma db push` bağlanamaz. Integration testleri tek DB paylaştığı için
+dosyalar sırayla koşar (`fileParallelism: false`).
+
+Şifreleme testlerde **açık** koşar: anahtarsız koşmak tüm entegrasyon testlerinin düz
+metin yolundan geçmesi, yani asıl kullanılan yolun hiç denenmemesi demekti.
+
+Kapsam: token üretimi/expiry, rate limit eşiği, validasyon, e-posta hata toleransı,
+cross-agency erişim reddi (IDOR), transaction rollback, çifte karar yarışı, yayın kilidi,
+zamanlanmış yayın, üyelik çözümü ve davet kabulü, kota tavanları, revizyon turu,
+süresi dolmuş/geçersiz token, boş durumlar ve tam e2e akışı (giriş → müşteri → post →
+incognito onay → dashboard doğrulama, double-submit dahil).
 
 ## Deploy (Vercel)
 
-Proje Vercel'e bağlıdır; `vercel deploy --prod` yeterlidir. `vercel-build` script'i her deploy'da önce `prisma migrate deploy` çalıştırır — migration'lar otomatik uygulanır. Postgres, Vercel Marketplace üzerinden Neon'dur (`DATABASE_URL` pooled, `DATABASE_URL_UNPOOLED` migration için).
+Proje GitHub'a bağlıdır: **`master`'a merge → production**, PR → preview. Elle deploy
+gerekmez (`vercel deploy --prod` yine de çalışır). Postgres, Vercel Marketplace üzerinden
+Neon'dur (`DATABASE_URL` pooled, `DATABASE_URL_UNPOOLED` migration için).
+
+> **⚠ Merge = prod şema göçü.** `vercel-build` = `prisma migrate deploy && next build`,
+> yani master'a merge edilen bir migration **elle hiçbir şey yapılmadan** prod
+> veritabanına uygulanır; ayrı bir "deploy et" adımı yok. Şema göçü içeren bir PR'ı merge
+> etmeden önce boş bir DB'de **ve prod'a benzeyen veriyle** sına — veri göçü (backfill)
+> gerektiren bir migration boş DB'de sorunsuz görünüp prod'u kırabilir.
+
+> **Env değişikliği çalışan deployment'ı etkilemez.** `vercel env add` sonrası mevcut prod
+> eski değerlerle çalışmaya devam eder; `vercel redeploy <deployment-url>` gerekir. Ayrıca
+> `env add` bu projede varsayılan olarak **Sensitive** ekler ve sensitive bir değişkenin
+> değeri bir daha geri okunamaz — sır olmayan değerlerde `--no-sensitive` ver, sonra
+> `vercel env pull` ile değeri geri okuyarak doğrula.
 
 ### Cron'lar
 
-`vercel.json` iki günlük iş tanımlıyor, ikisi de **aynı `CRON_SECRET`** ile korunur:
+`vercel.json` üç günlük iş tanımlıyor; üçü de **aynı `CRON_SECRET`** ile korunur
+(Vercel bütün cron'lara aynı Authorization başlığını gönderir; ikinci bir sır
+yönetilecek bir sır daha olurdu). Sır tanımlı değilse endpoint'ler her isteğe 401
+döner — bu bilinçli: sırsız bırakılmış bir token yenileme uç noktası herkese açık olurdu.
 
 | Saat (UTC) | Yol | Ne yapar |
 |---|---|---|
-| 03:00 | `/api/cron/refresh-instagram-tokens` | Süresi dolmaya yaklaşan Instagram token'larını uzatır |
+| 03:00 | `/api/cron/refresh-instagram-tokens` | Süresi dolmaya yaklaşan (≤ 20 gün) Instagram token'larını uzatır |
+| 05:00 | `/api/cron/publish-scheduled` | `publishAt` zamanı gelmiş, onaylanmış postları yayınlar |
 | 09:00 | `/api/cron/pending-reminders` | 2 gündür bekleyen posta müşteriye hatırlatma; linki ölmüş bekleyen post için ajansa bildirim |
 
-Hatırlatmalar post başına **tek seferlik** (`Post.reminderSentAt` / `expiryNoticeSentAt`) — cron her gece koştuğu için spam koruması bu alanlardır.
+Hatırlatmalar post başına **tek seferlik** (`Post.reminderSentAt` / `expiryNoticeSentAt`) —
+cron her gece koştuğu için spam koruması bu alanlardır.
 
-### Cron: Instagram token yenileme
+> **⚠ Hobby planı cron'ları günde bire sınırlıyor.** Saatlik/dakikalık desenler deploy
+> sırasında reddediliyor ve tanımlı tek koşu da dakika hassasiyetinde değil (o saat içinde
+> herhangi bir an, ±59dk). Üç cron'un da günlük olmasının sebebi budur.
+> **Sonuç:** zamanlanmış yayının gerçek çözünürlüğü "en iyi saatte yayınla" değil,
+> **±24 saat isabet**. Kod sınırı değil, plan sınırı — Pro'ya geçilirse `vercel.json`'daki
+> tek satır saatlik desene çevrilir.
 
-`vercel.json` her gün 03:00 UTC'de `/api/cron/refresh-instagram-tokens` çağırır ve süresi dolmaya yaklaşan (≤ 20 gün) token'ları uzatır. Çalışması için **`CRON_SECRET`'in Vercel env'ine eklenmesi zorunludur**:
+`instagramTokenExpiry` **boşsa** yenileme cron'u o müşteriyi `skip` sayar ve token hiç
+yenilenmez. Instagram bağlarken bitiş tarihi de girilmeli.
 
-```bash
-openssl rand -base64 32 | vercel env add CRON_SECRET production
-vercel deploy --prod   # cron tanımı deploy ile kaydolur
-```
-
-Sır tanımlı değilse endpoint her isteğe 401 döner (bilerek: sırsız bırakılmış bir token yenileme uç noktası herkese açık olurdu) ve token'lar yenilenmez — dashboard'daki uyarı şeridi ikinci savunma hattı olarak devrede kalır. Cron koşuları Vercel → Project → Cron Jobs ekranından izlenir; `[cron:ig-token]` önekli loglar hangi müşterinin yenilendiğini gösterir.
+Cron koşuları Vercel → Project → Cron Jobs ekranından izlenir.
 
 ## Mimari
 
 ```
 [Ajans tarayıcısı] ──Google OAuth──▶ [NextAuth v5, JWT]
-[Ajans tarayıcısı] ──▶ /dashboard, /clients          (session + getScopedDb)
-                       /api/clients, /api/posts       (session + getScopedDb + $transaction)
+                                     └─ googleId → AgencyMember → session.agencyId
+[Ajans tarayıcısı] ──▶ /dashboard, /clients, /settings   (session + getScopedDb)
+                       /api/clients, /api/posts, /api/agency/members
                                      └─▶ Vercel Blob (görsel) · Resend (e-posta)
-[Müşteri, girişsiz] ──▶ /approve/[token]              (public, rate limit, token+expiry)
-                        /api/approve/[token]          (WHERE status='pending' + audit)
+[Müşteri, girişsiz] ──▶ /approve/[token]                 (public, rate limit, token+expiry)
+                        /api/approve/[token]             (WHERE status='pending' + audit)
+                                     └─▶ onay ise publishApprovedPost() → Instagram
+[furi (makine)] ──Bearer FURI_API_KEY──▶ /api/posts               (post oluşturma)
+                                        /api/clients/[id]/instagram-token  (token çekme)
+[Vercel Cron] ──Bearer CRON_SECRET──▶ /api/cron/*        (yenileme · yayın · hatırlatma)
                                      └─▶ Postgres (Neon)
 ```
+
+**Anlaşılması zor iki ayrım:**
+
+- **Onay ≠ yayın.** `Post.status` müşterinin kararı, `Post.publishStatus` Instagram tarafı.
+  Yayın, onay transaction'ı commit olduktan **sonra** ayrı adımda denenir — yayın patlarsa
+  onay yerinde kalır. Yayının üç tetikleyicisi var (onay yolu, zamanlanmış cron, onay
+  sayfasındaki "tekrar dene") ve üçü de aynı koşullu UPDATE kilidinden geçer.
+- **Üyelik yalnızca auth katmanında çözülür.** `AgencyMember` çok kullanıcılı ajansı
+  getirdi ama `session.agencyId` düz bir string olarak kaldı; aşağı akıştaki tüm sorgular
+  ve IDOR koruması (`getScopedDb`) bundan habersiz çalışmaya devam ediyor.
 
 ## Operasyon notları
 
 Proje tamamen ücretsiz katmanlarda çalışır (Vercel Hobby · Neon free · Upstash free · Resend free) — boşta dururken ücret üretmez ve kendiliğinden yayından düşmez. Bilinmesi gerekenler:
 
+- **Hata izleme e-postayla:** Dış servis (Sentry vb.) yok; cron çökmesi, yayın hatası ve Resend reddi `ALERT_EMAIL`'e düşer. **Bu değişken tanımlı değilse uyarı hiçbir yere gitmez.** Uyarı fırtınası bastırması process-içi bir `Map` ile yapılıyor; serverless'ta instance'lar arasında paylaşılmadığı için soğuk başlangıçta aynı hata için birden fazla mail gelebilir.
 - **Soğuk başlangıç:** Neon compute boşta uykuya geçer; uzun aradan sonra ilk istek 1-2 sn yavaş açılır. Arıza değildir.
 - **Dayanıklılık:** Resend erişilemezse post oluşturma yine çalışır (e-posta loglanıp atlanır); Upstash erişilemezse rate limit in-memory fallback'e düşer. Çekirdek onay akışı yalnızca Vercel + Neon ile ayakta kalır.
 - **Google OAuth:** Consent screen "Testing" modundayken yalnızca Test users listesindeki hesaplar giriş yapabilir. Gerçek kullanıcılar için Google Cloud Console'dan **Publish app** gerekir (yalnızca e-posta/profil scope'u kullanıldığından doğrulama süreci yoktur).
+- **⚠ Girişi her zaman canlı alias üzerinden yap:** `https://content-approval-saas.vercel.app`. `AUTH_URL`/`NEXTAUTH_URL` tanımlı değil ve NextAuth `trustHost: true` ile callback adresini **isteğin geldiği host'tan** türetiyor. Deployment'a özel bir URL'den (`content-approval-saas-<hash>-....vercel.app`) girersen `redirect_uri` o host olur, Google'da kayıtlı olmadığı için **`Hata 400: redirect_uri_mismatch`** alırsın. Bu URL'ler her deploy'da değiştiği için Console'a eklenmeleri de mümkün değil. Alias'tan girildiğinde üretilen adres `https://content-approval-saas.vercel.app/api/auth/callback/google`'dır ve Console'da kayıtlıdır.
 - **Domain bağımlılığı:** `enesmemduhoglu.tech` yenilenmezse yalnızca e-posta gönderimi kırılır — site `vercel.app` adresinde yaşamaya devam eder. Resend'in DNS kayıtları (SPF/DKIM/DMARC + `_dmarc`) domain'in DNS'inde durur.
-- **⚠ Instagram token'ının iki kopyası:** Aynı token hem SaaS'ta (`Client.instagramAccessToken`) hem furi otomasyonunda (ayrı repo, ortam değişkeni) duruyor ve ikisini senkron tutan bir mekanizma **yok**. Günlük cron SaaS kopyasını yenileyince furi'nin kopyası bayatlar; furi tarafı sessizce kırılabilir. Yenileme sonrası furi env'i elle güncellenmeli — ya da kalıcı çözüm olarak token tek kaynaktan (SaaS API'si) dağıtılmalı.
+- **Instagram token'ı artık tek kaynaktan dağıtılıyor.** Eskiden aynı token'ın iki kopyası vardı (SaaS'ta `Client.instagramAccessToken`, furi'de kendi env değişkeni) ve ikisini senkron tutan bir şey yoktu: cron SaaS kopyasını yenileyince furi'ninki sessizce bayatlıyordu. Çözüm `/api/clients/[id]/instagram-token` — furi token'ı her çalışmada buradan çeker, kendi kopyasını hiç tutmaz. **furi tarafında `IG_ACCESS_TOKEN` env'i kalmışsa kaldırılmalı**, yoksa eski tuzak geri döner.
 - **Geliştirmeye geri dönüş:** `docker start content-approval-pg` → `npm run dev`. Deploy: `vercel deploy --prod` (migration'lar `vercel-build` ile otomatik uygulanır).
 
 ## Yol haritası
 
-Bkz. [TODOS.md](TODOS.md) — çoklu görsel/carousel, ajans markalama, toplu onay, dağıtık rate limiting (Upstash).
+Bkz. **[TODOS.md](TODOS.md)** — bu deponun karar günlüğü. Kapanmış işler, **bilinçli
+kapsam dışı** bırakılan maddeler, bilinen sınırlar ve doğrulama yöntemleri orada.
+Bir tasarım kararını sorgulamadan önce oraya bak; çoğu "neden böyle yapılmamış"
+sorusunun cevabı yazılı.
+
+Güvenlik (S1–S9) ve ürün (F1–F13) listelerinin tamamı kapandı. Açık kalanlar bilinçli
+kapsam dışı: toplu reddetme, batch onayda özet bildirim, video/Reels ve Instagram dışı
+platformlar, revizyon bekleyen posta hatırlatma, zamanlanmış yayın patlarsa otomatik
+tekrar deneme.
