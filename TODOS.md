@@ -1,7 +1,9 @@
 # TODOS
 
-Son güncelleme: 2026-08-23 (faz J — CI kuruldu, D1 kapandı).
-Canlı: https://content-approval-saas.vercel.app · **Depo private.**
+Son güncelleme: 2026-08-23 (faz J — CI kuruldu, D1 kapandı; branch protection
+açıldı; depo yeniden public).
+Canlı: https://content-approval-saas.vercel.app · **Depo PUBLIC** — bulgu
+yazarken "Depo görünürlüğü" bölümündeki kurallar geçerli.
 
 **#40–#44 merge edildi ve prod'a deploy edildi** (2026-08-22):
 
@@ -32,6 +34,37 @@ ikisinden farklı — bunlar bilinçli bırakılmış boşluklar değil, kimseni
 varmadığı eksikler; hiçbiri canlıda bir arıza olarak yaşanmadı, hepsi kaynak
 taramasından çıktı. **D1 faz J ile kapandı** (CI); kalan öncelik sırası
 **D3 (mail tavanları) → D2 (`checkOrigin` kapsamı)**.
+
+---
+
+## Depo görünürlüğü (2026-08-23) — private kararı geri alındı
+
+**Depo şu an PUBLIC** (`gh repo view` ile doğrulandı: 0 fork / 0 star). Bu,
+2026-08-17'de bilerek alınan "private'a çek" kararının geri alınması demek.
+O karar ve gerekçesi "Tamamlananlar → 2026-08-17 güvenlik turu"nda tarihsel
+kayıt olarak duruyor; silinmedi, çünkü neden alındığını bilmeden neden geri
+alınabildiği de anlaşılmaz.
+
+**O gün private'a çekilme gerekçesi bugün geçerli değil.** Gerekçe "açıklar
+AÇIKTI ve tarifi yazılıydı"ydı — sömürülebilir olan S2 (production'da test
+girişi) ve S4 (clickjacking) aynı turda, S3/S5–S8 #40'ta kapandı. Bugün açık
+duran tek seri D2–D9 ve hiçbiri kimliği doğrulanmamış bir saldırgana bir şey
+vermiyor; en yakını D3 — o da **oturum açmış ajans kullanıcısının kendi
+müşterisine** sınırsız mail attırabilmesi.
+
+**Ama bu dosya artık herkes tarafından okunuyor.** Yeni bulgu yazarken kural:
+
+- **Sömürülebilir bir açık bulunursa önce kapatılır, sonra yazılır.** Açık
+  dururken tarifini buraya yazma. Sonradan private'a çekmek sızıntıyı geri
+  ALMAZ: PR'ın diff'i ve gövdesi GitHub'da kalır, force-push sonrası kopuk
+  commit'ler SHA ile erişilebilir kalır — 17.08'de tam olarak bu hesaplandı.
+- **Sır DEĞERİ hiçbir koşulda yazılmaz**, yalnızca adı (`CRON_SECRET`,
+  `FURI_API_KEY`, Resend/Blob token'ları bu dosyada bugüne kadar hep böyle geçti).
+- Prod id'leri ve iki e-posta adresi bu dosyada zaten var ve 22 Temmuz'dan beri
+  oradaydı; yenisini eklemenin bir faydası yok.
+
+**Görünürlük değişince ilk bakılacak yer burasıdır** — dosyanın en üstündeki
+"Depo public/private" satırı ile bu bölüm birlikte güncellenir.
 
 ---
 
@@ -189,14 +222,24 @@ Test: 567 → 578.
 
 **Prod envanteri (2026-08-23, ölçüldü): 1 ajans / 2 üye / 1 müşteri / 13 post.**
 
-- [ ] **Branch protection aç — CI'ın gerçekten kapı olması için ŞART.**
-      Faz J ile `.github/workflows/ci.yml` geldi ama GitHub'da bir kural
-      tanımlanmadığı sürece CI **yalnızca tavsiye**: kırmızı bir PR yine de
-      merge edilebilir ve `vercel-build` onu prod'a uygular. Repo bu ayarı kendi
-      yapamaz, GitHub tarafında tanımlanmalı:
-      Settings → Branches → `master` → *Require status checks to pass* → `dogrula`.
-      *Not:* kural ilk koşu tamamlanmadan listede görünmez — check adı ancak bir
-      kez çalıştıktan sonra seçilebilir hale gelir.
+- [x] **Branch protection açıldı** (2026-08-23, ruleset `master korumasi`,
+      id `21237624`). CI artık tavsiye değil kapı. API'den doğrulanan hâli
+      (`/rules/branches/master`):
+      `enforcement: active` · hedef **default branch** (ad değişse de takip eder) ·
+      `pull_request` (gerekli onay **0** — tek kişilik depoda 1 yazmak kendi
+      PR'ını onaylayamayıp kilitlenmek demekti) · `required_status_checks`:
+      **`dogrula`**, kaynak GitHub Actions'a sabitlenmiş (`integration_id 15368`)
+      ki aynı adı raporlayan başka bir uygulama kuralı geçemesin ·
+      `strict_required_status_checks_policy: true` (PR merge'den önce master'la
+      güncel olmalı — "iki PR ayrı ayrı yeşil, birlikte kırık" senaryosunu bu
+      yakalıyor) · `deletion` + `non_fast_forward`.
+      **Bypass listesi bilerek BOŞ.** Repo admin'ini muaf tutmak kuralı hiç
+      kurmamakla aynı şey olurdu; deponun tek geliştiricisi olan kişinin de
+      kapıdan geçmesi gerekiyor. Acil durumda çıkış yolu ruleset'i geçici olarak
+      `Disabled` yapmak — iz bırakır, bypass bırakmaz.
+      *Kurulum sırasında öğrenilen:* check listesine eklenecek ad workflow'un adı
+      (`CI`) DEĞİL **job'ın adı** (`dogrula`), ve o ad ancak bir kez koştuktan
+      sonra arama sonuçlarında çıkıyor.
 
 - [ ] **Vercel planını gözden geçir — F8 bu yüzden yarım çalışıyor.**
       Hobby planı cron'ları **günde bire** sınırlıyor ve o tek koşu dakika
@@ -215,7 +258,8 @@ test yeşil. Yani bulguların hiçbiri "bozuk kod" değil — **eksik kod**.
 - [x] **D1 · CI — KAPATILDI (faz J).** `.github/workflows/ci.yml`: PR'da ve
       master'a push'ta `tsc` → `migrate deploy` → şema kayması → `npm test` →
       `npm run build`. Ayrıntı "Tamamlananlar → faz J"de.
-      **Kalan elle iş:** branch protection (bkz. "Elle yapılması gerekenler").
+      **Kalan elle iş kalmadı:** branch protection da aynı gün açıldı (ruleset
+      `master korumasi`, bkz. "Elle yapılması gerekenler") — CI artık tavsiye değil kapı.
 
 - [ ] **D2 · `checkOrigin` değişmezi 6 mutasyon handler'ında uygulanmamış.**
       CLAUDE.md "mutasyon route'larında `checkOrigin`" diyor ve depoda
@@ -635,8 +679,9 @@ de ölçüldü.
 - **`npm audit` adımı yok.** Kalan 3 high bilinçli ve Next 16'ya bağlı (S3);
   kapıya koymak her koşuyu kırmızı yapardı.
 - **Linter adımı yok** — depoda eslint diye bir şey yok, statik kapı `tsc`.
-- **Branch protection açılmadı** — repo yapamaz, GitHub ayarı. Açılana kadar CI
-  yalnızca tavsiye; madde "Elle yapılması gerekenler"de.
+- **Branch protection workflow'un parçası değil** — repo yapamaz, GitHub ayarı.
+  *Aynı gün elle açıldı;* ayrıntısı "Elle yapılması gerekenler"deki kapanmış
+  maddede.
 
 ### 2026-08-22 — Faz E–I: güvenlik hijyeni, kota, zamanlanmış yayın, ekip, revizyon
 
@@ -857,6 +902,9 @@ Haklı bir soruydu. Çıkan sonuç: depo public'ti, açıklar açıktı ve tarif
       seçildi. **Doğrulandı:** hiçbir SIR DEĞERİ hiç sızmamıştı (`CRON_SECRET`,
       `FURI_API_KEY`, Resend/Blob token'ları TODOS'ta yalnızca *adıyla* geçiyor).
       Sızan şey prod id'leri ve iki e-posta adresiydi; onlar da 22 Temmuz'dan beri oradaydı.
+      **2026-08-23 notu: bu karar GERİ ALINDI, depo yeniden public.** Gerekçesi ve
+      bugün geçerli olan yazım kuralı için "Depo görünürlüğü" bölümüne bak. Madde
+      tarihsel kayıt olarak duruyor.
 
 - [x] **S2 — test girişi artık production'da var olamaz.** `src/lib/auth.ts` koşulu bir
       ortam değişkenine bırakmıyordu; `NODE_ENV === "production"` mutlak kapı oldu, env ne
