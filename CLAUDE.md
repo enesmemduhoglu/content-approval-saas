@@ -99,6 +99,12 @@ yapma.
 iz bırakmadan yutar. Bu depoda tam olarak bu yüzden iki gün mail gitmedi.
 `resend.emails.send`'i doğrudan çağırma.
 
+**Ajans bildirimi `agency-notify.ts > notifyAgencyTeam()` üzerinden, `Agency.email`e
+DEĞİL.** O kolon ajansı KURANIN adresi ve bir daha güncellenmiyor; davetle katılan üye
+oradan hiçbir şey almaz, kurucu ekipten çıkmışsa bildirim kimsenin bakmadığı kutuya
+düşer (23.08'de canlıda yaşandı). Alıcı listesi `AgencyMember` satırlarından üretilir.
+`sendAgencyNoticeEmail`'i doğrudan çağırma.
+
 **Sırlar şifreli ve loglardan ayıklanmış.** `Client.instagramAccessToken` AES-256-GCM ile
 `enc:v1:` önekli yazılır (`src/lib/crypto.ts`). Log ve hata metinleri sır taşımaz —
 `IGError.report()` ve `refreshInstagramToken`'daki `safeDetail` desenlerine bak.

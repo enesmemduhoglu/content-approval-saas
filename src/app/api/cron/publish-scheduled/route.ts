@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
-import { sendAgencyNoticeEmail } from "@/lib/email";
+import { notifyAgencyTeam } from "@/lib/agency-notify";
 import { publishApprovedPost } from "@/lib/publish-post";
 
 /**
@@ -77,6 +77,7 @@ export async function GET(request: Request) {
         id: true,
         caption: true,
         externalRef: true,
+        agencyId: true,
         client: { select: { name: true } },
         agency: { select: { email: true } },
       },
@@ -139,6 +140,7 @@ export async function GET(request: Request) {
  */
 async function notifyAgency(
   post: {
+    agencyId: string;
     caption: string;
     externalRef: string | null;
     client: { name: string };
@@ -146,9 +148,10 @@ async function notifyAgency(
   },
   outcome: { publishStatus: string; igPermalink?: string | null }
 ): Promise<void> {
-  if (!post.agency.email) return;
-  await sendAgencyNoticeEmail({
-    to: post.agency.email,
+  // Ekibin tamamına — `Agency.email` ajansı kuranın adresi, ekibin değil
+  // (gerekçe `agency-notify.ts` başında).
+  await notifyAgencyTeam(post.agencyId, {
+    agencyEmail: post.agency.email,
     event: "approved",
     clientName: post.client.name,
     postRef: post.externalRef ?? post.caption.split("\n")[0].slice(0, 80),

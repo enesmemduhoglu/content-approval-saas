@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { sendAgencyNoticeEmail } from "@/lib/email";
+import { notifyAgencyTeam } from "@/lib/agency-notify";
 import { publishApprovedPost, type PublishOutcome } from "@/lib/publish-post";
 import { getClientIp, checkRateLimit } from "@/lib/rate-limit";
 import { isExpired } from "@/lib/tokens";
@@ -257,8 +257,12 @@ export async function POST(request: Request, { params }: RouteParams) {
 }
 
 /**
- * İş sahibine karar bildirimi. Onayı ASLA etkilemez: hata yalnızca loglanır.
+ * Ajans EKİBİNE karar bildirimi. Onayı ASLA etkilemez: hata yalnızca loglanır.
  * Müşteri onay e-postasını alıyordu, ajansın ise akıştan hiç haberi olmuyordu.
+ *
+ * Bildirim `Agency.email`e değil, ekipteki HERKESE gider: o kolon ajansı
+ * kuranın adresi, ekibin değil — davetle katılan üyeler hiç haber almıyordu
+ * (gerekçe `agency-notify.ts` başında).
  */
 async function notifyAgency(
   link: NonNullable<Awaited<ReturnType<typeof findLink>>>,
@@ -274,9 +278,8 @@ async function notifyAgency(
   } & Partial<PublishOutcome>
 ): Promise<void> {
   const { post } = link;
-  if (!post.agency.email) return;
-  await sendAgencyNoticeEmail({
-    to: post.agency.email,
+  await notifyAgencyTeam(post.agencyId, {
+    agencyEmail: post.agency.email,
     event,
     clientName: post.client.name,
     postRef: post.externalRef ?? post.caption.split("\n")[0].slice(0, 60),

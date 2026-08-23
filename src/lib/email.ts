@@ -81,7 +81,11 @@ export type EmailResult =
 // e-postaya bağımlı değildir. Ama SESSİZ de kalmaz: sonucu döndürür ki çağıran
 // taraf "iş yapıldı ama haber gitmedi" durumunu görebilsin.
 async function gonder(
-  payload: { to: string; subject: string; html: string; text: string },
+  // `to` bir DİZİ olabilir: ajans bildirimleri ekibin tamamına gidiyor
+  // (bkz. agency-notify.ts). Resend tek istekte çoklu alıcıyı destekliyor;
+  // üye başına ayrı istek atmak hem günlük kotayı üyeye bölerdi hem de
+  // cron'un süre bütçesini üye sayısıyla çarpardı.
+  payload: { to: string | string[]; subject: string; html: string; text: string },
   etiket: string
 ): Promise<EmailResult> {
   const apiKey = process.env.RESEND_API_KEY;
@@ -321,7 +325,13 @@ export type AgencyNoticeEvent =
   | "revision_requested";
 
 export type AgencyNoticeInput = {
-  to: string;
+  /**
+   * Ajans tarafındaki alıcı(lar). Dizi verildiğinde TEK bir mail birden çok
+   * adrese gider — alıcılar birbirini görür, ama hepsi aynı ajansın ekibi
+   * (panelde zaten birbirlerinin adresini görüyorlar), yani sızan bir bilgi
+   * yok. Listeyi kim üretiyor: `agency-notify.ts > notifyAgencyTeam`.
+   */
+  to: string | string[];
   event: AgencyNoticeEvent;
   clientName: string;
   /** Postu tanıyacak kısa etiket: externalRef ya da caption'ın ilk satırı. */

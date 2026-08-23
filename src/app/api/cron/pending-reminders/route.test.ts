@@ -133,7 +133,7 @@ describe("süresi dolmuş link", () => {
     expect(mockReminder).not.toHaveBeenCalled();
     expect(mockAgencyNotice).toHaveBeenCalledTimes(1);
     expect(mockAgencyNotice.mock.calls[0][0]).toMatchObject({
-      to: agency.email,
+      to: [agency.email],
       event: "link_expired",
       clientName: client.name,
       daysPending: 9,

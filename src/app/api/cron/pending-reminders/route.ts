@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
-import { sendAgencyNoticeEmail, sendApprovalReminderEmail } from "@/lib/email";
+import { notifyAgencyTeam } from "@/lib/agency-notify";
+import { sendApprovalReminderEmail } from "@/lib/email";
 import { REMINDER_AFTER_DAYS, daysPending, reminderDecision } from "@/lib/reminders";
 
 /**
@@ -74,6 +75,7 @@ export async function GET(request: Request) {
       externalRef: true,
       reminderSentAt: true,
       expiryNoticeSentAt: true,
+      agencyId: true,
       approvalLink: { select: { token: true, expiresAt: true } },
       client: { select: { name: true, email: true } },
       agency: { select: { email: true, name: true, logoUrl: true, brandColor: true } },
@@ -130,12 +132,10 @@ export async function GET(request: Request) {
         reminded += 1;
         console.log(`[cron:reminders] ${post.id} müşteriye hatırlatıldı (${bekleyenGun} gün)`);
       } else {
-        if (!post.agency.email) {
-          skipped += 1;
-          continue;
-        }
-        const result = await sendAgencyNoticeEmail({
-          to: post.agency.email,
+        // Ekibin tamamına: linki yenileyebilecek kişi ajansı KURAN olmak
+        // zorunda değil (gerekçe `agency-notify.ts` başında).
+        const result = await notifyAgencyTeam(post.agencyId, {
+          agencyEmail: post.agency.email,
           event: "link_expired",
           clientName: post.client.name,
           postRef,
