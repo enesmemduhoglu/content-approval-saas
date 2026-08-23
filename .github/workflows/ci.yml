@@ -1,0 +1,113 @@
+# Depodaki tek otomatik kapı.
+#
+# ─── Neden var ──────────────────────────────────────────────────────────────
+# `vercel-build` = `prisma migrate deploy && next build`, yani **master'a merge
+# edilen şey elle hiçbir şey yapılmadan prod'a uygulanır** — ayrı bir "deploy
+# et" adımı yok. Bu iş akışı öncesinde bozuk bir migration'ı ya da kırık bir
+# testi durduran tek şey, PR'ı açanın komutları elle koşmayı hatırlamasıydı.
+name: CI
+
+on:
+  pull_request:
+  # Merge sonrası da koşuyor: PR yeşilken master bu arada ilerlemiş olabilir
+  # (iki PR ayrı ayrı geçip birlikte kırılabilir) ve o durumda sinyalin
+  # prod deploy'undan ÖNCE gelmesini istiyoruz.
+  push:
+    branches: [master]
+
+# Aynı dala arka arkaya push edilirse eski koşu iptal edilir — bekleyen bir
+# koşunun sonucu zaten kimseyi ilgilendirmiyor.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dogrula:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Testler GERÇEK Postgres'e karşı koşar (mock yok; `fileParallelism:
+        # false` bu yüzden). Sürüm prod'daki Neon'un ana sürümüyle aynı.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: content_approval_test
+        ports:
+          # Yerelde 5455 kullanılıyor çünkü o makinede 5432'yi tutan başka
+          # Postgres'ler var; burada konteyner yalnız, varsayılan port yeterli.
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # `vitest.config.ts` DATABASE_URL'i test bloğunda KENDİSİ yazıyor; dışarıdan
+      # verilen bir DATABASE_URL testlere hiç ulaşmaz. Yapılandırmanın gerçekten
+      # okuduğu değişken bu, o yüzden bağlantı buradan veriliyor.
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_approval_test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/content_approval_test
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@localhost:5432/content_approval_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` (install değil): lockfile bağlayıcı olsun, CI'da sessizce farklı
+      # bir sürüm çözülmesin. `postinstall` zaten `prisma generate` koşuyor.
+      - name: Bağımlılıklar
+        run: npm ci
+
+      # Depoda eslint YOK (ne bağımlılıklarda ne script'lerde) — statik kapı bu.
+      - name: Tip kontrolü
+        run: npx tsc --noEmit
+
+      # ─── Neden testlerden ÖNCE ve neden ayrı bir adım ──────────────────────
+      # Testler şemayı `prisma db push` ile kuruyor (`tests/vitest.global-setup.ts`),
+      # yani `prisma/migrations/` klasörüne HİÇ bakmıyorlar. Bozuk, çakışan ya da
+      # eksik bir migration dosyası bütün testler yeşilken merge edilebilirdi ve
+      # ilk belirtisi prod deploy'unun patlaması olurdu.
+      #
+      # Konteyner yeni ayağa kalktığı için bu veritabanı BOŞ — yani adım prod'un
+      # yapacağı şeyin aynısını yapıyor. Yan faydası: testler bundan sonra
+      # migration'larla kurulmuş şemaya karşı koşuyor, `db push` ürünü bir
+      # yaklaşığa karşı değil. (Sonraki `db push` bu şemada değişiklik bulmaz.)
+      - name: Migration'lar boş veritabanında koşuyor
+        run: npx prisma migrate deploy
+
+      # Migration'lar koştu — ama ortaya çıkan şema `schema.prisma` ile aynı mı?
+      # Değilse Prisma Client'ın beklediği kolon prod'da olmaz: testler (db push
+      # ile kurulan şemada) yeşil, prod kırık olur. Sessiz kayma tam burada
+      # yakalanır.
+      #
+      # DİKKAT: `prisma migrate diff` yanlış bayrakla çağrıldığında yardım metni
+      # basıp **çıkış kodu 0** döner. Bu yüzden `--exit-code`e tek başına
+      # güvenilmiyor; çıktıda gerçekten "No difference detected" yazdığı da
+      # aranıyor.
+      - name: Şema kayması yok
+        run: |
+          set -euo pipefail
+          npx prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code | tee migrate-diff.txt
+          grep -q "No difference detected" migrate-diff.txt
+
+      - name: Testler
+        run: npm test
+
+      # Build'e sahte bir AUTH_SECRET veriliyor ve bu BİLİNÇLİ bir sözleşme:
+      # prod build'i gerçek bir OAuth anahtarına ya da gerçek veriye ihtiyaç
+      # DUYMAMALI. Bu adım gerçek sır istemeye başlarsa düzeltilecek yer bu
+      # dosya değil, sırrı build zamanında okuyan kod.
+      - name: Build
+        env:
+          AUTH_SECRET: ci-build-icin-sahte-deger
+        run: npm run build
