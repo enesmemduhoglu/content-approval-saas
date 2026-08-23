@@ -15,10 +15,14 @@ npm run dev                      # http://localhost:3000
 npm test                         # vitest — GERÇEK Postgres'e karşı koşar
 npm test -- src/lib/blob.test.ts # tek dosya
 npm test -- src/app/api/posts    # yol önekiyle bir grup
+npm run test:watch               # vitest izleme modu
 npm run test:e2e                 # Playwright, kendi dev sunucusunu 3111'de açar
 npx tsc --noEmit                 # tip kontrolü
 npm run build                    # prod build (deploy öncesi mutlaka)
 ```
+
+**Linter YOK** — `eslint` ne bağımlılıklarda ne script'lerde var. Statik kapı
+`npx tsc --noEmit`; "lint" istendiğinde koşulacak komut bu.
 
 **Testler Docker'da Postgres ister ve otomatik ayağa kalkmaz.** Konteyner yoksa
 `vitest.global-setup.ts` tek satır kod okumadan patlar:
@@ -26,9 +30,46 @@ npm run build                    # prod build (deploy öncesi mutlaka)
 ```bash
 docker run -d --name cas-test-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres \
   -e POSTGRES_DB=content_approval_test -p 5455:5432 postgres:16-alpine
+# e2e AYRI bir veritabanı kullanır — yukarıdaki konteyner onu OLUŞTURMAZ:
+docker exec cas-test-pg psql -U postgres -c "CREATE DATABASE content_approval_e2e;"
 ```
 
 Integration testleri tek DB paylaşır; `fileParallelism: false` bu yüzden.
+
+**5455 portunda iki konteyner yarışıyor.** Makinede hem `cas-test-pg` (bugün
+kullanılan) hem `content-approval-pg` (README'nin andığı eski isim) var ve ikisi de
+5455'e bağlanıyor — aynı anda yalnızca biri ayağa kalkar. "Port already allocated"
+görürsen diğerini durdur; hangisinin çalıştığını `docker ps` ile teyit et. Şeması
+yüklü olan `cas-test-pg`.
+
+## Testlerin düzeni
+
+Üç tür test var ve üçü farklı yerde koşar:
+
+- **`src/**/*.test.ts` — entegrasyon.** `environment: "node"`, gerçek Postgres.
+  Route handler'lar doğrudan import edilip çağrılıyor (HTTP sunucusu yok):
+  `vi.mock("@/lib/auth")` ile oturum sahteleniyor, istek elle `new Request(...)`
+  kuruluyor. `src/app/api/agency/invites/[id]/route.test.ts` bu kalıbın en kısa örneği.
+- **`src/**/*.ui.test.tsx` — React.** Dosyanın İLK satırında
+  `// @vitest-environment jsdom` pragma'sı olmak zorunda; global environment `node`.
+  Server component'ler `render(await Sayfa({ params: Promise.resolve(...) }))` ile
+  çiziliyor, veri katmanı mock'lanıyor.
+- **`tests/e2e/*.spec.ts` — Playwright.** AYRI veritabanı (`content_approval_e2e`),
+  ayrı port (3111), `prisma db push` (migrate değil) ve `ENABLE_TEST_AUTH=1`.
+
+Yardımcılar `tests/helpers/db.ts`'te, `@tests` alias'ıyla import edilir. `resetDb()`
+her testin başında `TRUNCATE`, `createAgency()` / `createClient()` / `createMember()`
+kayıt üretir.
+
+**`createAgency()` ajansı KENDİ `owner` üyesiyle birlikte kurar** (`.members[0]`).
+Üyesiz ajans gerçekte yok — her ajans birinin giriş yapmasıyla doğuyor. "Tek owner"
+senaryosu yazarken `createMember(...)` ile ikinci bir owner EKLEME, `agency.members[0]`i
+kullan; yoksa sessizce iki owner'lı bir ajans kurup yanlış dalı sınarsın.
+
+**Test girişi production'da mutlak olarak kapalı.** `ENABLE_TEST_AUTH=1` Credentials
+provider'ını açar ama `auth.ts` `NODE_ENV === "production"` kapısını env'in önüne
+koyuyor — Vercel hem preview hem prod build'inde `NODE_ENV`i "production" yaptığı için
+internete açık hiçbir dağıtımda test girişi bulunmaz. Bu kapıyı env kontrolüne indirgeme.
 
 ## Değişmezler (yeni kod bunlara uymalı)
 
@@ -70,6 +111,29 @@ API anahtarıyla gelen makine yolu muaftır — tarayıcılar cross-site istekle
 `Authorization` başlığını otomatik eklemez.
 
 ## Mimarinin anlaşılması zor kısımları
+
+**Mutasyon route'larının kontrol sırası sabit** ve bu sıra bilinçli — yenisini yazarken
+aynısını kur (`nextjs-prisma:route-ekle` skill'i bu iskeleti üretir):
+
+1. `auth()` → `session.agencyId` yoksa 401. *(Makine yolu varsa `authenticateApiKey`
+   ile OR'lanır; bkz. `api/posts/route.ts`.)*
+2. `checkOrigin(request)` → 403. **Yalnızca çerezli yolda**; API anahtarlı istek muaf.
+3. Rol kontrolü (`session.agencyRole !== "owner"`) → 403.
+4. `checkRateLimit(anahtar)` → 429. Anahtar IP değil **ajans/hesap** olur ki farklı
+   ağlardan gelen aynı ajans aynı tavana çarpsın, farklı ajanslar birbirini kilitlemesin.
+5. Gövde ayrıştırma + `validation.ts` → 400, yanıtta `field` alanıyla.
+6. `getScopedDb(session)` üzerinden sorgu; karar değiştiriyorsa koşullu UPDATE → 409.
+
+Kontroller **auth'tan sonra ama işten önce** — sıra bozulursa ya yetkisiz istek pahalı
+iş yaptırır ya da hız sınırı kimliği bilinmeyen isteği sayamaz.
+
+**Env değişkenlerinin çoğu boşken sistem çalışmaya devam eder, ama sessizce değil.**
+Blob → `public/uploads` fallback, Resend → gönderim atlanır (`emailSent: false`),
+Upstash → in-memory rate limit, `ALERT_EMAIL` boş → uyarı yalnızca log'a. İki istisna
+sert: `CRON_SECRET` boşsa cron endpoint'i **tamamen kapalı** (401), `ENCRYPTION_KEY`
+production'da yoksa Instagram bağlama **hata verir** (düz metin yazmaz; yerelde düz
+metne düşüp yüksek sesle uyarır). Yeni bir dış bağımlılık eklerken bu deseni sürdür:
+çekirdek onay akışı yalnızca Vercel + Neon ile ayakta kalmalı.
 
 **Onay ≠ yayın.** `Post.status` müşterinin kararı, `Post.publishStatus` Instagram tarafı.
 Onay transaction'ı commit olduktan **sonra** ayrı adımda yayın denenir; yayın patlarsa
@@ -129,6 +193,12 @@ olmayan müşteriyi `skip` sayar. Instagram bağlarken bitiş tarihi de girilmel
 **Düz metin token'ı şifreliye çevirirken betiği değil production'ı kullan.** Panelden
 Instagram'ı bir kez yeniden bağlamak prod'un kendi anahtarıyla şifreler; betik yerel
 anahtarı kullanır ve anahtarların aynı olduğu kanıtlanamaz (yukarıdaki Sensitive maddesi).
+
+**`.claude/worktrees/` altında deponun ESKİ kopyaları duruyor** (agent worktree
+kalıntısı, `.gitignore`'da). Bunlar `node_modules` ve `prisma/migrations` dahil tam
+kopya, üstelik F6 öncesi şemayla. Kod ararken sonuç oradan gelirse yanlış dosyayı
+okursun — arama sonuçlarında yol `.claude/` ile başlıyorsa yok say, `src/` altındakine
+bak.
 
 **`next → sharp/postcss` audit uyarısı yanıltıcı.** Düzeltmesi Next 16'ya semver-major
 sıçrama; proje `next/image` kullanmıyor, `sharp` istek yoluna girmiyor, `postcss` build
