@@ -189,14 +189,24 @@ Test: 567 → 578.
 
 **Prod envanteri (2026-08-23, ölçüldü): 1 ajans / 2 üye / 1 müşteri / 13 post.**
 
-- [ ] **Branch protection aç — CI'ın gerçekten kapı olması için ŞART.**
-      Faz J ile `.github/workflows/ci.yml` geldi ama GitHub'da bir kural
-      tanımlanmadığı sürece CI **yalnızca tavsiye**: kırmızı bir PR yine de
-      merge edilebilir ve `vercel-build` onu prod'a uygular. Repo bu ayarı kendi
-      yapamaz, GitHub tarafında tanımlanmalı:
-      Settings → Branches → `master` → *Require status checks to pass* → `dogrula`.
-      *Not:* kural ilk koşu tamamlanmadan listede görünmez — check adı ancak bir
-      kez çalıştıktan sonra seçilebilir hale gelir.
+- [x] **Branch protection açıldı** (2026-08-23, ruleset `master korumasi`,
+      id `21237624`). CI artık tavsiye değil kapı. API'den doğrulanan hâli
+      (`/rules/branches/master`):
+      `enforcement: active` · hedef **default branch** (ad değişse de takip eder) ·
+      `pull_request` (gerekli onay **0** — tek kişilik depoda 1 yazmak kendi
+      PR'ını onaylayamayıp kilitlenmek demekti) · `required_status_checks`:
+      **`dogrula`**, kaynak GitHub Actions'a sabitlenmiş (`integration_id 15368`)
+      ki aynı adı raporlayan başka bir uygulama kuralı geçemesin ·
+      `strict_required_status_checks_policy: true` (PR merge'den önce master'la
+      güncel olmalı — "iki PR ayrı ayrı yeşil, birlikte kırık" senaryosunu bu
+      yakalıyor) · `deletion` + `non_fast_forward`.
+      **Bypass listesi bilerek BOŞ.** Repo admin'ini muaf tutmak kuralı hiç
+      kurmamakla aynı şey olurdu; deponun tek geliştiricisi olan kişinin de
+      kapıdan geçmesi gerekiyor. Acil durumda çıkış yolu ruleset'i geçici olarak
+      `Disabled` yapmak — iz bırakır, bypass bırakmaz.
+      *Kurulum sırasında öğrenilen:* check listesine eklenecek ad workflow'un adı
+      (`CI`) DEĞİL **job'ın adı** (`dogrula`), ve o ad ancak bir kez koştuktan
+      sonra arama sonuçlarında çıkıyor.
 
 - [ ] **Vercel planını gözden geçir — F8 bu yüzden yarım çalışıyor.**
       Hobby planı cron'ları **günde bire** sınırlıyor ve o tek koşu dakika
@@ -635,8 +645,9 @@ de ölçüldü.
 - **`npm audit` adımı yok.** Kalan 3 high bilinçli ve Next 16'ya bağlı (S3);
   kapıya koymak her koşuyu kırmızı yapardı.
 - **Linter adımı yok** — depoda eslint diye bir şey yok, statik kapı `tsc`.
-- **Branch protection açılmadı** — repo yapamaz, GitHub ayarı. Açılana kadar CI
-  yalnızca tavsiye; madde "Elle yapılması gerekenler"de.
+- **Branch protection workflow'un parçası değil** — repo yapamaz, GitHub ayarı.
+  *Aynı gün elle açıldı;* ayrıntısı "Elle yapılması gerekenler"deki kapanmış
+  maddede.
 
 ### 2026-08-22 — Faz E–I: güvenlik hijyeni, kota, zamanlanmış yayın, ekip, revizyon
 
