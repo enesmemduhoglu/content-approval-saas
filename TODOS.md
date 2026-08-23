@@ -1,7 +1,6 @@
 # TODOS
 
-Son güncelleme: 2026-08-22 (Faz E–I — güvenlik hijyeni, kota, zamanlanmış yayın,
-ekip üyeleri, revizyon turu).
+Son güncelleme: 2026-08-23 (davet devri — F6'nın canlıda yakalanan boşluğu).
 Canlı: https://content-approval-saas.vercel.app · **Depo private.**
 
 **#40–#44 merge edildi ve prod'a deploy edildi** (2026-08-22):
@@ -30,6 +29,74 @@ F11 (hata izleme), F12 (`/api/health`). Kalan açık maddeler aşağıda: hepsi 
 
 ---
 
+## Davet devri (2026-08-23) — F6'nın canlıda yakalanan boşluğu
+
+**Belirti:** `enesmemduhoglu0@gmail.com` ajansından `eneshan034@gmail.com`'a
+davet gönderildi, mail geldi, `/invite/<token>` sayfası doğru göründü — ama o
+hesapla giriş yapınca **hiçbir şey olmadı**.
+
+**Sebep:** `resolveMembershipOnSignIn` girişte önce "bu `googleId`nin üyeliği
+var mı" diye bakıyor ve **varsa oracıkta dönüyor**; bekleyen davete hiç
+bakmıyor. `eneshan034`'ün zaten bir üyeliği vardı: 2026-08-18'de kendisine
+açılan boş ajans, F6 migration'ının backfill'iyle bir `AgencyMember` satırına
+dönüşmüştü. Yani davet edilen kişi kendi boş ajansının dashboard'una düşüyor,
+davet `acceptedAt: null` olarak sonsuza kadar duruyordu. Davetin OLUŞMASI
+engellenmemişti çünkü `scoped-db.ts > invites.create`'teki `already_member`
+kontrolü yalnızca **aynı ajanstaki** üyeliğe bakıyor.
+
+**Kök kısıt:** `AgencyMember.googleId` `@unique` — bir Google hesabı tam olarak
+bir ajansa ait. Bu kısıt `session.agencyId`in düz bir string kalmasını sağlayan
+şeyin ta kendisi, yani "zaten üye olan biri daveti kabul edemez" bir hata değil,
+şemadan çıkan bir sonuçtu.
+
+**Seçilen çözüm: DEVİR.** Üç seçenek tartışıldı:
+
+| Seçenek | Neden seçilmedi / seçildi |
+|---|---|
+| Çok-ajanslı üyelik + ajans değiştirici | Doğru uzun vadeli cevap ama `googleId` unique'in kalkması, aktif ajans seçimi ve `session.agencyId` sözleşmesinin (78 çağrı yeri) yeniden düşünülmesi demek. Ayrı bir faz. |
+| Yalnızca engelle (davet oluşturmada hata ver) | Sorunu görünür kılar ama çözmez; davet alan mevcut kullanıcı akışı hiç çalışmamaya devam ederdi. |
+| **Devir (seçildi)** | Şemaya dokunmadan daveti çalıştırıyor. Üyelik satırı siliniyor, hedefte yenisi açılıyor; unique kısıt ve `getScopedDb` sözleşmesi aynen duruyor. |
+
+**Devrin kuralları:**
+
+- **Giriş SESSİZCE devretmez.** `resolveMembershipOnSignIn` aynen eski
+  davranışta bırakıldı (test: "zaten bir ajansın üyesiyse davet dikkate
+  alınmaz"). Devir ayrı ve açık bir eylem: `/invite/<token>` sayfasındaki
+  onay düğmesi → `POST /api/invites/<token>/accept`. Girişin kullanıcıyı
+  onayı olmadan kendi ajansından düşürmesi kabul edilemezdi.
+- **Kabul yine E-POSTA ile.** Token sadece "hangi davet" sorusunu cevaplıyor;
+  kabul koşulu giriş yapılmış hesabın e-postasının davetinkiyle eşleşmesi.
+  Linki ele geçiren yabancı devri tetikleyemez.
+- **Dolu ajansın son owner'ı devredemez** (`last_owner_with_data`, 409).
+  Ayrılsa müşteri ve postlar sahipsiz kalır — kimse davet edemez, kimse üye
+  çıkaramaz. `members.removeById`deki `last_owner` korumasının aynısı, ama
+  **boş** ajans için gevşetilmiş: kaybedilecek bir şey yoksa tutmanın anlamı yok.
+  Sayfa bu durumu düğmeye bastırmadan önce söylüyor (`blocked`).
+- **Yarış koruması koşullu UPDATE ile**, depo kuralına uygun: davet önce
+  `updateMany({ acceptedAt: null, expiresAt: { gt: now } })` ile "kapılıyor",
+  `count === 0` ise devir hiç yapılmıyor.
+- **`getScopedDb` bilerek kullanılmadı** (route'taki tek istisna, gerekçesi
+  dosyanın başında): kapsam oturumdaki ajansa göre — oysa işin tamamı
+  kullanıcıyı o ajanstan ÇIKARMAK. Yerine geçen koruma daha dar: hedef ajans
+  istekten değil davet token'ından geliyor.
+- **Oturum anında tazeleniyor.** Devirden sonra `unstable_update({})` jwt
+  callback'ini `trigger: "update"` ile çalıştırıp çerezi yeniden yazıyor;
+  olmasaydı kullanıcı 5 dakikaya kadar (`MEMBERSHIP_REVALIDATE_MS`) terk
+  ettiği ajansın panelinde kalırdı. Tazeleme patlarsa devir **geri alınmıyor**
+  — yanıttaki `sessionRefreshed: false` arayüze "birkaç dakika içinde
+  yenilenecek" dedirtiyor.
+- **Terk edilen boş ajans OTOMATİK SİLİNMİYOR.** Ajans silmek bu depoda ayrı
+  ve bilinçli bir karar (bkz. `bos-ajans-temizligi.mjs` emniyet zinciri).
+  Route yalnızca log'a "temizlik adayı" yazıyor.
+
+Yan düzeltme: `/invite` sayfasındaki giriş linkinde `callbackUrl` yoktu,
+kullanıcı girişten sonra `/`'a düşüyordu. Artık davet sayfasına geri dönüyor —
+devir gerektiren durumda onay düğmesini bir daha hiç görmemesinin sebebi buydu.
+
+Test: 527 → 567.
+
+---
+
 ## Açık işler
 
 ### Elle yapılması gerekenler (repo yapamaz)
@@ -49,15 +116,26 @@ F11 (hata izleme), F12 (`/api/health`). Kalan açık maddeler aşağıda: hepsi 
       görülmedi — bunun için kasten bir hata üretmek gerekirdi. Değişken yerinde
       ve canlı; ilk gerçek cron/yayın hatasında teslim gözlenmeli.
 
-- [ ] **İkinci Google hesabını asıl ajansa davet et** (#43 merge edildikten sonra).
+- [ ] **İkinci Google hesabını asıl ajansa katıl — DEVİR PROD'A ÇIKTIKTAN SONRA.**
       Prod'da `Enes Memduhoğlu <eneshan034@gmail.com>` adında **boş bir ajans**
       duruyor (2026-08-18'de oluşmuş, 0 post / 0 client). Sebebi F6 öncesi
       `Agency.googleId @unique` kısıtıydı: kendi ikinci hesabınla girince asıl
-      ajansına katılamayıp sıfırdan yeni ajans açıldı. F6'dan sonra asıl ajanstan
-      (`enesmemduhoglu0@gmail.com`) o adrese davet gönderilebilir.
-      *Boş ajans temizliği:* davet kabul edildikten sonra o ajans hâlâ boş
-      kalacak; silinmesi istenirse `bos-ajans-temizligi.mjs`'in hedef listesine
-      eklenmesi gerekir (betik sabit id listesiyle çalışıyor, keyfi ajans silemez).
+      ajansına katılamayıp sıfırdan yeni ajans açıldı.
+      **2026-08-23'te denendi ve çalışmadı** — davet gitti, link açıldı, giriş
+      yapıldı, hiçbir şey olmadı. Sebep yukarıdaki "Davet devri" bölümünde.
+      Devir prod'a çıktıktan sonra aynı davet linkiyle (ya da yenisiyle)
+      **"Kabul et ve ekibe geç"** düğmesi görünecek; o ajans boş olduğu için
+      devir engellenmeyecek.
+      *Eski davet hâlâ açık mı:* devir eski token'la da çalışır — davet
+      `acceptedAt: null` ve 7 günlük süresi 2026-08-30'a kadar geçerli. Süre
+      dolmuşsa panelden yeni davet gönder.
+
+- [ ] **Devirden sonra boş ajansı sil.** Devir tamamlanınca o ajans üyesiz VE
+      boş kalır (route log'a "temizlik adayı" yazar). Silmek için
+      `bos-ajans-temizligi.mjs`'in hedef listesine ajansın **id**'si eklenmeli
+      — betik sabit id listesiyle çalışıyor, keyfi ajans silemez. Ajans hâlâ
+      `Agency` tablosunda duruyor olacak; zarar vermez ama envanter sayımını
+      şişirir.
 
 - [ ] **Vercel planını gözden geçir — F8 bu yüzden yarım çalışıyor.**
       Hobby planı cron'ları **günde bire** sınırlıyor ve o tek koşu dakika
@@ -157,6 +235,9 @@ gerekenler"de; yeniden taranmasın.
       (yoksa çıkarılan üye token ömrü boyunca — 30 gün — erişmeye devam ederdi).
       **Kalan sınır:** erişim anında kesilmiyor, en fazla 5 dk sürebilir; acil
       durumda kesin çözüm `AUTH_SECRET` döndürmek.
+      *2026-08-23 eki:* "zaten bir ajansın üyesi olan biri daveti kabul
+      edemiyor" boşluğu canlıda yakalandı ve **devir**le kapatıldı — bkz.
+      yukarıdaki "Davet devri" bölümü. Çok-ajanslı üyelik hâlâ kapsam dışı.
 - [x] **F7 — kapatıldı (#41).** Kaba kötüye kullanım tavanları; plan/faturalama
       sistemi DEĞİL, şemaya dokunulmadı. İki ayrı tavan iki ayrı iş yapıyor:
       `QUOTA_MAX_POSTS_PER_DAY` (kayan 24 saat) **asıl koruma** çünkü tehdit hız;

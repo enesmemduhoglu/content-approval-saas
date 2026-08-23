@@ -18,6 +18,12 @@ declare module "next-auth" {
     agencyName?: string | null;
     /** F6 — `owner` davet edebilir/üye çıkarabilir, `member` edemez. */
     agencyRole?: AgencyRole;
+    /**
+     * Üyeliğin unique anahtarı (`test:` önekli olabilir). Yalnızca davet
+     * devrinin ihtiyacı var: orada kullanıcı henüz hedef ajansın üyesi
+     * değil, yani `agencyId` üzerinden bulunamaz.
+     */
+    googleId?: string;
   }
 }
 

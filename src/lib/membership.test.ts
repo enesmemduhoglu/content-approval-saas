@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
-import { findMembership, normalizeEmail, resolveMembershipOnSignIn } from "@/lib/membership";
+import {
+  acceptInviteAsSignedInUser,
+  findMembership,
+  normalizeEmail,
+  resolveInviteView,
+  resolveMembershipOnSignIn,
+} from "@/lib/membership";
 import { generateInviteToken, inviteExpiry } from "@/lib/tokens";
-import { createAgency, createMember, resetDb } from "@tests/helpers/db";
+import { createAgency, createClient, createMember, resetDb } from "@tests/helpers/db";
 
 /**
  * F6 — üyelik çözümünün tamamı. Bu dosyanın koruduğu asıl regresyon:
@@ -264,5 +270,357 @@ describe("findMembership — token tazeleme yolu", () => {
   it("üyelik yoksa null döner ve ajans AÇMAZ", async () => {
     expect(await findMembership("google-yok")).toBeNull();
     expect(await db.agency.count()).toBe(0);
+  });
+});
+
+/**
+ * Davet DEVRİ — zaten bir ajansın üyesi olan biri başka bir ajansa geçer.
+ *
+ * Bu bloğun koruduğu regresyon: davetin "zaten üye" durumunda sessizce
+ * yutulması. Prod'da tam olarak bu oldu — F6 öncesinden kalan boş bir ajansın
+ * sahibi, asıl ajansa davet edildi, girdi ve hiçbir şey olmadı.
+ */
+describe("acceptInviteAsSignedInUser — devir", () => {
+  it("boş ajansın tek owner'ı davet edildiği ajansa GEÇER", async () => {
+    // `createAgency` ajansı KENDİ owner'ıyla birlikte kuruyor; prod'daki boş
+    // kabuk da tam olarak böyle — tek kişilik, o kişi de owner. İkinci bir üye
+    // eklemek senaryoyu bozardı.
+    const bos = await createAgency({ name: "Boş Kabuk" });
+    const hedef = await createAgency({ name: "Asıl Ajans" });
+    const sahip = bos.members[0];
+    const invite = await createInvite(hedef.id, { email: sahip.email });
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: sahip.googleId,
+      email: sahip.email,
+      token: invite.token,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.membership.agencyId).toBe(hedef.id);
+    expect(result.leftAgencyId).toBe(bos.id);
+    expect(result.leftAgencyOrphaned).toBe(true);
+
+    // Tek üyelik kuralı korunuyor: eski satır silindi, yenisi hedefte.
+    const uyelikler = await db.agencyMember.findMany({
+      where: { googleId: sahip.googleId },
+    });
+    expect(uyelikler).toHaveLength(1);
+    expect(uyelikler[0].agencyId).toBe(hedef.id);
+    // Terk edilen ajans gerçekten üyesiz kaldı.
+    expect(await db.agencyMember.count({ where: { agencyId: bos.id } })).toBe(0);
+  });
+
+  it("davetin rolüyle katılır", async () => {
+    const bos = await createAgency();
+    const hedef = await createAgency();
+    await createMember(bos.id, { googleId: "google-rol", email: "rol@ornek.com" });
+    const invite = await createInvite(hedef.id, { email: "rol@ornek.com", role: "owner" });
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: "google-rol",
+      email: "rol@ornek.com",
+      token: invite.token,
+    });
+    expect(result.ok && result.membership.role).toBe("owner");
+  });
+
+  it("daveti KAPATIR — ikinci kabul denemesi düşer", async () => {
+    const bos = await createAgency();
+    const hedef = await createAgency();
+    await createMember(bos.id, { googleId: "google-iki", email: "iki@ornek.com" });
+    const invite = await createInvite(hedef.id, { email: "iki@ornek.com" });
+
+    const ilk = await acceptInviteAsSignedInUser({
+      googleId: "google-iki",
+      email: "iki@ornek.com",
+      token: invite.token,
+    });
+    expect(ilk.ok).toBe(true);
+
+    // Aynı token, artık hedefin üyesi: "zaten üye" dalı olumlu dönmeli.
+    const ikinci = await acceptInviteAsSignedInUser({
+      googleId: "google-iki",
+      email: "iki@ornek.com",
+      token: invite.token,
+    });
+    expect(ikinci.ok).toBe(true);
+    expect(ikinci.ok && ikinci.leftAgencyId).toBeNull();
+
+    // Ama BAŞKA biri aynı token'ı kullanamaz — davet kapandı.
+    const bosB = await createAgency();
+    await createMember(bosB.id, { googleId: "google-baskasi", email: "iki@ornek.com" });
+    const ucuncu = await acceptInviteAsSignedInUser({
+      googleId: "google-baskasi",
+      email: "iki@ornek.com",
+      token: invite.token,
+    });
+    expect(ucuncu).toEqual({ ok: false, reason: "invite_unavailable" });
+  });
+
+  it("DOLU ajansın son owner'ı devredemez — veri sahipsiz kalmasın", async () => {
+    const dolu = await createAgency();
+    const hedef = await createAgency();
+    const sonOwner = dolu.members[0];
+    await createClient(dolu.id);
+    const invite = await createInvite(hedef.id, { email: sonOwner.email });
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: sonOwner.googleId,
+      email: sonOwner.email,
+      token: invite.token,
+    });
+    expect(result).toEqual({ ok: false, reason: "last_owner_with_data" });
+
+    // Hiçbir şey değişmemiş olmalı: üyelik yerinde, davet hâlâ açık.
+    const uyelik = await db.agencyMember.findUnique({
+      where: { googleId: sonOwner.googleId },
+    });
+    expect(uyelik?.agencyId).toBe(dolu.id);
+    expect((await db.agencyInvite.findUnique({ where: { id: invite.id } }))?.acceptedAt).toBeNull();
+  });
+
+  it("dolu ajansta İKİNCİ owner varsa devir serbest", async () => {
+    const dolu = await createAgency();
+    const hedef = await createAgency();
+    // createAgency zaten bir owner üretiyor; ikinci owner olarak katılıyoruz.
+    await createMember(dolu.id, {
+      googleId: "google-ikinci-owner",
+      email: "ikinci@ornek.com",
+      role: "owner",
+    });
+    await createClient(dolu.id);
+    const invite = await createInvite(hedef.id, { email: "ikinci@ornek.com" });
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: "google-ikinci-owner",
+      email: "ikinci@ornek.com",
+      token: invite.token,
+    });
+    expect(result.ok && result.membership.agencyId).toBe(hedef.id);
+    // Eski ajans boş DEĞİL ve üyesi kaldı — temizlik adayı sayılmamalı.
+    expect(result.ok && result.leftAgencyOrphaned).toBe(false);
+  });
+
+  it("dolu ajansın MEMBER'ı serbestçe devredebilir", async () => {
+    const dolu = await createAgency();
+    const hedef = await createAgency();
+    await createMember(dolu.id, {
+      googleId: "google-sade-uye",
+      email: "sade@ornek.com",
+      role: "member",
+    });
+    await createClient(dolu.id);
+    const invite = await createInvite(hedef.id, { email: "sade@ornek.com" });
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: "google-sade-uye",
+      email: "sade@ornek.com",
+      token: invite.token,
+    });
+    expect(result.ok && result.membership.agencyId).toBe(hedef.id);
+  });
+
+  it("EŞLEŞMEYEN e-postayla kabul edilemez — link ele geçse bile", async () => {
+    const bos = await createAgency();
+    const hedef = await createAgency();
+    await createMember(bos.id, { googleId: "google-yabanci", email: "yabanci@ornek.com" });
+    const invite = await createInvite(hedef.id, { email: "davetli@ornek.com" });
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: "google-yabanci",
+      email: "yabanci@ornek.com",
+      token: invite.token,
+    });
+    expect(result).toEqual({ ok: false, reason: "email_mismatch" });
+    expect((await db.agencyInvite.findUnique({ where: { id: invite.id } }))?.acceptedAt).toBeNull();
+  });
+
+  it("büyük/küçük harf farkı eşleşmeyi bozmaz", async () => {
+    const bos = await createAgency();
+    const hedef = await createAgency();
+    await createMember(bos.id, { googleId: "google-harf", email: "harf@ornek.com" });
+    const invite = await createInvite(hedef.id, { email: "Harf@Ornek.COM" });
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: "google-harf",
+      email: " harf@ORNEK.com ",
+      token: invite.token,
+    });
+    expect(result.ok && result.membership.agencyId).toBe(hedef.id);
+  });
+
+  it("SÜRESİ DOLMUŞ davet kabul edilmez", async () => {
+    const bos = await createAgency();
+    const hedef = await createAgency();
+    await createMember(bos.id, { googleId: "google-sure", email: "sure@ornek.com" });
+    const invite = await createInvite(hedef.id, {
+      email: "sure@ornek.com",
+      expiresAt: new Date(Date.now() - 1000),
+    });
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: "google-sure",
+      email: "sure@ornek.com",
+      token: invite.token,
+    });
+    expect(result).toEqual({ ok: false, reason: "invite_unavailable" });
+  });
+
+  it("olmayan token", async () => {
+    const result = await acceptInviteAsSignedInUser({
+      googleId: "google-hayalet",
+      email: "hayalet@ornek.com",
+      token: "yok-boyle-bir-token",
+    });
+    expect(result).toEqual({ ok: false, reason: "invite_unavailable" });
+  });
+
+  it("hiç üyeliği olmayan biri de bu yoldan katılabilir (ajans AÇILMAZ)", async () => {
+    const hedef = await createAgency();
+    const invite = await createInvite(hedef.id, { email: "yeni@ornek.com" });
+    const ajansSayisi = await db.agency.count();
+
+    const result = await acceptInviteAsSignedInUser({
+      googleId: "google-yepyeni",
+      email: "yeni@ornek.com",
+      token: invite.token,
+    });
+    expect(result.ok && result.membership.agencyId).toBe(hedef.id);
+    expect(result.ok && result.leftAgencyId).toBeNull();
+    expect(await db.agency.count()).toBe(ajansSayisi);
+  });
+
+  it("aynı ajanstan gelen diğer bekleyen davetler de kapanır", async () => {
+    const bos = await createAgency();
+    const hedef = await createAgency();
+    await createMember(bos.id, { googleId: "google-coklu", email: "coklu@ornek.com" });
+    const a = await createInvite(hedef.id, { email: "coklu@ornek.com" });
+    const b = await createInvite(hedef.id, { email: "coklu@ornek.com" });
+
+    await acceptInviteAsSignedInUser({
+      googleId: "google-coklu",
+      email: "coklu@ornek.com",
+      token: a.token,
+    });
+    expect((await db.agencyInvite.findUnique({ where: { id: b.id } }))?.acceptedAt).not.toBeNull();
+  });
+});
+
+/**
+ * Sayfanın durum makinesi. React render'ı olmadan sınanıyor — sayfanın
+ * kendisi bu dalları yalnızca yazıya çeviriyor.
+ */
+describe("resolveInviteView", () => {
+  it("olmayan token → not_found", async () => {
+    expect(
+      await resolveInviteView({ token: "yok", signedInEmail: null, googleId: null })
+    ).toEqual({ kind: "not_found" });
+  });
+
+  it("kullanılmış davet → used", async () => {
+    const agency = await createAgency();
+    const invite = await createInvite(agency.id, { acceptedAt: new Date() });
+    const view = await resolveInviteView({
+      token: invite.token,
+      signedInEmail: null,
+      googleId: null,
+    });
+    expect(view.kind).toBe("used");
+  });
+
+  it("süresi dolmuş davet → expired", async () => {
+    const agency = await createAgency();
+    const invite = await createInvite(agency.id, { expiresAt: new Date(Date.now() - 1000) });
+    const view = await resolveInviteView({
+      token: invite.token,
+      signedInEmail: null,
+      googleId: null,
+    });
+    expect(view.kind).toBe("expired");
+  });
+
+  it("girişsiz → anonymous", async () => {
+    const agency = await createAgency();
+    const invite = await createInvite(agency.id, { email: "kimse@ornek.com" });
+    const view = await resolveInviteView({
+      token: invite.token,
+      signedInEmail: null,
+      googleId: null,
+    });
+    expect(view.kind).toBe("anonymous");
+  });
+
+  it("yanlış hesapla giriş → wrong_account", async () => {
+    const agency = await createAgency();
+    const invite = await createInvite(agency.id, { email: "dogru@ornek.com" });
+    const view = await resolveInviteView({
+      token: invite.token,
+      signedInEmail: "yanlis@ornek.com",
+      googleId: "google-yanlis",
+    });
+    expect(view.kind).toBe("wrong_account");
+  });
+
+  it("zaten hedef ajansın üyesi → already_member", async () => {
+    const agency = await createAgency();
+    await createMember(agency.id, { googleId: "google-icerideki", email: "iceri@ornek.com" });
+    const invite = await createInvite(agency.id, { email: "iceri@ornek.com" });
+    const view = await resolveInviteView({
+      token: invite.token,
+      signedInEmail: "iceri@ornek.com",
+      googleId: "google-icerideki",
+    });
+    expect(view.kind).toBe("already_member");
+  });
+
+  it("başka ajansın üyesi, eski ajans boş → transfer, blocked değil", async () => {
+    const bos = await createAgency({ name: "Boş" });
+    const hedef = await createAgency();
+    await createMember(bos.id, { googleId: "google-gecici", email: "gecici@ornek.com" });
+    const invite = await createInvite(hedef.id, { email: "gecici@ornek.com" });
+
+    const view = await resolveInviteView({
+      token: invite.token,
+      signedInEmail: "gecici@ornek.com",
+      googleId: "google-gecici",
+    });
+    expect(view.kind).toBe("transfer");
+    if (view.kind !== "transfer") return;
+    expect(view.blocked).toBe(false);
+    expect(view.currentAgencyEmpty).toBe(true);
+    expect(view.currentAgencyName).toBe("Boş");
+  });
+
+  it("dolu ajansın son owner'ı → transfer ama blocked", async () => {
+    const dolu = await createAgency();
+    const hedef = await createAgency();
+    const sonOwner = dolu.members[0];
+    await createClient(dolu.id);
+    const invite = await createInvite(hedef.id, { email: sonOwner.email });
+
+    const view = await resolveInviteView({
+      token: invite.token,
+      signedInEmail: sonOwner.email,
+      googleId: sonOwner.googleId,
+    });
+    expect(view.kind).toBe("transfer");
+    if (view.kind !== "transfer") return;
+    expect(view.blocked).toBe(true);
+  });
+
+  it("giriş yapmış ama HİÇ üyeliği yok → transfer, kaybedecek bir şey yok", async () => {
+    const hedef = await createAgency();
+    const invite = await createInvite(hedef.id, { email: "uyeliksiz@ornek.com" });
+    const view = await resolveInviteView({
+      token: invite.token,
+      signedInEmail: "uyeliksiz@ornek.com",
+      googleId: "google-uyeliksiz",
+    });
+    expect(view.kind).toBe("transfer");
+    if (view.kind !== "transfer") return;
+    expect(view.blocked).toBe(false);
+    expect(view.currentAgencyName).toBeNull();
   });
 });
