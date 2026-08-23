@@ -18,6 +18,7 @@ import {
   createAgency,
   createClient,
   createInstagramClient,
+  createMember,
   createPendingPostWithLink,
   resetDb,
 } from "@tests/helpers/db";
@@ -139,11 +140,23 @@ describe("POST /api/approve/[token]", () => {
 
     expect(mockAgencyNotice).toHaveBeenCalledOnce();
     const arg = mockAgencyNotice.mock.calls[0][0];
-    expect(arg.to).toBe(agency.email);
+    expect(arg.to).toEqual([agency.email]);
     expect(arg.event).toBe("approved");
     // Instagram bağlı olmayan müşteride yayın "skipped" olur; bildirim kararı
     // değil AKIBETİ taşımalı, yoksa "onaylandı" deyip yayının olmadığını gizler.
     expect(arg.publishStatus).toBe("skipped");
+  });
+
+  // 23.08.2026: müşteri onayladı, post yayına gitti, ajanstaki iki kullanıcının
+  // da haberi olmadı. Bildirim `Agency.email`e (ajansı KURANIN adresi) gidiyordu;
+  // davetle katılan üye hiçbir şey almıyordu.
+  it("onay bildirimi ekipteki HERKESE gider, yalnızca ajansı kurana değil", async () => {
+    const { link, agency } = await seedPendingPost();
+    const uye = await createMember(agency.id, { email: "davetli@ornek.com" });
+
+    await POST(postRequest({ action: "approve" }), makeParams(link.token));
+
+    expect(mockAgencyNotice.mock.calls[0][0].to).toEqual([agency.email, uye.email]);
   });
 
   it("redde iş sahibine bildirim gider — gerekçesiyle", async () => {
@@ -155,7 +168,7 @@ describe("POST /api/approve/[token]", () => {
 
     expect(mockAgencyNotice).toHaveBeenCalledOnce();
     const arg = mockAgencyNotice.mock.calls[0][0];
-    expect(arg.to).toBe(agency.email);
+    expect(arg.to).toEqual([agency.email]);
     expect(arg.event).toBe("rejected");
     expect(arg.rejectionReason).toBe("Logo eski sürüm");
   });

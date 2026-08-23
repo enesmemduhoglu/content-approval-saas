@@ -97,6 +97,50 @@ Test: 527 → 567.
 
 ---
 
+## Ajans bildirimleri ekibe (2026-08-23) — F6'nın ikinci canlı boşluğu
+
+**Belirti:** `enesmemduhoglu0@gmail.com` hesabının "furkan teacher" müşterisine
+onay maili gitti, müşteri onayladı, post Instagram'a çıktı — ajanstaki **iki
+kullanıcının da (`enesmemduhoglu0@`, `eneshan034@`) hiçbir şeyden haberi olmadı**.
+Ne "onaya gitti" ne "onaylandı" bildirimi ulaştı.
+
+**Sebep:** Bütün ajans bildirimleri `Agency.email`e gidiyordu. O kolon ajans
+KURULURKEN, kuran Google hesabından bir kez yazılıyor ve bir daha hiç
+güncellenmiyor (`membership.ts > resolveMembershipOnSignIn`). F6 ekip üyeliğini
+getirdiğinden beri o adres "ajansı kim kullanıyor" sorusunun cevabı değil,
+"ajansı kim açmıştı" sorusunun cevabı:
+
+- **Davetle katılan üye hiç bildirim almıyordu.** Ekip özelliği vardı, bildirimler
+  F6 öncesindeki tek kullanıcılı dünyada kalmıştı.
+- **Kurucu adresi eskiyse bildirim kimsenin bakmadığı kutuya düşüyordu** — ajans
+  başka bir hesapla açılmışsa, kurucu ekipten çıkmışsa ya da ajans davet devriyle
+  el değiştirmişse. `gonder()` "gitti" dediği için hata da görünmüyordu.
+
+**Çözüm:** `src/lib/agency-notify.ts` — alıcı listesi artık `AgencyMember`
+satırlarından üretiliyor, `Agency.email` listeye ekleniyor ama tek kaynak değil.
+Tekilleştirme küçük harf üzerinden (ajansı açan kişi zaten kendi ajansının ilk
+üyesi; normalize etmeden aynı kişiye iki kez yazardık). Owner'lar listenin
+başında — `To`da ilk görünen işin sahibi olsun.
+
+**Neden tek mail, üye başına ayrı mail değil:** Resend tek istekte çoklu alıcıyı
+destekliyor. Üye başına ayrı istek günlük kotayı üye sayısına bölerdi ve cron'un
+süre bütçesini üyeyle çarpardı. Alıcılar birbirini görüyor — hepsi aynı ajansın
+ekibi, panelde zaten birbirlerinin adresini görüyorlar.
+
+**Kapsanan yollar (dördü de):** post oluşturma (`request_sent`), onay sayfası
+(`approved` / `rejected` / `revision_requested`), `publish-scheduled` cron'u
+(zamanlanmış yayının akıbeti), `pending-reminders` cron'u (`link_expired`).
+`Agency.email` şemada duruyor ve silinmedi: bilinen tek adres olduğu durumlarda
+(üye sorgusu patlarsa) hâlâ düşülecek yer o.
+
+Bildirim yine bir **yan etki**: `notifyAgencyTeam` asla throw etmez, alıcı
+bulunamazsa `sent: false` döner ve sebebi log'a yazar — onay da, yayın da,
+cron da buna bağlı değil.
+
+Test: 567 → 578.
+
+---
+
 ## Açık işler
 
 ### Elle yapılması gerekenler (repo yapamaz)
@@ -163,6 +207,9 @@ Test: 527 → 567.
 - [ ] **Toplu onayda (`/batch`) ajans bildirimi yok** — #32 tekil yolu kapsıyor,
       batch'i bilerek kapsamadı: o yol zaten yayın yapmıyor ve her post için ayrı
       mail istenmez. Batch yeniden ele alınırsa tek bir özet bildirim mantıklı.
+      **2026-08-23 notu:** bildirimlerin ekibe açılması bu boşluğu KAPATMADI —
+      toplu onayda hâlâ kimseye mail gitmiyor. Artık tek doğru şekli belli:
+      `notifyAgencyTeam` ile N postu tek satırda özetleyen bir bildirim.
 
 - [ ] **Toplu reddetme** — reddetme sebebi post başına anlamlı olduğu için toplu
       onayın simetriği yapılmadı. Yeniden değerlendirilirse "ortak sebep" alanı gerekir.

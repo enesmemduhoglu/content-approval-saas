@@ -32,6 +32,7 @@ import {
   createAgency,
   createClient,
   createInstagramClient,
+  createMember,
   resetDb,
 } from "@tests/helpers/db";
 
@@ -143,10 +144,25 @@ describe("POST /api/posts", () => {
 
     expect(mockAgencyNotice).toHaveBeenCalledOnce();
     const arg = mockAgencyNotice.mock.calls[0][0];
-    expect(arg.to).toBe(agency.email);
+    expect(arg.to).toEqual([agency.email]);
     expect(arg.event).toBe("request_sent");
     expect(arg.clientName).toBe(client.name);
     expect(arg.clientEmailSent).toBe(true);
+  });
+
+  // Ekip özelliği (F6) geldiğinden beri "iş sahibi" tek kişi değil: davetle
+  // katılan üye de postun onaya gittiğini bilmek zorunda.
+  it("bildirim ekipteki HERKESE gider, yalnızca ajansı kurana değil", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const uye = await createMember(agency.id, { email: "davetli@ornek.com" });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    await POST(
+      postRequest({ caption: "Yeni post", clientId: client.id, image: makeImage() })
+    );
+
+    expect(mockAgencyNotice.mock.calls[0][0].to).toEqual([agency.email, uye.email]);
   });
 
   // İş sahibinin en çok bilmesi gereken durum: post sıraya girdi ama müşteriye

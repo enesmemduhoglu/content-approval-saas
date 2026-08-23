@@ -5,7 +5,8 @@ import { checkOrigin } from "@/lib/origin";
 import { db } from "@/lib/db";
 import { ClientNotOwnedError, getScopedDb } from "@/lib/scoped-db";
 import { InvalidImageError, uploadPostImage } from "@/lib/blob";
-import { sendAgencyNoticeEmail, sendApprovalRequestEmail, type EmailResult } from "@/lib/email";
+import { notifyAgencyTeam } from "@/lib/agency-notify";
+import { sendApprovalRequestEmail, type EmailResult } from "@/lib/email";
 import { maxPostsPerAgency, maxPostsPerDay, QUOTA_WINDOW_MS } from "@/lib/quota";
 import {
   MAX_IMAGES_PER_POST,
@@ -250,19 +251,19 @@ export async function POST(request: Request) {
       .recordApprovalEmail(post.id, email)
       .catch((error) => console.error("[posts] mail durumu yazılamadı:", error));
 
-    // İş sahibine haber: "müşteriye onay isteği gitti" — ve gitmediyse onu da
-    // söyler, linki elle iletebilsin. Ajansın akıştan haberdar olmasının tek
-    // yolu buydu; öncesinde panele bakmadan hiçbir şey öğrenemiyordu.
-    if (agency?.email) {
-      await sendAgencyNoticeEmail({
-        to: agency.email,
-        event: "request_sent",
-        clientName: client.name,
-        postRef: parsed.externalRef ?? parsed.caption.split("\n")[0].slice(0, 60),
-        approvalUrl,
-        clientEmailSent: email.sent,
-      }).catch((error) => console.error("[posts] ajans bildirimi hatası:", error));
-    }
+    // Ekibin TAMAMINA haber: "müşteriye onay isteği gitti" — ve gitmediyse onu
+    // da söyler, linki elle iletebilsin. Ajansın akıştan haberdar olmasının tek
+    // yolu buydu; öncesinde panele bakmadan hiçbir şey öğrenemiyordu. Alıcı
+    // olarak yalnızca `Agency.email` kullanılmıyor: o adres ajansı KURANIN
+    // adresi, ekibin değil (gerekçe `agency-notify.ts` başında).
+    await notifyAgencyTeam(session.agencyId, {
+      agencyEmail: agency?.email,
+      event: "request_sent",
+      clientName: client.name,
+      postRef: parsed.externalRef ?? parsed.caption.split("\n")[0].slice(0, 60),
+      approvalUrl,
+      clientEmailSent: email.sent,
+    }).catch((error) => console.error("[posts] ajans bildirimi hatası:", error));
 
     return NextResponse.json(
       {
