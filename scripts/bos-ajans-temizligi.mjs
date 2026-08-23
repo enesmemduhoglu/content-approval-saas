@@ -2,14 +2,22 @@
  * bos-ajans-temizligi.mjs
  * ------------------------------------------------------------------
  * NE YAPAR
- * Production veritabanında duran, 22 Temmuz 2026'daki ilk denemelerden
- * kalma ve içi TAMAMEN BOŞ olan iki test ajansını siler:
+ * Production veritabanında duran, içi TAMAMEN BOŞ ve kimsenin kullanmadığı
+ * ajansları siler. Hedefler:
  *
- *   - `Enes Memduh` <eneshan0098@gmail.com>  id=cmrw9cu730000l404sekzspv4
- *   - `enes can`    <eneshan032@gmail.com>   id=cmrwa781m0001ky04liyy3f5d
+ *   - `Enes Memduh`     <eneshan0098@gmail.com> id=cmrw9cu730000l404sekzspv4
+ *   - `enes can`        <eneshan032@gmail.com>  id=cmrwa781m0001ky04liyy3f5d
+ *     (ikisi de 22 Temmuz 2026'daki ilk denemelerden kalma; 2026-08-22'de silindi)
+ *   - `Enes Memduhoğlu` <eneshan034@gmail.com>  id=cmsz2d51f0001jm04zru0r725
+ *     (2026-08-18'de F6 öncesi `Agency.googleId @unique` kısıtı yüzünden
+ *      istemeden açılmış kabuk; sahibi 2026-08-23'te davet devriyle asıl
+ *      ajansa geçti ve burası ÜYESİZ kaldı)
  *
- * "Boş" = ajansa bağlı 0 Post ve 0 Client. Bu betik dolu bir ajansı ASLA
- * silmez; dolu çıkarsa o ajansı kapsam dışı bırakıp sebebini yazar.
+ * "Boş" = ajansa bağlı 0 Post, 0 Client **ve 0 AgencyMember**. Üye sayısı
+ * F6'dan (ekip üyeleri) sonra eklendi ve şart: üyesi olan bir ajans, içi boş
+ * olsa bile birinin bugün giriş yaptığı ajanstır — silinirse o kişi bir daha
+ * hiçbir yere giremez (auth üyelikten `agencyId` çözüyor). Bu betik dolu ya da
+ * üyeli bir ajansı ASLA silmez; öyle çıkarsa kapsam dışı bırakıp sebebini yazar.
  *
  * NEDEN AYRI BİR BETİK
  * Kardeş betik `prod-test-verisi-temizligi.mjs` bilinçli bir kuralla
@@ -45,21 +53,26 @@
  *   5. Hedefleme ADA göre değil ID'ye göre: ad değişebilir, id değişmez.
  *      Ama ad da TEYİT edilir; beklenenle uyuşmuyorsa betik durur (yanlış
  *      ortama ya da yanlış id'ye bakıyor olabiliriz).
- *   6. Boşluk kontrolü: post>0 veya client>0 olan ajans kapsam dışı.
+ *   6. Boşluk kontrolü: post>0, client>0 **veya uye>0** olan ajans kapsam dışı.
+ *      Üye şartı F6 ile eklendi — gerekçesi yukarıda, "NE YAPAR" bölümünde.
  *   7. FK haritası doğrulaması: `information_schema`'dan `Agency`'yi işaret
- *      eden tüm foreign key'ler okunur. Şemada bilinen tablolar (Client,
- *      Post) dışında bir tablo çıkarsa betik durur — silme sırası eksik
- *      kalmasın diye. (Şu an `Agency`'ye FK ile bağlı yalnızca bu ikisi var;
- *      ApiKey/branding gibi ayrı tablo yok, branding alanları `Agency`
- *      satırının kendi kolonları: logoUrl, brandColor.)
+ *      eden tüm foreign key'ler okunur. `BILINEN_FK_TABLOLARI` dışında bir
+ *      tablo çıkarsa betik durur — silme sırası eksik kalmasın diye. Bu kural
+ *      2026-08-23'te gerçekten iş gördü: F6'nın eklediği `AgencyMember` ve
+ *      `AgencyInvite` listede olmadığı için betik tek satır silmeden durdu.
+ *      (Branding ayrı tablo değil; `logoUrl`/`brandColor` `Agency` satırının
+ *      kendi kolonları.)
  *   8. Silme TEK transaction içinde ve transaction İÇİNDE tekrar doğrulanır:
- *      ad + kara liste + post sayısı + client sayısı yeniden okunur. Arada
- *      veri gelmişse o ajans atlanır ve sebebi yazılır.
+ *      ad + kara liste + post + client + **üye** sayısı yeniden okunur. Arada
+ *      veri gelmişse (ör. o ajansa biri giriş yapıp üye satırı doğmuşsa) o
+ *      ajans atlanır ve sebebi yazılır.
  *
  * SİLME SIRASI
- * Yalnızca 0 post / 0 client olan ajans silindiğinden alt tablo temizliği
- * (ApprovalAudit -> ApprovalLink -> PostImage -> Post -> Client) bu betiğin
- * kapsamında DEĞİLDİR; o iş kardeş betiğe ait. Burada tek DELETE: Agency.
+ * Yalnızca 0 post / 0 client / 0 üye olan ajans silindiğinden alt tablo
+ * temizliği (ApprovalAudit -> ApprovalLink -> PostImage -> Post -> Client) bu
+ * betiğin kapsamında DEĞİLDİR; o iş kardeş betiğe ait. Tek istisna
+ * `AgencyInvite`: FK `RESTRICT` olduğu için kalan davetler Agency'den ÖNCE
+ * siliniyor. Yani sıra: AgencyInvite -> Agency.
  *
  * KULLANIM
  *   node scripts/bos-ajans-temizligi.mjs                     # dry-run (varsayılan)
@@ -88,6 +101,10 @@ const KOK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HEDEFLER = [
   { id: 'cmrw9cu730000l404sekzspv4', ad: 'Enes Memduh', eposta: 'eneshan0098@gmail.com' },
   { id: 'cmrwa781m0001ky04liyy3f5d', ad: 'enes can', eposta: 'eneshan032@gmail.com' },
+  // Ad `Enes Memduhoğlu` — kara listedeki canlı ajansın adı `Enes MEMDUHOĞLU`.
+  // Fark yalnızca büyük/küçük harf; karşılaştırmalar TAM eşleşme olduğu için
+  // çakışmıyor, ama gözle bakarken karıştırmamak gerek.
+  { id: 'cmsz2d51f0001jm04zru0r725', ad: 'Enes Memduhoğlu', eposta: 'eneshan034@gmail.com' },
 ];
 
 // ---------------------------------------------------------------- KARA LİSTE
@@ -97,7 +114,14 @@ const KARA_LISTE_ADLAR = ['Enes MEMDUHOĞLU'];
 
 // `Agency`'yi işaret eden, şemadan bilinen tablolar. Bunun dışında bir FK
 // çıkarsa betik durur (7. emniyet kuralı).
-const BILINEN_FK_TABLOLARI = ['Client', 'Post'];
+//
+// F6 bu listeye iki tablo ekledi ve kural gerçekten iş gördü: güncellenmeden
+// önce betik `AgencyMember` / `AgencyInvite`i "bilinmeyen bağlı tablo" sayıp
+// tek satır silmeden duruyordu. İkisinin silme sırasındaki yeri farklı:
+// `AgencyMember` hiç silinmiyor (üyesi olan ajans zaten hedef değil),
+// `AgencyInvite` ise Agency'den ÖNCE siliniyor — FK `RESTRICT`, kabul
+// edilmemiş bir davet kalırsa `agency.delete` patlar.
+const BILINEN_FK_TABLOLARI = ['Client', 'Post', 'AgencyMember', 'AgencyInvite'];
 
 // ------------------------------------------------------------------ argümanlar
 const argv = process.argv.slice(2);
@@ -277,7 +301,10 @@ async function fkHaritasiniDogrula(prisma) {
     console.error('     Betik bu tabloların silme sırasını bilmiyor. Önce betik güncellenmeli.');
     process.exit(2);
   }
-  console.log('  ✅ Yalnızca bilinen tablolar bağlı (Client, Post) — boş ajans için ek temizlik gerekmiyor.\n');
+  console.log(
+    `  ✅ Yalnızca bilinen tablolar bağlı (${BILINEN_FK_TABLOLARI.join(', ')}).`,
+  );
+  console.log('     Silme sırası: AgencyInvite -> Agency (diğerleri hedefte zaten 0).\n');
 }
 
 // --------------------------------------------------------------------- main
@@ -300,7 +327,7 @@ async function main() {
         name: true,
         email: true,
         createdAt: true,
-        _count: { select: { posts: true, clients: true } },
+        _count: { select: { posts: true, clients: true, members: true, invites: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -313,7 +340,7 @@ async function main() {
       const karaMi = KARA_LISTE_IDLER.includes(a.id) || KARA_LISTE_ADLAR.includes(a.name);
       const etiket = karaMi ? '🔒 KORUNAN' : hedefMi ? '🎯 HEDEF' : '   —';
       console.log(
-        `  ${etiket}  ${String(a.name)} <${a.email}> id=${a.id} | post=${a._count.posts} client=${a._count.clients} | ${a.createdAt.toISOString()}`,
+        `  ${etiket}  ${String(a.name)} <${a.email}> id=${a.id} | uye=${a._count.members} post=${a._count.posts} client=${a._count.clients} davet=${a._count.invites} | ${a.createdAt.toISOString()}`,
       );
     }
     console.log('');
@@ -353,7 +380,9 @@ async function main() {
       }
 
       console.log(`      bulunan : ${String(a.name)} <${a.email}>`);
-      console.log(`      sayımlar: post=${a._count.posts} client=${a._count.clients}`);
+      console.log(
+        `      sayımlar: uye=${a._count.members} post=${a._count.posts} client=${a._count.clients} davet=${a._count.invites}`,
+      );
       console.log(`      oluşma  : ${a.createdAt.toISOString()}`);
 
       if (KARA_LISTE_IDLER.includes(a.id) || KARA_LISTE_ADLAR.includes(a.name)) {
@@ -371,6 +400,12 @@ async function main() {
       if (a._count.posts > 0 || a._count.clients > 0) {
         console.log('      durum   : ⚠️  BOŞ DEĞİL — kapsam dışı, silinmeyecek.');
         kapsamDisi.push({ hedef: h, sebep: `boş değil (post=${a._count.posts}, client=${a._count.clients})` });
+      } else if (a._count.members > 0) {
+        // F6 sonrası eklendi. İçi boş ama ÜYESİ olan ajans, birinin bugün
+        // giriş yaptığı ajanstır: silinirse o kişi hiçbir yere giremez, çünkü
+        // auth `agencyId`yi üyelikten çözüyor. Boşluk tek başına yetmiyor.
+        console.log('      durum   : ⚠️  ÜYESİ VAR — kapsam dışı, silinmeyecek.');
+        kapsamDisi.push({ hedef: h, sebep: `üyesi var (uye=${a._count.members})` });
       } else if (a.name === h.ad) {
         console.log('      durum   : ✅ boş ve teyitli — SİLİNECEK');
         silinecekler.push({ hedef: h, ajans: a });
@@ -444,9 +479,23 @@ async function main() {
           atlanan.push(`${a.id} — artık boş değil (post=${postSayisi}, client=${clientSayisi})`);
           continue;
         }
+        // Üye kontrolü de transaction İÇİNDE tekrarlanıyor: dry-run ile apply
+        // arasında birisi bu ajansa giriş yapıp üye satırı doğurmuş olabilir.
+        const uyeSayisi = await tx.agencyMember.count({ where: { agencyId: a.id } });
+        if (uyeSayisi > 0) {
+          atlanan.push(`${a.id} — artık üyesi var (uye=${uyeSayisi})`);
+          continue;
+        }
 
+        // Davetler Agency'den ÖNCE: FK `RESTRICT`, kalan tek bir davet bile
+        // `agency.delete`i patlatır ve transaction'ın tamamını geri alırdı.
+        // Üyesiz bir ajansa gitmiş davet zaten ölü — kabul edilse bile
+        // katılacak bir ekip yok.
+        const silinenDavet = await tx.agencyInvite.deleteMany({ where: { agencyId: a.id } });
         await tx.agency.delete({ where: { id: a.id } });
-        silinen.push(`${a.name} <${a.email}> (${a.id})`);
+        silinen.push(
+          `${a.name} <${a.email}> (${a.id})${silinenDavet.count ? ` [+${silinenDavet.count} davet]` : ''}`,
+        );
       }
 
       return { silinen, atlanan };
