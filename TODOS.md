@@ -93,7 +93,8 @@ Yan düzeltme: `/invite` sayfasındaki giriş linkinde `callbackUrl` yoktu,
 kullanıcı girişten sonra `/`'a düşüyordu. Artık davet sayfasına geri dönüyor —
 devir gerektiren durumda onay düğmesini bir daha hiç görmemesinin sebebi buydu.
 
-Test: 527 → 567.
+Test: 527 → 567. **#47 ile merge edildi ve prod'da doğrulandı** (2026-08-23):
+`eneshan034` devirle asıl ajansa geçti, arta kalan boş ajans silindi.
 
 ---
 
@@ -116,26 +117,27 @@ Test: 527 → 567.
       görülmedi — bunun için kasten bir hata üretmek gerekirdi. Değişken yerinde
       ve canlı; ilk gerçek cron/yayın hatasında teslim gözlenmeli.
 
-- [ ] **İkinci Google hesabını asıl ajansa katıl — DEVİR PROD'A ÇIKTIKTAN SONRA.**
-      Prod'da `Enes Memduhoğlu <eneshan034@gmail.com>` adında **boş bir ajans**
-      duruyor (2026-08-18'de oluşmuş, 0 post / 0 client). Sebebi F6 öncesi
-      `Agency.googleId @unique` kısıtıydı: kendi ikinci hesabınla girince asıl
-      ajansına katılamayıp sıfırdan yeni ajans açıldı.
-      **2026-08-23'te denendi ve çalışmadı** — davet gitti, link açıldı, giriş
-      yapıldı, hiçbir şey olmadı. Sebep yukarıdaki "Davet devri" bölümünde.
-      Devir prod'a çıktıktan sonra aynı davet linkiyle (ya da yenisiyle)
-      **"Kabul et ve ekibe geç"** düğmesi görünecek; o ajans boş olduğu için
-      devir engellenmeyecek.
-      *Eski davet hâlâ açık mı:* devir eski token'la da çalışır — davet
-      `acceptedAt: null` ve 7 günlük süresi 2026-08-30'a kadar geçerli. Süre
-      dolmuşsa panelden yeni davet gönder.
+- [x] **İkinci Google hesabı asıl ajansa katıldı** (2026-08-23, #47 merge edildikten
+      sonra ölçüldü). `eneshan034@gmail.com` artık
+      `cmsw2ajnq0000jm04d6m9puei` ajansında `member` rolünde (katılım
+      07:31), davet aynı damgayla `acceptedAt` aldı. Devir tek üyelik satırı
+      bıraktı — eski ajansta 0 üye kaldı, yani `googleId @unique` sözleşmesi
+      bozulmadı. F6 öncesinden kalan "bir Google hesabı = bir ajans" sorunu
+      bu hesap için tamamen kapandı.
 
-- [ ] **Devirden sonra boş ajansı sil.** Devir tamamlanınca o ajans üyesiz VE
-      boş kalır (route log'a "temizlik adayı" yazar). Silmek için
-      `bos-ajans-temizligi.mjs`'in hedef listesine ajansın **id**'si eklenmeli
-      — betik sabit id listesiyle çalışıyor, keyfi ajans silemez. Ajans hâlâ
-      `Agency` tablosunda duruyor olacak; zarar vermez ama envanter sayımını
-      şişirir.
+- [x] **Devirden arta kalan boş ajans silindi** (2026-08-23).
+      `Enes Memduhoğlu <eneshan034@gmail.com>` / `cmsz2d51f0001jm04zru0r725`,
+      `bos-ajans-temizligi.mjs --apply` ile, tek transaction, atlanan yok.
+      *Betiğin kendisi de güncellendi ve bunu yaparken 7. emniyet kuralı
+      gerçekten iş gördü:* F6'nın eklediği `AgencyMember` / `AgencyInvite`
+      FK'leri `BILINEN_FK_TABLOLARI`nda olmadığı için betik tek satır silmeden
+      durdu. Güncellemede üç şey değişti — (a) o iki tablo listeye eklendi,
+      (b) "boş" tanımına **üye sayısı** girdi (içi boş ama üyesi olan ajans
+      birinin bugün giriş yaptığı ajanstır; silinirse o kişi hiçbir yere
+      giremez, çünkü auth `agencyId`yi üyelikten çözüyor), (c) kalan davetler
+      Agency'den ÖNCE siliniyor — FK `RESTRICT`.
+
+**Prod envanteri (2026-08-23, ölçüldü): 1 ajans / 2 üye / 1 müşteri / 13 post.**
 
 - [ ] **Vercel planını gözden geçir — F8 bu yüzden yarım çalışıyor.**
       Hobby planı cron'ları **günde bire** sınırlıyor ve o tek koşu dakika
