@@ -36,6 +36,11 @@ Integration testleri tek DB paylaşır; `fileParallelism: false` bu yüzden.
 **asla ham `db.*` çağırmaz**; `src/lib/scoped-db.ts` her sorguya `agencyId` filtresini
 enjekte eder. Yeni bir sorgu tipi gerekiyorsa oraya metot ekle, route'ta ham Prisma
 kullanma — filtre unutulabilecek her yer yeni bir açık demektir.
+*Tek istisna* `POST /api/invites/[token]/accept`: davet devrinin işi kullanıcıyı
+oturumdaki ajanstan BAŞKA bir ajansa taşımak, yani kapsam filtresi orada işi imkânsız
+kılardı. Yerine geçen koruma daha dar — hedef ajans istekten değil davet token'ından
+geliyor, kabul de e-posta eşleşmesine bağlı. Gerekçe dosyanın başında yazılı; bu
+istisnayı çoğaltma.
 
 **`session.agencyId` düz bir string olarak kalır.** F6 çok kullanıcılı ajansı
 `AgencyMember` ile getirdi ama üyelik çözümü **yalnızca auth katmanında** yapılıyor

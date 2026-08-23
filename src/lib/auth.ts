@@ -96,12 +96,12 @@ if (testAuthEnabled) {
  */
 export const MEMBERSHIP_REVALIDATE_MS = 5 * 60 * 1000;
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   providers,
   session: { strategy: "jwt" },
   trustHost: true,
   callbacks: {
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, account, trigger }) {
       if (user?.email) {
         // GİRİŞ. `test:` öneki korunuyor: test girişiyle üretilen kimlik
         // gerçek bir Google `providerAccountId` ile ASLA çakışmasın diye
@@ -130,9 +130,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // girişinde yeni alanları kazanır.
       if (typeof token.googleId !== "string") return token;
 
+      // `trigger === "update"` = sunucu tarafından bilerek istenmiş tazeleme
+      // (`unstable_update`). Davet devri tam olarak bunu kullanıyor: üyelik
+      // az önce BAŞKA bir ajansa taşındı, 5 dakikalık pencerenin dolmasını
+      // beklemek kullanıcıyı terk ettiği ajansın panelinde bırakırdı.
+      const forced = trigger === "update";
       const checkedAt =
         typeof token.membershipCheckedAt === "number" ? token.membershipCheckedAt : 0;
-      if (Date.now() - checkedAt < MEMBERSHIP_REVALIDATE_MS) return token;
+      if (!forced && Date.now() - checkedAt < MEMBERSHIP_REVALIDATE_MS) return token;
 
       const membership = await findMembership(token.googleId);
       if (!membership) {
@@ -149,6 +154,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
     async session({ session, token }) {
+      // `googleId` oturuma taşınıyor çünkü davet devri (`/api/invites/.../accept`)
+      // kullanıcıyı e-postayla DEĞİL bu kimlikle bulmak zorunda: e-posta
+      // değişebilir, `AgencyMember.googleId` üyeliğin unique anahtarı.
+      if (typeof token.googleId === "string") session.googleId = token.googleId;
       if (typeof token.agencyId === "string") session.agencyId = token.agencyId;
       if (typeof token.agencyName === "string") session.agencyName = token.agencyName;
       if (token.agencyRole === "owner" || token.agencyRole === "member") {
