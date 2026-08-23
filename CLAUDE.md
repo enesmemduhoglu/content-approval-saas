@@ -24,6 +24,12 @@ npm run build                    # prod build (deploy öncesi mutlaka)
 **Linter YOK** — `eslint` ne bağımlılıklarda ne script'lerde var. Statik kapı
 `npx tsc --noEmit`; "lint" istendiğinde koşulacak komut bu.
 
+**CI bunların hepsini PR'da koşuyor** (`.github/workflows/ci.yml`), üstüne
+migration'ları BOŞ bir veritabanında uygulayıp `schema.prisma` ile kaymadığını
+doğruluyor — testler şemayı `db push` ile kurduğu için `prisma/migrations/`
+klasörünü başka hiçbir şey sınamıyor. e2e bilinçli olarak CI dışında.
+*Branch protection açılmadıysa CI yalnızca tavsiyedir* (bkz. `TODOS.md`).
+
 **Testler Docker'da Postgres ister ve otomatik ayağa kalkmaz.** Konteyner yoksa
 `vitest.global-setup.ts` tek satır kod okumadan patlar:
 

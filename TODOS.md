@@ -1,6 +1,6 @@
 # TODOS
 
-Son güncelleme: 2026-08-23 (davet devri — F6'nın canlıda yakalanan boşluğu).
+Son güncelleme: 2026-08-23 (faz J — CI kuruldu, D1 kapandı).
 Canlı: https://content-approval-saas.vercel.app · **Depo private.**
 
 **#40–#44 merge edildi ve prod'a deploy edildi** (2026-08-22):
@@ -24,8 +24,14 @@ silindi (tek transaction, atlanan yok).
 **S1–S9 ve F1–F13'ün tamamı kapandı.** Bu turda kapananlar: S3, S5, S6, S7, S8
 (güvenlik hijyeni — hiçbiri sömürülebilir değildi, derinlemesine savunma),
 F7 (kota), F8 (zamanlanmış yayın), F6 (ekip üyeleri), F10 (revizyon turu),
-F11 (hata izleme), F12 (`/api/health`). Kalan açık maddeler aşağıda: hepsi ya
-**merge sonrası elle yapılacak işler** ya da **bilinçli kapsam dışı**.
+F11 (hata izleme), F12 (`/api/health`).
+
+Kalan açık maddeler üç kümede: **merge sonrası elle yapılacak işler**, **bilinçli
+kapsam dışı**, ve 2026-08-23 kod denetiminden çıkan **D1–D9**. D serisi ilk
+ikisinden farklı — bunlar bilinçli bırakılmış boşluklar değil, kimsenin farkına
+varmadığı eksikler; hiçbiri canlıda bir arıza olarak yaşanmadı, hepsi kaynak
+taramasından çıktı. **D1 faz J ile kapandı** (CI); kalan öncelik sırası
+**D3 (mail tavanları) → D2 (`checkOrigin` kapsamı)**.
 
 ---
 
@@ -183,12 +189,110 @@ Test: 567 → 578.
 
 **Prod envanteri (2026-08-23, ölçüldü): 1 ajans / 2 üye / 1 müşteri / 13 post.**
 
+- [ ] **Branch protection aç — CI'ın gerçekten kapı olması için ŞART.**
+      Faz J ile `.github/workflows/ci.yml` geldi ama GitHub'da bir kural
+      tanımlanmadığı sürece CI **yalnızca tavsiye**: kırmızı bir PR yine de
+      merge edilebilir ve `vercel-build` onu prod'a uygular. Repo bu ayarı kendi
+      yapamaz, GitHub tarafında tanımlanmalı:
+      Settings → Branches → `master` → *Require status checks to pass* → `dogrula`.
+      *Not:* kural ilk koşu tamamlanmadan listede görünmez — check adı ancak bir
+      kez çalıştıktan sonra seçilebilir hale gelir.
+
 - [ ] **Vercel planını gözden geçir — F8 bu yüzden yarım çalışıyor.**
       Hobby planı cron'ları **günde bire** sınırlıyor ve o tek koşu dakika
       hassasiyetinde değil (tanımlı saat içinde herhangi bir an, ±59dk). Yani
       `publishAt` şu an "en iyi saatte yayınla" DEĞİL, **±24 saat isabet**.
       Kod tarafında yapılacak bir şey yok: Pro'ya geçilince `vercel.json`'daki
       tek satır saatlik desene çevrilir ve özellik tam çözünürlüğe kavuşur.
+
+### Denetim bulguları (2026-08-23) — D1–D9
+
+Kod okunarak yapılan tur. **Hiçbiri canlıda bir arıza olarak yaşanmadı**, hepsi
+kaynak taramasından çıktı; bu yüzden S/F serisine değil ayrı bir seriye yazıldı.
+Tur sırasında ölçülenler: `npx tsc --noEmit` temiz, `npm test` 45 dosya / 578
+test yeşil. Yani bulguların hiçbiri "bozuk kod" değil — **eksik kod**.
+
+- [x] **D1 · CI — KAPATILDI (faz J).** `.github/workflows/ci.yml`: PR'da ve
+      master'a push'ta `tsc` → `migrate deploy` → şema kayması → `npm test` →
+      `npm run build`. Ayrıntı "Tamamlananlar → faz J"de.
+      **Kalan elle iş:** branch protection (bkz. "Elle yapılması gerekenler").
+
+- [ ] **D2 · `checkOrigin` değişmezi 6 mutasyon handler'ında uygulanmamış.**
+      CLAUDE.md "mutasyon route'larında `checkOrigin`" diyor ve depoda
+      `middleware.ts` YOK — yani kuralı uygulayacak tek yer route'un kendisi.
+      Eksik olanlar: `clients/route.ts` POST, `clients/[id]/route.ts` DELETE,
+      `clients/[id]/instagram/route.ts` POST + DELETE,
+      `posts/[id]/approval-link/route.ts` POST, `posts/[id]/resubmit/route.ts` POST.
+      *Sömürülebilir DEĞİL:* altısı da ya `request.json()` okuyor ya DELETE, ikisi
+      de "basit istek" sınıfına girmediği için preflight tetikliyor; oturum çerezi
+      de `SameSite=Lax`. Gerçekten riskli olan multipart yolları (`/api/posts`,
+      `/api/agency`) zaten korumalı.
+      *Yine de kapatılmalı,* çünkü `origin.ts`'in var olma gerekçesi tam olarak
+      "tek bir çerez ayarına yaslanma"ydı. Kuralın kapsamı delikliyse kural
+      okunduğu gibi çalışmıyor demektir; asıl bedel bugünkü açık değil, "bu
+      route'ta niye yok" sorusunun bir dahaki sefere kimsenin aklına gelmemesi.
+
+- [ ] **D3 · Mail gönderen iki panel yolunda hiçbir tavan yok.**
+      `POST /api/posts/[id]/approval-link` (link yenile → müşteriye onay maili
+      YENİDEN gider) ve `POST /api/posts/[id]/resubmit` (→ revize post maili) ne
+      `checkRateLimit` ne kota görüyor. Aynı postta düğmeye basmak müşterinin
+      kutusuna sınırsız mail atar; bedeli Resend kotası ve gönderen alan adının
+      itibarı — ikisi de TÜM ajansları etkileyen ortak kaynak, F7'nin korumaya
+      çalıştığı şeyin ta kendisi.
+      *`quota.ts`'teki yorum bu yüzden artık yanlış:* "davet butonu, keyfi bir
+      adrese ajansın markasıyla mail attırabilen tek yüzey" yazıyor. Doğrusu:
+      davet KEYFİ adrese gidebilen tek yüzey, ama sınırsız mail attırabilen tek
+      yüzey değil. Düzeltme yapılırken o yorum da güncellenmeli.
+
+- [ ] **D4 · Cron'lar için ölü adam anahtarı yok.** `sendAlert` yalnızca cron
+      **koşup hata verdiğinde** çalışıyor (üç cron + `publish-post.ts`). Cron hiç
+      tetiklenmezse — zamanlama silinmiş, plan düşmüş, deployment bozuk — hiçbir
+      yerden ses çıkmaz: `scheduled` postlar sonsuza kadar bekler, token
+      yenileme sessizce durur, ilk haber müşteriden gelir.
+      *En ucuz şekli:* her cron son başarılı koşusunun zamanını bir yere yazsın,
+      `/api/health` bunu raporlasın. Dikkat — `/api/health` public ve yanıtı
+      F12'de BİLEREK sığ tutuldu (sürüm/sayı/env yok); "son koşu 3 gün önce"
+      bilgisi de bir iç durum sızıntısıdır, sığ yanıtı bozmadan çözülmeli.
+
+- [ ] **D5 · Hata/404 sınırı yok — müşteriye Next'in İngilizce ekranı çıkıyor.**
+      `src/app/` altında ne `error.tsx`, ne `not-found.tsx`, ne `global-error.tsx`
+      var. Panelde bu bir kozmetik eksik; asıl mesele `/approve/[token]`: giriş
+      gerektirmeyen, ajansın MÜŞTERİSİNE gösterilen sayfa. Orada bir render
+      hatası, ajansın markasıyla açılmış bir sayfada standart İngilizce Next
+      hata ekranı demek.
+
+- [ ] **D6 · `noindex` yok.** `/approve/[token]` ve `/invite/[token]` token'ı
+      URL'in kendisinde taşıyor; `layout.tsx`'te `robots` metadata'sı ve
+      `public/robots.txt` yok. `Referrer-Policy` (next.config.ts) token'ın dış
+      host'a `Referer` ile sızmasını kapatıyor ama İNDEKSLENMESİNİ değil — link
+      bir kez herkese açık bir yere düşerse arama motoru onu tarayabilir.
+
+- [ ] **D7 · `.env.example`'da `KV_REST_API_URL` / `KV_REST_API_TOKEN` eksik.**
+      `rate-limit.ts` ikisini de okuyor (Vercel Marketplace'in Upstash
+      entegrasyonu bu adları kuruyor, doğrudan Upstash kurulumu
+      `UPSTASH_REDIS_REST_*` veriyor) ama kurulum belgesi yalnızca ikinci çifti
+      sayıyor. Sonucu sessiz: değişkenler yoksa `checkRateLimit` patlamaz,
+      in-memory fallback'e düşer — yani rate limit "çalışıyor" görünürken
+      serverless instance'lar arasında paylaşılmaz.
+
+- [ ] **D8 · Test boşlukları.** `src/lib/scoped-db.ts` (821 satır, IDOR
+      korumasının TAMAMI) ve `src/lib/quota.ts` için ayrı birim testi yok —
+      ikisi de yalnızca route testlerinden dolaylı kapsanıyor. `settings/page.tsx`
+      ve `team-panel.tsx` (256 satır) diğer sayfaların aksine `.ui.test.tsx`'siz.
+      e2e tarafında `approval-flow.spec.ts`'teki 6 senaryo onay/red/link/silmeyi
+      görüyor; **F6 (ekip daveti), F8 (zamanlanmış yayın) ve F10 (revizyon turu)
+      uçtan uca hiç koşulmuyor** — üçü de bu turun en yeni ve en az yıpranmış
+      kodu.
+
+- [ ] **D9 · Toplu onay `publishStatus`'a dokunmuyor.** Tekil yol
+      `publishApprovedPost` üzerinden `skipped` yazarken `/batch` postu `idle`
+      bırakıyor; iki yol aynı sonuca farklı satır yazıyor.
+      *Bugün görünür bir hata DEĞİL:* `PublishBadge` `idle`'ı yalnızca
+      `awaitingPublish` (= müşteride Instagram bağlı) ile gösteriyor, batch ise
+      zaten yalnızca Instagram'ı OLMAYAN postları onaylıyor — yani rozet çıkmıyor.
+      Kayıt tutarsızlığı olarak duruyor; batch'in kapsamı bir gün genişlerse
+      (bkz. "Bilinçli kapsam dışı → toplu onayda ajans bildirimi") sessiz bir
+      yanlış rozete dönüşür.
 
 ### Temizlik
 
@@ -212,6 +316,8 @@ Test: 567 → 578.
       **2026-08-23 notu:** bildirimlerin ekibe açılması bu boşluğu KAPATMADI —
       toplu onayda hâlâ kimseye mail gitmiyor. Artık tek doğru şekli belli:
       `notifyAgencyTeam` ile N postu tek satırda özetleyen bir bildirim.
+      *Ele alınırsa D9 da aynı turda kapatılmalı* — batch'in `publishStatus`'a
+      hiç dokunmaması bugün zararsız, ama kapsam genişlerse yanlış rozete döner.
 
 - [ ] **Toplu reddetme** — reddetme sebebi post başına anlamlı olduğu için toplu
       onayın simetriği yapılmadı. Yeniden değerlendirilirse "ortak sebep" alanı gerekir.
@@ -475,6 +581,62 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ---
 
 ## Tamamlananlar
+
+### 2026-08-23 — Faz J: CI (D1)
+
+**PR: (faz-j/ci)** · `.github/workflows/ci.yml`, tek job (`dogrula`), tek dosya.
+Kaynak kodda **hiçbir değişiklik yok** — depoda zaten var olan komutları
+otomatikleştiriyor.
+
+Adımlar sırayla: `npm ci` → `npx tsc --noEmit` → `prisma migrate deploy` →
+şema kayması kontrolü → `npm test` → `npm run build`.
+
+**Neden `migrate deploy` ayrı bir adım ve neden testlerden ÖNCE.** Testler
+şemayı `prisma db push` ile kuruyor (`tests/vitest.global-setup.ts`), yani
+`prisma/migrations/` klasörüne HİÇ bakmıyorlar. Bozuk, çakışan ya da eksik bir
+migration bütün testler yeşilken merge edilebilirdi ve ilk belirtisi prod
+deploy'unun patlaması olurdu — deponun en pahalı hata sınıfı tam olarak burada
+gizliydi. Service container yeni ayağa kalktığı için o veritabanı boş; adım
+prod'un yapacağı şeyin aynısını yapıyor. *Yan faydası:* testler artık
+migration'larla kurulmuş şemaya karşı koşuyor, `db push` ürünü bir yaklaşığa
+karşı değil.
+
+**Şema kayması kontrolü ayrı bir adım.** Migration'ların koşması yetmez;
+ürettikleri şema `schema.prisma` ile aynı olmalı, yoksa Prisma Client'ın
+beklediği kolon prod'da olmaz. `prisma migrate diff --from-url ... --exit-code`
+kullanılıyor, ama **`--exit-code`e tek başına güvenilmiyor**: deponun kayıtlı
+tuzağı gereği yanlış bayrakla çağrılan `migrate diff` yardım metni basıp 0
+dönüyor. Bu yüzden çıktıda gerçekten `No difference detected` yazdığı da
+aranıyor.
+*Kapının kapandığı ölçüldü:* `schema.prisma`ya geçici bir model eklenip
+koşuldu → çıkış kodu **2**, grep eşleşmedi, adım düşerdi. Model geri alındı.
+Kapının açık olduğu da ölçüldü: dokunulmamış şemada çıkış kodu 0, grep eşleşti.
+
+**Tek veritabanı, tek konteyner.** Migration adımına ayrı bir DB açmak `psql`e
+(runner imajının içeriğine) ya da ikinci bir service container'a bağımlılık
+demekti; sıralama aynı garantiyi bedelsiz veriyor.
+
+**Build'e sahte `AUTH_SECRET` veriliyor — bilinçli bir sözleşme.** Prod build'i
+gerçek bir OAuth anahtarına ya da gerçek veriye ihtiyaç DUYMAMALI. Ölçüldü:
+build çıktısında `/_not-found` dışındaki her yol `ƒ (Dynamic)`, yani hiçbir
+sayfa build zamanında veritabanına gitmiyor. Bu adım bir gün gerçek sır
+istemeye başlarsa düzeltilecek yer workflow değil, sırrı build zamanında okuyan
+kod.
+
+**Yerel doğrulama:** `npx tsc --noEmit` temiz · `npm test` 45 dosya / 578 test ·
+`npm run build` başarılı · `migrate deploy` + kayma kontrolü boş DB'de iki yönde
+de ölçüldü.
+
+**Bilinçli kapsam dışı:**
+- **Playwright (`npm run test:e2e`) CI'da koşmuyor.** Ayrı veritabanı
+  (`content_approval_e2e`), ayrı port (3111), tarayıcı indirmesi ve
+  `ENABLE_TEST_AUTH=1` istiyor; ilk iş akışını yavaş ve kırılgan yapardı.
+  D8'in e2e boşluğuyla birlikte ayrı bir faz.
+- **`npm audit` adımı yok.** Kalan 3 high bilinçli ve Next 16'ya bağlı (S3);
+  kapıya koymak her koşuyu kırmızı yapardı.
+- **Linter adımı yok** — depoda eslint diye bir şey yok, statik kapı `tsc`.
+- **Branch protection açılmadı** — repo yapamaz, GitHub ayarı. Açılana kadar CI
+  yalnızca tavsiye; madde "Elle yapılması gerekenler"de.
 
 ### 2026-08-22 — Faz E–I: güvenlik hijyeni, kota, zamanlanmış yayın, ekip, revizyon
 
