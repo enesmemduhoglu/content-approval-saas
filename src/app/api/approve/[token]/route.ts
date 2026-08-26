@@ -59,6 +59,10 @@ export async function GET(request: Request, { params }: RouteParams) {
       // Onay ≠ yayın: ikisi ayrı alan, ayrı gösterilir.
       publishStatus: post.publishStatus,
       igPermalink: post.igPermalink,
+      // Yayın anının tek kaydı bu kolon. furi'nin defteri onu buradan okuyamayınca
+      // eşitlemenin koştuğu anı yayın saati sanıyor; eşitleme çoğu zaman ertesi
+      // günün cron'unda koştuğu için kayıtlar bir gün ileri kayıyordu.
+      publishedAt: post.publishedAt,
       // F8: müşteri/ajans "ne zaman yayınlanacak" sorusunu onay sayfasından
       // görebilsin diye — null ise zamanlama yok, onayda hemen yayınlanır.
       publishAt: post.publishAt,

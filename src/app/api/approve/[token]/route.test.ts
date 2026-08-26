@@ -69,6 +69,28 @@ describe("GET /api/approve/[token]", () => {
     expect(data.post.caption).toBe("Test caption");
     expect(data.post.agencyName).toBe("Parlak Ajans");
     expect(data.post.status).toBe("pending");
+    expect(data.post.publishedAt).toBeNull();
+  });
+
+  it("yayınlanmış postta gerçek yayın anını döner", async () => {
+    // furi'nin yayın defteri saati yalnızca buradan öğrenebiliyor: alan boş
+    // dönerse eşitleme kendi koştuğu anı yayın saati olarak yazmak zorunda.
+    const { post, link } = await seedPendingPost();
+    const yayinAni = new Date("2026-08-25T09:12:00.000Z");
+    await db.post.update({
+      where: { id: post.id },
+      data: {
+        status: "approved",
+        publishStatus: "published",
+        publishedAt: yayinAni,
+      },
+    });
+
+    const res = await GET(getRequest(), makeParams(link.token));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.post.publishStatus).toBe("published");
+    expect(new Date(data.post.publishedAt).toISOString()).toBe(yayinAni.toISOString());
   });
 
   it("geçersiz token 404 döner", async () => {
