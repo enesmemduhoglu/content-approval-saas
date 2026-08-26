@@ -1,7 +1,7 @@
 # TODOS
 
-Son güncelleme: 2026-08-23 (faz J — CI kuruldu, D1 kapandı; branch protection
-açıldı; depo yeniden public).
+Son güncelleme: 2026-08-26 (onay endpoint'i `publishedAt` dönüyor — furi'nin
+yayın defteri gerçek yayın saatini okuyabilsin diye).
 Canlı: https://content-approval-saas.vercel.app · **Depo PUBLIC** — bulgu
 yazarken "Depo görünürlüğü" bölümündeki kurallar geçerli.
 
@@ -625,6 +625,22 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 ---
 
 ## Tamamlananlar
+
+### 2026-08-26 — onay endpoint'i yayın anını da dönüyor
+
+`GET /api/approve/[token]` yanıtına `publishedAt` eklendi (şema değişikliği yok,
+kolon zaten vardı: `Post.publishedAt`, yayın anında `publish-post.ts` dolduruyor).
+
+**Neden.** furi'nin yayın defteri yayın saatini iki kaynaktan öğrenebiliyor:
+Instagram'ın media `timestamp`'i, ya da bu endpoint. Instagram'a ulaşamadığı
+çalışmalarda ikincisi yoktu, `esitle.py` de eşitlemenin koştuğu anı yayın saati
+olarak yazıyordu. Eşleşme çoğunlukla ERTESİ günün cron'unda kurulduğu için
+defterdeki üç kayıt (24–26.08) bir gün ileri kaydı ve "bugün kaç post çıktı"
+sorusunun cevabı yanlış oldu. Alan artık dönüyor; furi tarafı `publishedAt` boşsa
+tespit anına düşüyor ama kaydı "tahmini" diye işaretliyor.
+
+**Sır sızıntısı yok:** kolon yalnızca bir zaman damgası ve endpoint'te zaten
+`publishStatus` / `igPermalink` gibi yayın alanları dönüyordu.
 
 ### 2026-08-23 — Faz J: CI (D1)
 
