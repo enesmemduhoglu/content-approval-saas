@@ -633,6 +633,30 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 
 ## Tamamlananlar
 
+### 2026-08-29 — CSP'de `media-src` eksikti, Reel önizlemesi oynamıyordu
+
+F14'ün ilk canlı denemesinde yakalandı: onay sayfasında `<video>` elementi
+kontrolleriyle birlikte çiziliyor ama oynat tuşu hiçbir şey yapmıyordu. Yayın
+akışı sorunsuzdu — post onaylandı ve Instagram'a çıktı. Kırık olan yalnızca
+müşterinin ONAYLAMADAN ÖNCE izlediği önizleme; yani müşteri neyi onayladığını
+göremiyordu.
+
+**Sebep.** `next.config.ts`'teki CSP'de `media-src` hiç yoktu; tanımsız olduğu
+için `default-src 'self'`e düşüyor ve Blob'daki mp4 bloklanıyordu. `img-src`'ye
+`https:` açıkça verilmişti ama tarayıcı `<video>` için ona bakmaz.
+
+**Bu deponun ÜÇÜNCÜ sessiz CSP hatası.** Öncekiler: `form-action` eksikken
+Google girişi bir gün kapalı kaldı (17.08), `'unsafe-eval'` eksikken dev'de
+hidrasyon sessizce öldü. Ortak deseni hep aynı: sayfa render olur, element
+çizilir, işlev çalışmaz ve tek iz konsoldaki bir "Refused to..." satırıdır —
+telefondan bakan müşteri onu göremez.
+
+Bu yüzden düzeltmeyle birlikte **`src/lib/csp.test.ts`** eklendi: config metin
+olarak okunup her direktifin varlığı ve dış medyanın `https:` ile açık olduğu
+doğrulanıyor. Test `media-src` satırı silinerek sınandı — düşüyor. Öncesinde
+`next.config.ts`e dokunan HİÇBİR test yoktu; üç hatanın da geçebilmesinin
+sebebi buydu.
+
 ### 2026-08-29 — F14: Video (Reels) yayını
 
 F9'un "yalnızca görsel" kapsam kararı kapandı. Tetikleyen somut olay: furi
