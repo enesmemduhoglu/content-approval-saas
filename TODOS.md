@@ -366,9 +366,16 @@ test yeşil. Yani bulguların hiçbiri "bozuk kod" değil — **eksik kod**.
 - [ ] **Toplu reddetme** — reddetme sebebi post başına anlamlı olduğu için toplu
       onayın simetriği yapılmadı. Yeniden değerlendirilirse "ortak sebep" alanı gerekir.
 
-- [ ] **F9 · Yalnızca Instagram, yalnızca görsel.** Reels/video yok
-      (`ALLOWED_IMAGE_TYPES` üç format), başka platform yok. Bilinçli kapsam;
-      yol haritasında adı geçsin diye burada duruyor.
+- [ ] **F9 · Yalnızca Instagram.** Başka platform yok — bilinçli kapsam.
+      *"Yalnızca görsel" kısmı 2026-08-29'da kapandı; bkz. aşağıda F14.*
+
+- [ ] **Panelden video yüklenemiyor** (F14). Video yalnızca makine yolundan
+      (furi) gelebiliyor. Sebep teknik: Vercel'de serverless istek gövdesi
+      4.5MB, bir Reel 10–70MB — `parseFormBody` bu dosyayı hiç göremez.
+      Panelden yüklemek istenirse doğru yol `/api/media/upload-url`'ün
+      tarayıcı karşılığı: form önce presigned URL alır, dosyayı Blob'a kendi
+      yükler, sonra URL'i gönderir. Bilinçli olarak yapılmadı — bugün tek
+      video kaynağı furi.
 
 - [ ] **Zamanlanmış yayın `failed` olursa otomatik tekrar denenmiyor** (F8, #42).
       Cron yalnızca `scheduled` tarıyor. Sessiz DEĞİL — F11 uyarısı ve ajans
@@ -626,6 +633,57 @@ tek bir soru soruyor: *içerik ŞU AN canlıda mı?*
 
 ## Tamamlananlar
 
+### 2026-08-29 — F14: Video (Reels) yayını
+
+F9'un "yalnızca görsel" kapsam kararı kapandı. Tetikleyen somut olay: furi
+tarafında altyazı pipeline'ı (`subpipe`) çalışır hâle geldi ve ilk video elle
+yayınlanmak zorunda kaldı — onay akışının tamamı atlandı.
+
+**Yayın neden İKİ FAZLI.** Görselde container ~8.5sn'de FINISHED oluyor ve
+onay isteğinin içinde yayınlanabiliyor. Videoda Instagram dosyayı indirip
+transcode ettiği için süre onlarca saniyeden dakikalara çıkıyor; Vercel
+fonksiyon tavanı ise 60sn (Hobby). Tek parça akış kullanılamazdı: bütçe
+dolduğunda `waitForContainer` throw eder, çağıran `failed` yazar ve bir
+sonraki deneme SIFIRDAN yeni bir container açardı. **Her deneme yeni container
+= Instagram'ın hesap seviyesindeki spam koruması** — 2026-08-19'da aynı postun
+iki container'ı hesabı kısıtlatmıştı (error_subcode 2207051).
+
+Çözüm: `createReelContainer` container'ı açıp id'sini döner, id `Post.igContainerId`e
+**yoklamadan önce** yazılır; `finalizeContainer` bütçe dolunca throw etmek
+yerine `{ state: "processing" }` döner. "Henüz hazır değil" bir hata değil.
+
+**Yayını kim bitiriyor.** Onay sayfası `POST /api/approve/[token]/publish-status`
+uçunu 5sn'de bir, en fazla 3dk yokluyor (`resumePublish`). Cron bu işi
+üstlenemezdi: **Hobby planı cron'ları günde bire sınırlıyor** — onaydan sonra
+yayının bir güne kadar gecikmesi demek olurdu. `publish-scheduled` yine de
+emniyet ağı: 10dk'dan eski `publishing` container'ları devralıyor, tarayıcı
+kapandığında post asılı kalmasın diye. Container 24 saat sonra Instagram'da
+expire olduğu için o eşikte post `failed`'a düşürülüp id temizleniyor —
+"tekrar dene" temiz bir container açsın.
+
+**Kilit bilerek geçirgenleştirildi.** `publishing` + `igContainerId` dolu olan
+satırlar artık kilidi geçiyor, yoksa devam ettirme hiç çalışmazdı. Riski dar:
+aynı container'ı iki kez `media_publish`'e vermek ikinci bir post DEĞİL,
+Instagram hatası üretir. Asıl korunması gereken adım — yeni container açmak —
+hâlâ kilitli çünkü orada `igContainerId` null. Buna karşılık `markFailed`
+**koşullu** hâle getirildi (`updateMany` + `publishStatus: "publishing"`):
+yarışı kaybeden çağrının hatası, kazananın başarılı yayınının üzerine
+yazamasın. Aksi hâlde post Instagram'da dururken panelde "yayınlanamadı"
+görünürdü.
+
+**Şema.** `Post.videoUrl` / `igContainerId` / `containerAt` — üçü de nullable,
+migration tamamen ekleme. `PostImage`'a medya tipi ayracı KONULMADI: bir Reel
+tek medyadır, "sıralı medya listesi" tablosuna tek satır koymak hiç
+kullanmadığımız bir çoğulluk sözü vermek olurdu. Ayrım `videoUrl != null`;
+`validatePostMedia` ikisinden tam birini zorunlu tutuyor.
+
+**Yükleme yolu.** Vercel'de serverless istek gövdesi 4.5MB, bir Reel 10–70MB —
+dosya SaaS'tan geçemez. `POST /api/media/upload-url` (API anahtarı, makine
+yolu) `issueSignedToken` + `presignUrl` ile presigned PUT URL'i üretiyor; furi
+dosyayı doğrudan Blob'a yüklüyor. Tip ve boyut sınırları imzanın içine gömülü,
+yani Blob tarafında zorlanıyor — gövdede beyan edilen `size`'a güvenmek
+zorundayız ve o beyan doğrulanamaz. Yol adı sunucuda üretiliyor (`randomUUID`);
+istemciden `pathname` kabul etseydik başka bir postun dosyası üzerine yazılabilirdi.
 ### 2026-08-26 — onay endpoint'i yayın anını da dönüyor
 
 `GET /api/approve/[token]` yanıtına `publishedAt` eklendi (şema değişikliği yok,

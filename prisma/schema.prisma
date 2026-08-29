@@ -188,7 +188,10 @@ enum RevisionEvent {
 
 enum PublishStatus {
   idle // yayın hedefi yok ya da henüz sıra gelmedi
-  publishing // devam ediyor (çift yayın kilidi)
+  // Görselde: istek uçuşta, çift yayın kilidi. Video'da AYRICA "container
+  // açıldı, Instagram videoyu işliyor" demek — yani istek bitmiş olsa bile bu
+  // durumda kalınabilir ve devam ettirilebilir (`Post.igContainerId`).
+  publishing
   published
   failed
   skipped // müşteride Instagram bağlı değil
@@ -218,6 +221,31 @@ model Post {
   updatedAt       DateTime      @updatedAt
   approvalLink    ApprovalLink?
   images          PostImage[]
+
+  // Reels (video) postu. Dolu ise bu post bir video; `images` boş kalır.
+  //
+  // Neden `PostImage`'a bir `mediaType` ayracı KOYMADIK: bir Reel tek bir
+  // medyadır, karusel değil — "sıralı medya listesi" tablosuna tek satır
+  // koymak, hiç kullanmadığımız bir çoğulluk sözü vermek olurdu (`images[0]`
+  // her yerde elle korunacak bir varsayıma dönüşürdü). Ayrım `videoUrl != null`
+  // ile yapılıyor: enum migration'ı yok ve "hem görsel hem video" gibi imkânsız
+  // bir durumu temsil etmek de mümkün değil. `POST /api/posts` ikisinden tam
+  // birini zorunlu tutuyor (`validatePostMedia`).
+  videoUrl String?
+
+  // Video yayını İKİ FAZLI olmak zorunda (bkz. lib/instagram.ts).
+  // Instagram görsel container'ını ~8.5 sn'de hazırlıyor ve yayın onay
+  // isteğinin içine sığıyor; video'da işleme onlarca saniye–dakikalar sürüyor,
+  // Vercel fonksiyon tavanı ise 60 sn. Container id'si saklanmazsa her yeniden
+  // deneme YENİ bir container açar — Instagram'ın hesap seviyesindeki spam
+  // korumasını besleyen tam olarak bu (error_subcode 2207051) — ve yayın hiç
+  // tamamlanamaz.
+  //
+  // `containerAt` iki karar için var: 10 dk'dan eskiyse emniyet ağı cron'u
+  // devralır, 24 saatten eskiyse container Instagram tarafında expire olmuştur
+  // ve post `failed`'a düşürülür.
+  igContainerId String?
+  containerAt   DateTime?
 
   // Onay ≠ yayın: `status` müşterinin kararı, `publishStatus` Instagram tarafı.
   // Bir post onaylanmış ama yayınlanmamış olabilir (skipped/failed).

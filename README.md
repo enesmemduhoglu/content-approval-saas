@@ -225,7 +225,7 @@ kapsam dışı** bırakılan maddeler, bilinen sınırlar ve doğrulama yönteml
 Bir tasarım kararını sorgulamadan önce oraya bak; çoğu "neden böyle yapılmamış"
 sorusunun cevabı yazılı.
 
-Güvenlik (S1–S9) ve ürün (F1–F13) listelerinin tamamı kapandı. Açık kalanlar bilinçli
-kapsam dışı: toplu reddetme, batch onayda özet bildirim, video/Reels ve Instagram dışı
-platformlar, revizyon bekleyen posta hatırlatma, zamanlanmış yayın patlarsa otomatik
-tekrar deneme.
+Güvenlik (S1–S9) ve ürün (F1–F14) listelerinin tamamı kapandı. Açık kalanlar bilinçli
+kapsam dışı: toplu reddetme, batch onayda özet bildirim, Instagram dışı platformlar,
+panelden video yükleme, revizyon bekleyen posta hatırlatma, zamanlanmış yayın patlarsa
+otomatik tekrar deneme.

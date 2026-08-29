@@ -94,6 +94,11 @@ export async function createPendingPostWithLink(
     /** Kaç tur revizyon yaşandığı (F10) — `revision_requested` testleri için. */
     revisionRound?: number;
     publishStatus?: PublishStatus;
+    /** Reel postu: dolu ise gorsel URETILMEZ (bkz. validatePostMedia). */
+    videoUrl?: string;
+    /** Acilmis REELS container'i — devam ettirme testleri icin. */
+    igContainerId?: string | null;
+    containerAt?: Date | null;
   } = {}
 ) {
   const post = await db.post.create({
@@ -106,12 +111,17 @@ export async function createPendingPostWithLink(
       publishAt: overrides.publishAt ?? null,
       revisionRound: overrides.revisionRound ?? 0,
       publishStatus: overrides.publishStatus ?? "idle",
-      images: {
-        create: (overrides.imageUrls ?? ["/uploads/test.png"]).map((url, index) => ({
-          url,
-          sortOrder: index,
-        })),
-      },
+      videoUrl: overrides.videoUrl ?? null,
+      igContainerId: overrides.igContainerId ?? null,
+      containerAt: overrides.containerAt ?? null,
+      images: overrides.videoUrl
+        ? undefined
+        : {
+            create: (overrides.imageUrls ?? ["/uploads/test.png"]).map((url, index) => ({
+              url,
+              sortOrder: index,
+            })),
+          },
     },
   });
   const link = await db.approvalLink.create({

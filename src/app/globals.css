@@ -439,6 +439,15 @@ button:disabled {
   background: var(--color-accent-soft);
 }
 
+/* Reel önizlemesi. Yükseklik sınırlanıyor: 9:16 bir video `width:100%` ile
+   telefonda ekranı boydan boya kaplar ve onay butonları görünmez olur. */
+.approve-video {
+  display: block;
+  max-height: 70vh;
+  object-fit: contain;
+  background: #000;
+}
+
 /* Çoklu görsel carousel'i: yatay scroll-snap, JS yok */
 .approve-carousel {
   display: flex;

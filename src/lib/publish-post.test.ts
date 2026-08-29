@@ -8,12 +8,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 vi.mock("@/lib/instagram", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/instagram")>();
-  return { ...actual, publishToInstagram: vi.fn(), checkMediaLiveness: vi.fn() };
+  return {
+    ...actual,
+    publishToInstagram: vi.fn(),
+    checkMediaLiveness: vi.fn(),
+    createReelContainer: vi.fn(),
+    finalizeContainer: vi.fn(),
+  };
 });
 
-import { publishApprovedPost } from "./publish-post";
+import { publishApprovedPost, resumePublish } from "./publish-post";
 import { db } from "@/lib/db";
-import { IGError, checkMediaLiveness, publishToInstagram } from "@/lib/instagram";
+import {
+  IGError,
+  checkMediaLiveness,
+  createReelContainer,
+  finalizeContainer,
+  publishToInstagram,
+} from "@/lib/instagram";
 import {
   createAgency,
   createInstagramClient,
@@ -24,6 +36,8 @@ import {
 
 const mockPublish = vi.mocked(publishToInstagram);
 const mockLiveness = vi.mocked(checkMediaLiveness);
+const mockCreateReel = vi.mocked(createReelContainer);
+const mockFinalize = vi.mocked(finalizeContainer);
 
 const REF = "dizi/long-story-short";
 
@@ -32,6 +46,8 @@ beforeEach(async () => {
   vi.restoreAllMocks();
   mockPublish.mockReset();
   mockLiveness.mockReset();
+  mockCreateReel.mockReset();
+  mockFinalize.mockReset();
   mockPublish.mockResolvedValue({
     mediaId: "media-yeni",
     permalink: "https://instagram.com/p/YENI/",
@@ -245,5 +261,192 @@ describe("publishApprovedPost — mükerrer yayın koruması", () => {
     expect(again.publishStatus).toBe("duplicate");
     expect(mockPublish).not.toHaveBeenCalled();
     expect(mockLiveness).not.toHaveBeenCalled();
+  });
+});
+
+/* ─── Video (Reels) ────────────────────────────────────────────────────────
+ *
+ * Video yayını iki fazlı: container aç → sakla → yokla. Buradaki testlerin
+ * hepsi tek bir şeyi koruyor — "henüz işleniyor" bir HATA DEĞİL. Yanlış tarafa
+ * düşülürse post `failed` olur, "tekrar dene" YENİ bir container açar ve
+ * Instagram bunu spam sayar (error_subcode 2207051).
+ */
+
+const VIDEO_URL = "https://abc.public.blob.vercel-storage.com/videos/a.mp4";
+
+async function seedVideoPost(
+  overrides: {
+    publishStatus?: "idle" | "publishing";
+    igContainerId?: string | null;
+    containerAt?: Date | null;
+  } = {}
+) {
+  const agency = await createAgency();
+  const client = await createInstagramClient(agency.id);
+  const { post } = await createPendingPostWithLink(agency.id, client.id, {
+    status: "approved",
+    videoUrl: VIDEO_URL,
+    ...overrides,
+  });
+  return { agency, client, post };
+}
+
+describe("publishApprovedPost — video", () => {
+  it("container açar, id'yi SAKLAR ve hazırsa yayınlar", async () => {
+    const { post } = await seedVideoPost();
+    mockCreateReel.mockResolvedValue("reel-1");
+    mockFinalize.mockResolvedValue({
+      state: "published",
+      mediaId: "media-v1",
+      permalink: "https://instagram.com/reel/V/",
+    });
+
+    const outcome = await publishApprovedPost(post.id);
+
+    expect(outcome.publishStatus).toBe("published");
+    // Görsel yolu HİÇ çalışmamalı.
+    expect(mockPublish).not.toHaveBeenCalled();
+    expect(mockCreateReel).toHaveBeenCalledWith(
+      expect.objectContaining({ videoUrl: VIDEO_URL, caption: "Test caption" })
+    );
+
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.igMediaId).toBe("media-v1");
+    expect(updated?.igContainerId).toBe("reel-1");
+  });
+
+  it("container id'si yoklamadan ÖNCE yazılır", async () => {
+    // Sıra tersine dönerse fonksiyon süresi dolduğunda id kaybolur ve bir
+    // sonraki deneme İKİNCİ bir container açar. `finalize` sırasında DB'ye
+    // bakarak yazmanın çoktan gerçekleştiğini doğruluyoruz.
+    const { post } = await seedVideoPost();
+    mockCreateReel.mockResolvedValue("reel-erken");
+    let idGoruldu: string | null | undefined;
+    mockFinalize.mockImplementation(async () => {
+      const row = await db.post.findUnique({ where: { id: post.id } });
+      idGoruldu = row?.igContainerId;
+      return { state: "processing", lastStatus: "IN_PROGRESS" };
+    });
+
+    await publishApprovedPost(post.id);
+
+    expect(idGoruldu).toBe("reel-erken");
+  });
+
+  it("Instagram hâlâ işliyorsa post 'publishing'de kalır — failed DEĞİL", async () => {
+    const { post } = await seedVideoPost();
+    mockCreateReel.mockResolvedValue("reel-2");
+    mockFinalize.mockResolvedValue({ state: "processing", lastStatus: "IN_PROGRESS" });
+
+    const outcome = await publishApprovedPost(post.id);
+
+    expect(outcome.publishStatus).toBe("publishing");
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.publishStatus).toBe("publishing");
+    expect(updated?.publishError).toBeNull();
+    expect(updated?.igContainerId).toBe("reel-2");
+  });
+});
+
+describe("resumePublish", () => {
+  it("açık container'ı yoklar ve hazırsa yayınlar — YENİ container AÇMAZ", async () => {
+    const { post } = await seedVideoPost({
+      publishStatus: "publishing",
+      igContainerId: "reel-3",
+      containerAt: new Date(),
+    });
+    mockFinalize.mockResolvedValue({
+      state: "published",
+      mediaId: "media-v3",
+      permalink: "https://instagram.com/reel/W/",
+    });
+
+    const outcome = await resumePublish(post.id);
+
+    expect(outcome.publishStatus).toBe("published");
+    expect(mockCreateReel).not.toHaveBeenCalled();
+    expect(mockFinalize).toHaveBeenCalledWith(expect.objectContaining({ containerId: "reel-3" }));
+  });
+
+  it("hâlâ işliyorsa 'publishing' döner ve tekrar çağrılabilir", async () => {
+    const { post } = await seedVideoPost({
+      publishStatus: "publishing",
+      igContainerId: "reel-4",
+      containerAt: new Date(),
+    });
+    mockFinalize.mockResolvedValue({ state: "processing", lastStatus: "IN_PROGRESS" });
+
+    expect((await resumePublish(post.id)).publishStatus).toBe("publishing");
+    expect((await resumePublish(post.id)).publishStatus).toBe("publishing");
+
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.igContainerId).toBe("reel-4");
+  });
+
+  it("container 24 saatten eskiyse failed'a düşer ve id temizlenir", async () => {
+    // Temizlik şart: "tekrar dene" ölü bir id'yi sonsuza kadar yoklamasın,
+    // temiz bir container açabilsin.
+    const { post } = await seedVideoPost({
+      publishStatus: "publishing",
+      igContainerId: "reel-eski",
+      containerAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+    });
+
+    const outcome = await resumePublish(post.id);
+
+    expect(outcome.publishStatus).toBe("failed");
+    expect(mockFinalize).not.toHaveBeenCalled();
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.igContainerId).toBeNull();
+    expect(updated?.publishError).toMatch(/24 saat/);
+  });
+
+  it("container ERROR verirse failed olur ve id temizlenir", async () => {
+    const { post } = await seedVideoPost({
+      publishStatus: "publishing",
+      igContainerId: "reel-5",
+      containerAt: new Date(),
+    });
+    mockFinalize.mockRejectedValue(new IGError("Container reel-5 durumu ERROR"));
+
+    const outcome = await resumePublish(post.id);
+
+    expect(outcome.publishStatus).toBe("failed");
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.igContainerId).toBeNull();
+  });
+
+  it("devam edecek bir şey yoksa mevcut durumu döner, Instagram'a gitmez", async () => {
+    const { post } = await seedVideoPost({ publishStatus: "idle" });
+
+    const outcome = await resumePublish(post.id);
+
+    expect(outcome.publishStatus).toBe("idle");
+    expect(mockFinalize).not.toHaveBeenCalled();
+  });
+
+  it("yayın başka bir çağrı tarafından bitirildiyse hata onun üzerine YAZILMAZ", async () => {
+    // Onay sayfasının yoklaması ile emniyet ağı cron'u aynı container'ı
+    // yakalayabilir; biri yayını bitirir, diğeri Instagram'dan hata alır.
+    // Koşulsuz yazsaydık BAŞARILI yayının üzerine `failed` yazılırdı.
+    const { post } = await seedVideoPost({
+      publishStatus: "publishing",
+      igContainerId: "reel-6",
+      containerAt: new Date(),
+    });
+    mockFinalize.mockImplementation(async () => {
+      await db.post.update({
+        where: { id: post.id },
+        data: { publishStatus: "published", igMediaId: "media-yaris", publishedAt: new Date() },
+      });
+      throw new IGError("Media ID is not available");
+    });
+
+    const outcome = await resumePublish(post.id);
+
+    expect(outcome.publishStatus).toBe("published");
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.publishStatus).toBe("published");
+    expect(updated?.igMediaId).toBe("media-yaris");
   });
 });

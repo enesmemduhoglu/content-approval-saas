@@ -48,6 +48,8 @@ export async function GET(request: Request, { params }: RouteParams) {
   return NextResponse.json({
     post: {
       imageUrls: post.images.map((image) => image.url),
+      // Reel postu: dolu ise `imageUrls` boştur, sayfa <video> gösterir.
+      videoUrl: post.videoUrl,
       caption: post.caption,
       status: post.status,
       rejectionReason: post.rejectionReason,

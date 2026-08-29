@@ -116,9 +116,21 @@ export default async function ApprovePage({
         )}
         <span>{post.agency.name ?? "Ajansın"}</span>
       </header>
-      {/* Çoklu görsel (D3.3): tek görsel eskisi gibi, birden çoksa yatay
-          scroll-snap carousel (JS gerektirmez) */}
-      {post.images.length > 1 ? (
+      {/* Reel: `videoUrl` doluysa `images` boştur, karusel dallarına hiç
+          girilmez. `controls` var ama `autoPlay` yok — müşteri onaylayacağı
+          şeyi kendi başlatsın, sayfa açılır açılmaz ses çalmasın. */}
+      {post.videoUrl ? (
+        <video
+          src={post.videoUrl}
+          controls
+          playsInline
+          preload="metadata"
+          className="approve-image approve-video"
+          aria-label="Onay bekleyen post videosu"
+        />
+      ) : /* Çoklu görsel (D3.3): tek görsel eskisi gibi, birden çoksa yatay
+          scroll-snap carousel (JS gerektirmez) */
+      post.images.length > 1 ? (
         <>
           <div className="approve-carousel" role="group" aria-label="Post görselleri">
             {post.images.map((image, index) => (

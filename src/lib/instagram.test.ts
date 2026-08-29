@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IGError,
   checkMediaLiveness,
+  createReelContainer,
   fetchInstagramAccount,
+  finalizeContainer,
   publishToInstagram,
   refreshInstagramToken,
 } from "./instagram";
@@ -212,6 +214,104 @@ describe("container bekleme", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await assertion;
     expect(calls.some((c) => c.url.includes("media_publish"))).toBe(false);
+  });
+});
+
+/**
+ * Video (Reels). Karusel testlerinin aynadaki karşılığı; ayrıldığı tek nokta
+ * bütçe dolmasının bir HATA DEĞİL "henüz işleniyor" sayılması — container id'si
+ * saklanıp bir sonraki turda devam edileceği için.
+ */
+const VIDEO_URL = "https://x.public.blob.vercel-storage.com/videos/a.mp4";
+
+describe("createReelContainer", () => {
+  it("REELS container'ı açar ve id'sini döner — BEKLEMEZ", async () => {
+    responses = [respond({ id: "reel-1" })];
+
+    const id = await createReelContainer({ ...INPUT, videoUrl: VIDEO_URL });
+
+    expect(id).toBe("reel-1");
+    // Tek çağrı: yoklama yok, media_publish yok. Bekleme ayrı fazın işi.
+    expect(calls).toHaveLength(1);
+    const create = calls[0];
+    expect(create.method).toBe("POST");
+    expect(create.url.endsWith("/media")).toBe(true);
+    expect(create.params.get("media_type")).toBe("REELS");
+    expect(create.params.get("video_url")).toBe(VIDEO_URL);
+    expect(create.params.get("caption")).toBe("Merhaba dünya");
+    expect(create.params.get("share_to_feed")).toBe("true");
+  });
+
+  it("share_to_feed kapatılabilir", async () => {
+    responses = [respond({ id: "reel-1" })];
+    await createReelContainer({ ...INPUT, videoUrl: VIDEO_URL, shareToFeed: false });
+    expect(calls[0].params.get("share_to_feed")).toBe("false");
+  });
+
+  it("video URL'i boşsa API'ye hiç gitmez", async () => {
+    await expect(createReelContainer({ ...INPUT, videoUrl: "" })).rejects.toBeInstanceOf(IGError);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("finalizeContainer", () => {
+  it("FINISHED ise yayınlar ve permalink'i döner", async () => {
+    responses = [
+      respond({ status_code: "FINISHED" }),
+      respond({ id: "media-7" }),
+      respond({ id: "media-7", permalink: "https://instagram.com/reel/R/" }),
+    ];
+
+    const result = await finalizeContainer({ ...INPUT, containerId: "reel-1" });
+
+    expect(result).toEqual({
+      state: "published",
+      mediaId: "media-7",
+      permalink: "https://instagram.com/reel/R/",
+    });
+  });
+
+  it("hazır olana kadar yoklar", async () => {
+    responses = [
+      respond({ status_code: "IN_PROGRESS" }),
+      respond({ status_code: "IN_PROGRESS" }),
+      respond({ status_code: "FINISHED" }),
+      respond({ id: "media-7" }),
+      respond({ id: "media-7", permalink: "" }),
+    ];
+
+    const promise = finalizeContainer({ ...INPUT, containerId: "reel-1" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(promise).resolves.toMatchObject({ state: "published" });
+
+    const polls = calls.filter((c) => c.method === "GET" && c.url.endsWith("reel-1"));
+    expect(polls).toHaveLength(3);
+  });
+
+  it("bütçe dolarsa THROW ETMEZ, processing döner", async () => {
+    // Video akışının tamamı bu ayrıma dayanıyor. Throw etseydi çağıran postu
+    // `failed` yapar, "tekrar dene" YENİ bir container açar ve Instagram bunu
+    // spam sayardı (error_subcode 2207051).
+    responses = Array.from({ length: 30 }, () => respond({ status_code: "IN_PROGRESS" }));
+
+    const promise = finalizeContainer({ ...INPUT, containerId: "reel-1", budgetMs: 5_000 });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(promise).resolves.toEqual({ state: "processing", lastStatus: "IN_PROGRESS" });
+    expect(calls.some((c) => c.url.includes("media_publish"))).toBe(false);
+  });
+
+  it("container ERROR ise throw eder — bu gerçek bir hata", async () => {
+    responses = [respond({ status_code: "ERROR", status: "Video işlenemedi" })];
+
+    await expect(finalizeContainer({ ...INPUT, containerId: "reel-1" })).rejects.toThrow(/ERROR/);
+    expect(calls.some((c) => c.url.includes("media_publish"))).toBe(false);
+  });
+
+  it("container EXPIRED ise throw eder", async () => {
+    responses = [respond({ status_code: "EXPIRED", status: "Süre doldu" })];
+
+    await expect(finalizeContainer({ ...INPUT, containerId: "reel-1" })).rejects.toThrow(/EXPIRED/);
   });
 });
 

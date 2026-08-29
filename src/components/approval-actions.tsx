@@ -1,6 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+/**
+ * Video yayını yoklaması. Görselde yayın onay isteğinin içinde bitiyor;
+ * videoda Instagram transcode ettiği için tek istek yetmiyor ve post
+ * `publishing`de kalıyor (bkz. api/approve/[token]/publish-status).
+ *
+ * Tavan neden var: Instagram bir videoyu dakikalarca işleyebilir ve sonsuza
+ * kadar yoklamak müşteriyi hiç bitmeyen bir ekranda tutar. Süre dolunca
+ * yoklama durur ve müşteriye "işlem sürüyor, sonra bak" denir — yayın arka
+ * planda devam eder, emniyet ağı cron'u bitirir.
+ */
+const YOKLAMA_ARALIGI_MS = 5_000;
+const YOKLAMA_TAVANI_MS = 3 * 60_000;
 
 type Decision = {
   status: string;
@@ -31,6 +44,52 @@ export function ApprovalActions({
   const [result, setResult] = useState<Decision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  // Yoklama tavana dayandı: yayın hâlâ sürüyor olabilir ama artık beklemiyoruz.
+  const [pollTimedOut, setPollTimedOut] = useState(false);
+  const pollingRef = useRef(false);
+
+  const publishing = result?.publishStatus === "publishing";
+
+  useEffect(() => {
+    if (!publishing || pollTimedOut) return;
+    // İki yoklama döngüsünün üst üste binmesini engeller: effect bağımlılığı
+    // `result` üzerinden her cevapta yeniden tetikleniyor.
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+
+    let iptal = false;
+    const sonAn = Date.now() + YOKLAMA_TAVANI_MS;
+
+    async function yokla() {
+      while (!iptal && Date.now() < sonAn) {
+        await new Promise((r) => setTimeout(r, YOKLAMA_ARALIGI_MS));
+        if (iptal) return;
+        try {
+          const res = await fetch(`/api/approve/${token}/publish-status`, { method: "POST" });
+          if (!res.ok) continue; // 429/5xx geçici olabilir, tavana kadar dene
+          const data = (await res.json()) as Decision;
+          if (iptal) return;
+          // Terminal duruma gelindiyse döngü biter; `publishing` ise sürer.
+          setResult((prev) => ({ ...prev, ...data }) as Decision);
+          if (data.publishStatus !== "publishing") return;
+        } catch {
+          // Ağ hatası yoklamayı bitirmez — bir sonraki tur tekrar dener.
+        }
+      }
+      if (!iptal) setPollTimedOut(true);
+    }
+
+    void yokla().finally(() => {
+      pollingRef.current = false;
+    });
+
+    return () => {
+      iptal = true;
+    };
+    // `result` bilerek bağımlılık DEĞİL: her cevapta effect'i yeniden kurmak
+    // döngüyü baştan başlatırdı. Döngü kendi durumunu `sonAn` ile taşıyor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publishing, pollTimedOut, token]);
 
   async function decide(action: "approve" | "reject" | "request_revision", isRetry = false) {
     // Çift tıklama koruması: istek uçuştayken veya karar verilmişken ikinci
@@ -82,7 +141,12 @@ export function ApprovalActions({
       result.publishStatus === "published"
         ? "Instagram'da yayınlandı."
         : result.publishStatus === "publishing"
-          ? "Yayın sürüyor."
+          ? pollTimedOut
+            ? // Yoklama tavanı doldu. "Başarısız" DEMİYORUZ çünkü değil: yayın
+              // Instagram tarafında sürüyor ve emniyet ağı bitirecek. Müşteriye
+              // yapabileceği tek şey söyleniyor.
+              "Video Instagram'da hâlâ işleniyor. Bu sayfayı birazdan yenileyerek durumu görebilirsin."
+            : "Video Instagram'da işleniyor, yayın birazdan tamamlanacak…"
           : // Mükerrer: aynı içerik zaten canlıda. Hata gibi gösterilmez ve
             // "tekrar dene" butonu çıkmaz — tekrarlamak sorunun kendisi.
             result.publishStatus === "duplicate"
