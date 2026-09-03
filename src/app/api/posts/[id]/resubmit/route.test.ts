@@ -423,6 +423,40 @@ describe("POST /api/posts/[id]/resubmit", () => {
     expect(updated?.status).toBe("revision_requested");
   });
 
+  it("Reel'e görsel yüklenemez — 409, Blob'a yazılmadan", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createRevisionRequestedPost(agency.id, client.id, {
+      videoUrl: "https://blob.test/reel.mp4",
+    });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(
+      formRequest({ caption: "yeni", files: [{ name: "1.jpg" }] }),
+      params(post.id)
+    );
+    expect(res.status).toBe(409);
+    expect(mockUpload).not.toHaveBeenCalled();
+    // Video postu görselle karışırsa hangi medyanın yayınlanacağı belirsizleşir.
+    expect(await db.postImage.count({ where: { postId: post.id } })).toBe(0);
+  });
+
+  it("Reel'in metni düzeltilip onaya geri gönderilebilir", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createRevisionRequestedPost(agency.id, client.id, {
+      videoUrl: "https://blob.test/reel.mp4",
+    });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(formRequest({ caption: "düzeltilmiş" }), params(post.id));
+    expect(res.status).toBe(200);
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.status).toBe("pending");
+    expect(updated?.caption).toBe("düzeltilmiş");
+    expect(updated?.videoUrl).toBe("https://blob.test/reel.mp4");
+  });
+
   it("mail yolu throw etse bile revizyon ayakta kalır", async () => {
     const { post } = await seed();
     mockEmail.mockRejectedValue(new Error("resend down"));

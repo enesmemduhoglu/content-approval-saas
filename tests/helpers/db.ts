@@ -147,12 +147,15 @@ export async function createRevisionRequestedPost(
     expiresAt?: Date;
     token?: string;
     publishStatus?: PublishStatus;
+    /** Reel: doluysa post görselsiz kurulur (bkz. createPendingPostWithLink). */
+    videoUrl?: string;
   } = {}
 ) {
   const round = overrides.round ?? 1;
   const { post, link } = await createPendingPostWithLink(agencyId, clientId, {
     status: "revision_requested",
     revisionRound: round,
+    videoUrl: overrides.videoUrl,
     expiresAt: overrides.expiresAt,
     token: overrides.token,
     publishStatus: overrides.publishStatus,

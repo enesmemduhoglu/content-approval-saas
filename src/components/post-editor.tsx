@@ -18,6 +18,8 @@ type Props = {
   mode: Mode;
   caption: string;
   images: { id: string; url: string }[];
+  /** Reel ise dolu; o zaman `images` boştur ve medya değiştirilemez. */
+  videoUrl: string | null;
 };
 
 /**
@@ -33,7 +35,7 @@ type Props = {
  * (işlem gerçekleşmişken hata görüntüsü). Panel `force-dynamic`, kullanıcı
  * döndüğünde zaten güncel.
  */
-export function PostEditor({ postId, mode, caption, images }: Props) {
+export function PostEditor({ postId, mode, caption, images, videoUrl }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
   const [done, setDone] = useState<{ emailSent?: boolean; emailError?: string } | null>(null);
@@ -87,41 +89,65 @@ export function PostEditor({ postId, mode, caption, images }: Props) {
     <form onSubmit={handleSubmit} className="card form" encType="multipart/form-data">
       {/* Postun o anki hâli: ajans neyi değiştirdiğine bakarak karar versin,
           başka sekmede onay sayfasını açmak zorunda kalmasın. */}
-      <div className="revise-media">
-        {images.map((image, index) => (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={image.id}
-            src={image.url}
-            alt={`Mevcut görsel ${index + 1}/${images.length}`}
-            className="revise-thumb"
-          />
-        ))}
-      </div>
-      {/* Dosya alanı katlı: açılmadıkça görsellere dokunulmadığı görünsün.
-          Açık bir "değiştiriyorum" hareketi olmadan çoklu dosya seçtirmek,
-          metni düzeltmeye gelen ajansa her seferinde yanıtlaması gereken bir
-          soru sorardı. */}
-      {replacing ? (
-        <label>
-          Yeni görseller (JPEG/PNG/WebP, görsel başına maks 10MB, en fazla 10 görsel)
-          <input type="file" name="image" accept="image/jpeg,image/png,image/webp" multiple />
-          <span className="post-note">
-            Seçtiğin görseller mevcutların TAMAMININ yerine geçer; boş bırakırsan mevcutlar
-            korunur.
-          </span>
-        </label>
+      {videoUrl ? (
+        <>
+          <div className="revise-media">
+            <video
+              src={videoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              className="revise-video"
+              aria-label="Post videosu"
+            />
+          </div>
+          {/* Video DEĞİŞTİRİLEMEZ: dosya Blob'a presigned yüklemeyle çıkıyor
+              (F14) ve o yol makine tarafında — panelden 70MB'lık bir mp4
+              gönderilemez, Vercel gövde sınırı 4.5MB. Alanı çıkarıp sunucuya
+              reddettirmek yerine hiç göstermiyoruz. */}
+          <p className="post-note">
+            Reel videosu buradan değiştirilemez — yalnızca metin düzenlenebilir.
+          </p>
+        </>
       ) : (
-        <button
-          type="button"
-          className="button-secondary"
-          onClick={() => setReplacing(true)}
-          disabled={submitting}
-        >
-          Görselleri değiştir
-        </button>
+        <>
+          <div className="revise-media">
+            {images.map((image, index) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={image.id}
+                src={image.url}
+                alt={`Mevcut görsel ${index + 1}/${images.length}`}
+                className="revise-thumb"
+              />
+            ))}
+          </div>
+          {/* Dosya alanı katlı: açılmadıkça görsellere dokunulmadığı görünsün.
+              Açık bir "değiştiriyorum" hareketi olmadan çoklu dosya seçtirmek,
+              metni düzeltmeye gelen ajansa her seferinde yanıtlaması gereken
+              bir soru sorardı. */}
+          {replacing ? (
+            <label>
+              Yeni görseller (JPEG/PNG/WebP, görsel başına maks 10MB, en fazla 10 görsel)
+              <input type="file" name="image" accept="image/jpeg,image/png,image/webp" multiple />
+              <span className="post-note">
+                Seçtiğin görseller mevcutların TAMAMININ yerine geçer; boş bırakırsan mevcutlar
+                korunur.
+              </span>
+            </label>
+          ) : (
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setReplacing(true)}
+              disabled={submitting}
+            >
+              Görselleri değiştir
+            </button>
+          )}
+          {error?.field === "image" && <p className="field-error">{error.message}</p>}
+        </>
       )}
-      {error?.field === "image" && <p className="field-error">{error.message}</p>}
       <label>
         Caption
         <textarea
