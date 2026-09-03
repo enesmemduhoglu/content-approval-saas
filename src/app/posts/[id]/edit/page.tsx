@@ -115,6 +115,7 @@ export default async function EditPostPage({ params }: { params: Promise<{ id: s
           mode={mode}
           caption={post.caption}
           images={post.images.map((image) => ({ id: image.id, url: image.url }))}
+          videoUrl={post.videoUrl}
         />
       </main>
     </>

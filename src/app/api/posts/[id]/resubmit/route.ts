@@ -48,6 +48,15 @@ const PUBLISHED_ERROR =
   "yayındaki gönderiyi değiştirmez, yalnızca panelle gerçekliği ayırır. " +
   "Yeni bir post oluştur.";
 
+/**
+ * Reel'e görsel yüklenemez: `videoUrl` ve `images` birlikte dolduğunda hangi
+ * medyanın yayınlanacağı `publish-post`un dallanma sırasına kalırdı —
+ * `validatePostMedia`ın post oluştururken kapattığı deliğin aynısı.
+ */
+const VIDEO_ERROR =
+  "Reel videosu panelden değiştirilemez; görsel eklemek postu bozar. " +
+  "Video değişecekse yeni bir post oluştur.";
+
 const NOT_REVISION_ERROR =
   "Bu post revizyon beklemiyor; yalnızca müşterinin düzeltme istediği postlar tekrar gönderilebilir.";
 
@@ -152,11 +161,12 @@ export async function POST(request: Request, { params }: RouteParams) {
   const { id } = await params;
   const scoped = getScopedDb(session);
 
-  // Yükleme ÖNCESİ durum kontrolü (`/api/posts`taki "kota upload'dan önce"
+  // Görsel geliyorsa ÖNCE durumu oku (`/api/posts`taki "kota upload'dan önce"
   // deseninin aynısı): revizyon beklemeyen bir post için Blob'a hiç yazılmasın,
-  // yoksa 409 dönen istek arkasında sahipsiz dosya bırakırdı. Yarışı bu kontrol
-  // DEĞİL, aşağıdaki koşullu UPDATE kapatıyor.
-  if (parsed.images?.kind === "files") {
+  // yoksa 409 dönen istek arkasında sahipsiz dosya bırakırdı. Makine yolu
+  // (hazır URL) Blob'a yazmıyor ama Reel kontrolü ona da lazım. Yarışı bu
+  // kontrol DEĞİL, aşağıdaki koşullu UPDATE kapatıyor.
+  if (parsed.images) {
     const current = await scoped.posts.findById(id);
     if (!current) {
       return NextResponse.json({ error: "Bu post bulunamadı" }, { status: 404 });
@@ -169,6 +179,9 @@ export async function POST(request: Request, { params }: RouteParams) {
         { error: NOT_REVISION_ERROR, status: current.status },
         { status: 409 }
       );
+    }
+    if (current.videoUrl) {
+      return badRequest(VIDEO_ERROR, "image", 409);
     }
   }
 

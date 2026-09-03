@@ -34,6 +34,7 @@ function postKaydi(overrides: Record<string, unknown> = {}) {
     status: "revision_requested",
     publishStatus: "idle",
     revisionRound: 1,
+    videoUrl: null,
     client: { id: "c1", name: "Müşteri" },
     images: [{ id: "i1", url: "https://example.com/1.jpg" }],
     revisions: [
@@ -60,6 +61,16 @@ beforeEach(() => {
 });
 
 describe("Post düzenleme sayfası", () => {
+  it("Reel'de görsel yükleme çıkmaz, video önizlenir", async () => {
+    post = postKaydi({ videoUrl: "https://blob.test/reel.mp4", images: [] });
+    render(await render_());
+
+    expect(screen.queryByRole("button", { name: "Görselleri değiştir" })).toBeNull();
+    expect(screen.getByText(/Reel videosu buradan değiştirilemez/)).toBeTruthy();
+    // Metin yine düzenlenebilir: kapalı olan yalnızca medya.
+    expect(screen.getByLabelText("Post metni")).toBeTruthy();
+  });
+
   it("revizyonda müşterinin isteğini, mevcut görseli ve metni bir arada gösterir", async () => {
     render(await render_());
 

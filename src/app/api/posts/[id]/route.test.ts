@@ -183,6 +183,23 @@ describe("PATCH /api/posts/[id]", () => {
     // Asıl mesele: sahipsiz dosya kalmasın.
     expect(mockUpload).not.toHaveBeenCalled();
   });
+
+  it("Reel'e görsel yüklenemez — 409, Blob'a yazılmadan", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id, {
+      videoUrl: "https://blob.test/reel.mp4",
+    });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await PATCH(
+      patchFormRequest({ caption: "yeni", files: ["1.jpg"] }),
+      params(post.id)
+    );
+    expect(res.status).toBe(409);
+    expect(mockUpload).not.toHaveBeenCalled();
+    expect(await db.postImage.count({ where: { postId: post.id } })).toBe(0);
+  });
 });
 
 describe("DELETE /api/posts/[id]", () => {

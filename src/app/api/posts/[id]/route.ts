@@ -28,6 +28,16 @@ import { MAX_IMAGES_PER_POST, validateCaption } from "@/lib/validation";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
+/**
+ * Reel'e görsel yüklenemez: `videoUrl` ve `images` birlikte dolduğunda hangi
+ * medyanın yayınlanacağı `publish-post`un dallanma sırasına kalırdı —
+ * `validatePostMedia`ın post oluştururken kapattığı deliğin aynısı. Video
+ * dosyası zaten panelden geçmiyor (presigned yükleme, F14).
+ */
+const VIDEO_ERROR =
+  "Reel videosu panelden değiştirilemez; görsel eklemek postu bozar. " +
+  "Video değişecekse yeni bir post oluştur.";
+
 /** Aynı 409 iki yerden dönüyor: yükleme öncesi ön kontrol ve koşullu UPDATE. */
 const NOT_PENDING_ERROR =
   "Bu posta karar verilmiş; metni artık değiştirilemez. Yeni bir post oluştur.";
@@ -110,6 +120,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
     if (current.status !== "pending") {
       return NextResponse.json({ error: NOT_PENDING_ERROR }, { status: 409 });
+    }
+    if (current.videoUrl) {
+      return badRequest(VIDEO_ERROR, "image", 409);
     }
   }
 
