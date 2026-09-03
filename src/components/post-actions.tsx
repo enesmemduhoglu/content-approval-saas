@@ -7,10 +7,9 @@ import { useRouter } from "next/navigation";
 /**
  * Bir post satırının yönetim işlemleri (F1 + F2 + F5).
  *
- * Metin kutusu YALNIZCA sessiz caption düzeltmesi yapar. "Düzeltip tekrar
- * gönder" bir sayfa açar (F10): o iş müşteriye mail attıran bir durum geçişi,
- * satır içinde aynı kutuya sıkıştırılınca ajans yazım hatası düzeltirken
- * istemeden müşteriyi dürtme riski taşıyordu — üstelik görsel değiştirilemiyordu.
+ * Metin düzenleme burada DEĞİL: hem "Düzenle" hem "Düzeltip tekrar gönder"
+ * `/posts/[id]/edit` sayfasına götürür. Satır içi kutu yalnızca caption
+ * düzenletiyordu; görseli değiştirmek isteyen ajansın hiçbir yolu yoktu.
  *
  * Silme onayı için `window.confirm` BİLEREK kullanılmıyor: tarayıcı modal'ı
  * sayfayı bloklar ve testten/otomasyondan sürülemez. Yerine iki adımlı inline
@@ -21,25 +20,21 @@ type Props = {
   postId: string;
   status: "draft" | "pending" | "approved" | "rejected" | "revision_requested";
   publishStatus: string;
-  /** Düzenleme kutusunun başlangıç değeri — mevcut metin. */
-  caption: string;
   /** Onay linkinin son kullanma tarihi (ISO) — yoksa link hiç yok. */
   linkExpiresAt: string | null;
 };
 
-type Busy = "idle" | "saving" | "deleting" | "linking";
+type Busy = "idle" | "deleting" | "linking";
 
 export function PostActions({
   postId,
   status,
   publishStatus,
-  caption,
   linkExpiresAt,
 }: Props) {
   const [busy, setBusy] = useState<Busy>("idle");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const router = useRouter();
 
@@ -78,23 +73,6 @@ export function PostActions({
     }
   }
 
-  async function saveCaption() {
-    if (editing === null) return;
-    const data = await call(
-      `/api/posts/${postId}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caption: editing }),
-      },
-      "saving"
-    );
-    if (data) {
-      setEditing(null);
-      router.refresh();
-    }
-  }
-
   async function remove() {
     const data = await call(`/api/posts/${postId}`, { method: "DELETE" }, "deleting");
     if (data) {
@@ -123,47 +101,10 @@ export function PostActions({
     } else {
       setError(
         `Link hazır ama e-posta GİTMEDİ${data.emailError ? `: ${data.emailError}` : ""}. ` +
-          "Linki kopyalayıp elle iletebilirsin."
+          "Onay sayfasını açıp adresini elle iletebilirsin."
       );
     }
     router.refresh();
-  }
-
-  if (editing !== null) {
-    return (
-      <div className="post-actions">
-        <textarea
-          className="post-edit-caption"
-          value={editing}
-          onChange={(event) => setEditing(event.target.value)}
-          maxLength={2000}
-          rows={4}
-          aria-label="Post metni"
-        />
-        {error && <p className="field-error">{error}</p>}
-        <div className="post-actions-row">
-          <button
-            type="button"
-            className="button-primary"
-            disabled={busy !== "idle"}
-            onClick={saveCaption}
-          >
-            {busy === "saving" ? "Kaydediliyor…" : "Kaydet"}
-          </button>
-          <button
-            type="button"
-            className="button-secondary"
-            disabled={busy !== "idle"}
-            onClick={() => {
-              setEditing(null);
-              setError(null);
-            }}
-          >
-            Vazgeç
-          </button>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -200,23 +141,23 @@ export function PostActions({
           </button>
         )}
         {isPending && (
-          <button
-            type="button"
+          // Satır içi kutu DEĞİL, düzenleme sayfası: revizyondaki gerekçenin
+          // aynısı — düzeltilmesi istenen şey çoğu zaman görsel ve dar kutu
+          // yalnızca metni düzenletiyordu (bkz. app/posts/[id]/edit).
+          <Link
             className="button-secondary"
-            disabled={busy !== "idle"}
-            onClick={() => setEditing(caption)}
+            href={`/posts/${postId}/edit`}
             data-edit-post={postId}
           >
             Düzenle
-          </button>
+          </Link>
         )}
         {canResubmit && (
-          // Satır içi kutu DEĞİL, ayrı sayfa: revizyonda değişmesi istenen şey
-          // çoğu zaman görsel ve dar kutu yalnızca metni düzenletiyordu
-          // (bkz. app/posts/[id]/revise).
+          // "Düzenle" ile aynı sayfa; postun durumu hangi işin yapılacağını
+          // (sessiz düzeltme mi, onaya geri gönderme mi) belirliyor.
           <Link
             className="button-primary"
-            href={`/posts/${postId}/revise`}
+            href={`/posts/${postId}/edit`}
             data-resubmit-post={postId}
           >
             Düzeltip tekrar gönder

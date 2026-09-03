@@ -7,8 +7,17 @@ vi.mock("@/lib/auth", () => ({
   handlers: {},
 }));
 
+// Blob ağ istemesin. `InvalidImageError` gerçek bir sınıf olmalı — route
+// `instanceof` ile bakıyor.
+vi.mock("@/lib/blob", () => ({
+  deletePostImages: vi.fn(),
+  uploadPostImage: vi.fn(),
+  InvalidImageError: class InvalidImageError extends Error {},
+}));
+
 import { DELETE, PATCH } from "./route";
 import { auth } from "@/lib/auth";
+import { deletePostImages, uploadPostImage } from "@/lib/blob";
 import { db } from "@/lib/db";
 import {
   createAgency,
@@ -19,6 +28,18 @@ import {
 } from "@tests/helpers/db";
 
 const mockAuth = vi.mocked(auth);
+const mockUpload = vi.mocked(uploadPostImage);
+const mockDeleteImages = vi.mocked(deletePostImages);
+
+/** Panel düzenleme sayfasının gövdesi: `multipart/form-data`. */
+function patchFormRequest(fields: { caption?: string; files?: string[] }) {
+  const body = new FormData();
+  if (fields.caption !== undefined) body.set("caption", fields.caption);
+  for (const name of fields.files ?? []) {
+    body.append("image", new File(["jpegbytes"], name, { type: "image/jpeg" }));
+  }
+  return new Request("http://localhost/api/posts/x", { method: "PATCH", body });
+}
 
 function params(id: string) {
   return { params: Promise.resolve({ id }) };
@@ -38,6 +59,10 @@ const deleteRequest = () =>
 beforeEach(async () => {
   await resetDb();
   mockAuth.mockReset();
+  mockUpload.mockReset();
+  mockUpload.mockImplementation(async (file: File) => `https://blob.test/${file.name}`);
+  mockDeleteImages.mockReset();
+  mockDeleteImages.mockResolvedValue(undefined);
 });
 
 describe("PATCH /api/posts/[id]", () => {
@@ -97,6 +122,66 @@ describe("PATCH /api/posts/[id]", () => {
 
     const res = await PATCH(patchRequest({ caption: "   " }), params(post.id));
     expect(res.status).toBe(400);
+  });
+
+  it("panel formu görselleri değiştirir; eskiler blob'dan temizlenir", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id);
+    await db.postImage.deleteMany({ where: { postId: post.id } });
+    await db.postImage.create({
+      data: { postId: post.id, url: "https://eski.example.com/a.jpg", sortOrder: 0 },
+    });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await PATCH(
+      patchFormRequest({ caption: "yeni metin", files: ["1.jpg", "2.jpg"] }),
+      params(post.id)
+    );
+    expect(res.status).toBe(200);
+
+    const images = await db.postImage.findMany({
+      where: { postId: post.id },
+      orderBy: { sortOrder: "asc" },
+    });
+    expect(images.map((image) => image.url)).toEqual([
+      "https://blob.test/1.jpg",
+      "https://blob.test/2.jpg",
+    ]);
+    expect(mockDeleteImages).toHaveBeenCalledWith(["https://eski.example.com/a.jpg"]);
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.caption).toBe("yeni metin");
+    // Sessiz düzeltme: durum ve onay linki olduğu yerde kalır.
+    expect(updated?.status).toBe("pending");
+  });
+
+  it("form dosyasız gelirse görsellere dokunulmaz", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await PATCH(patchFormRequest({ caption: "sadece metin" }), params(post.id));
+    expect(res.status).toBe(200);
+    expect(mockUpload).not.toHaveBeenCalled();
+    expect(await db.postImage.count({ where: { postId: post.id } })).toBe(1);
+  });
+
+  it("karar verilmiş posta dosya yüklenmez — 409 Blob'a yazmadan döner", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id, {
+      status: "approved",
+    });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await PATCH(
+      patchFormRequest({ caption: "yeni", files: ["1.jpg"] }),
+      params(post.id)
+    );
+    expect(res.status).toBe(409);
+    // Asıl mesele: sahipsiz dosya kalmasın.
+    expect(mockUpload).not.toHaveBeenCalled();
   });
 });
 

@@ -422,23 +422,61 @@ export function getScopedDb(session: ScopedSession) {
        * postun metnini değiştirmek, müşterinin onayladığı şeyle kayıttaki şeyi
        * ayırır — onay kaydını sessizce yalan hâline getirir.
        */
-      updateCaption: async (
-        id: string,
-        caption: string
-      ): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_pending" }> => {
+      /**
+       * Onay bekleyen postun metnini ve/veya görsellerini SESSİZCE günceller
+       * (F2 + panel düzenleme sayfası): durum değişmez, müşteriye mail gitmez.
+       * Revizyon turunun (`resubmitForApproval`) tersi — orada iş bir durum
+       * geçişi ve bildirim, burada yalnızca ajansın kendi yazım düzeltmesi.
+       *
+       * SADECE `pending` iken çalışır. Karar verilmiş postun metnini
+       * değiştirmek, müşterinin onayladığı şeyle kayıttaki şeyi ayırır.
+       *
+       * `imageUrls` verilmezse görsellere DOKUNULMAZ; verilirse tamamı
+       * değişir ve yerini kaybedenler `removedImageUrls`te döner (blob
+       * temizliği çağıranın işi, F13).
+       */
+      updatePending: async (input: {
+        id: string;
+        caption?: string;
+        imageUrls?: string[];
+      }): Promise<
+        | { ok: true; removedImageUrls: string[] }
+        | { ok: false; reason: "not_found" | "not_pending" }
+      > => {
         const post = await db.post.findFirst({
-          where: { id, agencyId },
-          select: { status: true },
+          where: { id: input.id, agencyId },
+          select: { status: true, images: { select: { url: true }, orderBy: { sortOrder: "asc" } } },
         });
         if (!post) return { ok: false, reason: "not_found" };
         if (post.status !== "pending") return { ok: false, reason: "not_pending" };
 
-        const result = await db.post.updateMany({
-          where: { id, agencyId, status: "pending" },
-          data: { caption },
+        const replacingImages = input.imageUrls !== undefined;
+        const committed = await db.$transaction(async (tx) => {
+          // Araya giren bir onay/red yarışı: satır eşleşmediyse artık pending değil.
+          const result = await tx.post.updateMany({
+            where: { id: input.id, agencyId, status: "pending" },
+            data: input.caption === undefined ? {} : { caption: input.caption },
+          });
+          if (result.count === 0) return false;
+
+          if (replacingImages) {
+            await tx.postImage.deleteMany({ where: { postId: input.id } });
+            await tx.postImage.createMany({
+              data: input.imageUrls!.map((url, index) => ({
+                postId: input.id,
+                url,
+                sortOrder: index,
+              })),
+            });
+          }
+          return true;
         });
-        // Araya giren bir onay/red yarışı: satır eşleşmediyse artık pending değil.
-        return result.count === 1 ? { ok: true } : { ok: false, reason: "not_pending" };
+
+        if (!committed) return { ok: false, reason: "not_pending" };
+        return {
+          ok: true,
+          removedImageUrls: replacingImages ? post.images.map((image) => image.url) : [],
+        };
       },
 
       /**

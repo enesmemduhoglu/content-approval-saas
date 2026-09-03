@@ -173,7 +173,7 @@ describe("Dashboard revizyon turu (F10)", () => {
     // Buton değil LİNK: düzeltme ayrı bir sayfada yapılıyor (görsel de
     // değiştirilebilsin diye), satır içi kutuda değil.
     const link = screen.getByRole("link", { name: "Düzeltip tekrar gönder" });
-    expect(link.getAttribute("href")).toBe("/posts/p1/revise");
+    expect(link.getAttribute("href")).toBe("/posts/p1/edit");
   });
 
   it("müşteri ne istediğini yazmadıysa panel bunu dürüstçe söyler", async () => {
