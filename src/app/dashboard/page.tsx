@@ -157,7 +157,6 @@ export default async function DashboardPage() {
                     publishStatus={post.publishStatus}
                     caption={post.caption}
                     linkExpiresAt={post.approvalLink?.expiresAt.toISOString() ?? null}
-                    revisionRequest={openRequest?.message ?? null}
                   />
                 </div>
               </li>

@@ -828,3 +828,38 @@ button:disabled {
   background: var(--color-warning-soft);
   color: var(--color-warning-text);
 }
+
+/* --- Revizyon sayfası (F10) --- */
+/* Mevcut medya, formun ÜSTÜNDE ve küçük: ajansın burada yaptığı iş görseli
+   incelemek değil, neyin yerine ne koyacağına karar vermek. Tam boy önizleme
+   müşterinin onay sayfasının işi. */
+.revise-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.revise-thumb {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+}
+
+.revise-video {
+  width: 100%;
+  max-width: 320px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+}
+
+/* Form içindeki linkler buton görünüyor ama `a` etiketi; buton kuralları
+   yalnızca `button`a inline hizalama veriyor. */
+.form a.button-primary,
+.form a.button-secondary,
+.page-head a.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

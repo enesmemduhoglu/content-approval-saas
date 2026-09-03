@@ -338,6 +338,36 @@ export function getScopedDb(session: ScopedSession) {
         }),
 
       /**
+       * Revizyon sayfasının okuması (F10): ajans postu düzeltirken müşterinin
+       * ne istediğini, o an yayında olan görselleri ve turun geçmişini bir
+       * arada görmeli. `findByIdWithClientAndLink` yetmez (görsel ve zincir
+       * taşımıyor), dashboard'ın `findManyWithRelations`ı ise tek post için
+       * ajansın TÜM postlarını çekerdi.
+       *
+       * `client` dar `select`li — bu ekranın müşteriden ihtiyacı yalnızca ad.
+       */
+      findByIdForRevision: (id: string) =>
+        db.post.findFirst({
+          where: { id, agencyId },
+          include: {
+            client: { select: { id: true, name: true } },
+            images: { orderBy: { sortOrder: "asc" } },
+            revisions: {
+              select: {
+                id: true,
+                round: true,
+                actor: true,
+                event: true,
+                message: true,
+                caption: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        }),
+
+      /**
        * Onay linkini yeniler: YENİ token + yeni son kullanma tarihi (F1).
        * Eski token o anda ölür — süresi dolmuş bir linki paylaşmaya devam etmek
        * ya da iki geçerli linkin dolaşımda kalması istenmez.

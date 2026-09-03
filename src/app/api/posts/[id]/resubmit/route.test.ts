@@ -12,12 +12,17 @@ vi.mock("@/lib/auth", () => ({
 // geçtiğini) bu mock'un çağrılmış olması kanıtlıyor.
 vi.mock("@/lib/email", () => ({ sendRevisedPostEmail: vi.fn() }));
 
-// Blob temizliği ağ istemesin; görsel değişiminde çağrıldığı ayrıca denetlenir.
-vi.mock("@/lib/blob", () => ({ deletePostImages: vi.fn() }));
+// Blob ağ istemesin; hem temizliğin hem yüklemenin çağrıldığı ayrıca denetlenir.
+// `InvalidImageError` gerçek bir sınıf olmalı — route `instanceof` ile bakıyor.
+vi.mock("@/lib/blob", () => ({
+  deletePostImages: vi.fn(),
+  uploadPostImage: vi.fn(),
+  InvalidImageError: class InvalidImageError extends Error {},
+}));
 
 import { POST } from "./route";
 import { auth } from "@/lib/auth";
-import { deletePostImages } from "@/lib/blob";
+import { deletePostImages, InvalidImageError, uploadPostImage } from "@/lib/blob";
 import { db } from "@/lib/db";
 import { sendRevisedPostEmail } from "@/lib/email";
 import {
@@ -31,6 +36,28 @@ import {
 const mockAuth = vi.mocked(auth);
 const mockEmail = vi.mocked(sendRevisedPostEmail);
 const mockDeleteImages = vi.mocked(deletePostImages);
+const mockUpload = vi.mocked(uploadPostImage);
+
+/** Panel yolu: `multipart/form-data`. Dosya boyu 0'dan büyük olmalı — sıfır
+ *  baytlık File "alan boş gönderildi" demek ve sunucu onu görmezden gelir. */
+function formRequest(fields: {
+  caption?: string;
+  message?: string;
+  files?: { name: string; bytes?: string }[];
+  origin?: string;
+}) {
+  const body = new FormData();
+  if (fields.caption !== undefined) body.set("caption", fields.caption);
+  if (fields.message !== undefined) body.set("message", fields.message);
+  for (const file of fields.files ?? []) {
+    body.append("image", new File([file.bytes ?? "jpegbytes"], file.name, { type: "image/jpeg" }));
+  }
+  return new Request("http://localhost/api/posts/x/resubmit", {
+    method: "POST",
+    headers: fields.origin ? { origin: fields.origin } : undefined,
+    body,
+  });
+}
 
 function params(id: string) {
   return { params: Promise.resolve({ id }) };
@@ -61,6 +88,8 @@ beforeEach(async () => {
   mockEmail.mockResolvedValue({ sent: true });
   mockDeleteImages.mockReset();
   mockDeleteImages.mockResolvedValue(undefined);
+  mockUpload.mockReset();
+  mockUpload.mockImplementation(async (file: File) => `https://blob.test/${file.name}`);
 });
 
 describe("POST /api/posts/[id]/resubmit", () => {
@@ -307,6 +336,91 @@ describe("POST /api/posts/[id]/resubmit", () => {
     expect(updated?.approvalEmailError).toBe("domain doğrulanmadı");
     // Mail gitmese bile revizyon gerçekten gitti — durum geri alınmaz.
     expect(updated?.status).toBe("pending");
+  });
+
+  it("panel formu dosya yükleyerek görselleri değiştirir", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createRevisionRequestedPost(agency.id, client.id);
+    await db.postImage.deleteMany({ where: { postId: post.id } });
+    await db.postImage.create({
+      data: { postId: post.id, url: "https://eski.example.com/a.jpg", sortOrder: 0 },
+    });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(
+      formRequest({
+        caption: "yeni metin",
+        message: "Görseli değiştirdim",
+        files: [{ name: "1.jpg" }, { name: "2.jpg" }],
+      }),
+      params(post.id)
+    );
+    expect(res.status).toBe(200);
+
+    const images = await db.postImage.findMany({
+      where: { postId: post.id },
+      orderBy: { sortOrder: "asc" },
+    });
+    expect(images.map((image) => image.url)).toEqual([
+      "https://blob.test/1.jpg",
+      "https://blob.test/2.jpg",
+    ]);
+    expect(mockDeleteImages).toHaveBeenCalledWith(["https://eski.example.com/a.jpg"]);
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.caption).toBe("yeni metin");
+    expect(updated?.status).toBe("pending");
+  });
+
+  it("form dosyasız gelirse görseller korunur — 'sadece metni düzelttim' hâli", async () => {
+    const { post } = await seed();
+    const res = await POST(formRequest({ caption: "sadece metin" }), params(post.id));
+    expect(res.status).toBe(200);
+    expect(mockUpload).not.toHaveBeenCalled();
+
+    const images = await db.postImage.findMany({ where: { postId: post.id } });
+    expect(images).toHaveLength(1);
+    expect(mockDeleteImages).toHaveBeenCalledWith([]);
+  });
+
+  it("revizyon beklemeyen posta dosya yüklenmez — 409 Blob'a yazmadan döner", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await POST(
+      formRequest({ caption: "yeni", files: [{ name: "1.jpg" }] }),
+      params(post.id)
+    );
+    expect(res.status).toBe(409);
+    // Asıl mesele: sahipsiz dosya kalmasın.
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
+  it("yabancı Origin 403 alır — panel yolu CSRF'e açık bırakılmaz", async () => {
+    const { post } = await seed();
+    const res = await POST(
+      formRequest({ caption: "yeni", origin: "https://kotu.example.com" }),
+      params(post.id)
+    );
+    expect(res.status).toBe(403);
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.status).toBe("revision_requested");
+  });
+
+  it("bozuk görsel 400 alır ve post revizyonda kalır", async () => {
+    const { post } = await seed();
+    mockUpload.mockRejectedValue(new InvalidImageError("Görsel JPEG/PNG/WebP olmalı"));
+
+    const res = await POST(
+      formRequest({ caption: "yeni", files: [{ name: "kotu.txt" }] }),
+      params(post.id)
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ field: "image" });
+    const updated = await db.post.findUnique({ where: { id: post.id } });
+    expect(updated?.status).toBe("revision_requested");
   });
 
   it("mail yolu throw etse bile revizyon ayakta kalır", async () => {

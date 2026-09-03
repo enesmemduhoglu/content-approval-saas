@@ -170,7 +170,10 @@ describe("Dashboard revizyon turu (F10)", () => {
     expect(screen.queryByText("Reddedildi")).toBeNull();
     // İki yerde birden: satırın üstünde açık uyarı + katlı revizyon zinciri.
     expect(screen.getAllByText(/İkinci cümleyi yumuşat/).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Düzeltip tekrar gönder" })).toBeTruthy();
+    // Buton değil LİNK: düzeltme ayrı bir sayfada yapılıyor (görsel de
+    // değiştirilebilsin diye), satır içi kutuda değil.
+    const link = screen.getByRole("link", { name: "Düzeltip tekrar gönder" });
+    expect(link.getAttribute("href")).toBe("/posts/p1/revise");
   });
 
   it("müşteri ne istediğini yazmadıysa panel bunu dürüstçe söyler", async () => {
