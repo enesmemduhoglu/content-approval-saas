@@ -1,35 +1,45 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 type FormError = { field?: string; message: string };
 
+/**
+ * `edit` sessiz düzeltme (PATCH), `revise` revizyon turunun kapanışı
+ * (resubmit + müşteriye mail). Aynı form, farklı SONUÇ — bu yüzden mod
+ * gövdede değil prop'ta: hangi işi yaptığını sayfa biliyor, kullanıcı da
+ * butonun üstünde okuyor.
+ */
+type Mode = "edit" | "revise";
+
 type Props = {
   postId: string;
+  mode: Mode;
   caption: string;
   images: { id: string; url: string }[];
 };
 
 /**
- * Revizyon formu (F10) — post oluşturma formunun eşi, alanları aynı sırada.
+ * Post düzenleme formu — post oluşturma formunun eşi, alanları aynı sırada.
  *
  * Gövde `multipart/form-data`: ajans dosya yükleyebilsin diye. Dosya
  * seçilmezse alan boş gider ve sunucu görsellere DOKUNMAZ — "sadece metni
- * düzelttim" en sık senaryo, onu dosya seçmeye zorlamak turu ağırlaştırırdı.
+ * düzelttim" en sık senaryo, onu dosya seçmeye zorlamak işi ağırlaştırırdı.
  *
- * Başarıdan sonra otomatik yönlendirme YOK: mailin akıbeti (F5) bu ekranda
- * söylenmeli, panele atlayan bir kullanıcı "müşteriye gitti mi" sorusunu
- * kaybederdi.
+ * Başarıdan sonra `router.refresh()` YOK: tazeleme sunucu bileşenini yeniden
+ * çizerdi, post artık `pending` olduğu için sayfa "bu post revizyon
+ * beklemiyor" moduna düşer ve başarı mesajının yerini bu yanlış uyarı alırdı
+ * (işlem gerçekleşmişken hata görüntüsü). Panel `force-dynamic`, kullanıcı
+ * döndüğünde zaten güncel.
  */
-export function ReviseForm({ postId, caption, images }: Props) {
+export function PostEditor({ postId, mode, caption, images }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<FormError | null>(null);
-  const [done, setDone] = useState<{ emailSent: boolean; emailError?: string } | null>(null);
+  const [done, setDone] = useState<{ emailSent?: boolean; emailError?: string } | null>(null);
   const [replacing, setReplacing] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
-  const router = useRouter();
+
+  const revising = mode === "revise";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,19 +47,16 @@ export function ReviseForm({ postId, caption, images }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/posts/${postId}/resubmit`, {
-        method: "POST",
-        body: new FormData(event.currentTarget),
-      });
+      const res = await fetch(
+        revising ? `/api/posts/${postId}/resubmit` : `/api/posts/${postId}`,
+        { method: revising ? "POST" : "PATCH", body: new FormData(event.currentTarget) }
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError({ field: data.field, message: data.error ?? "Bir hata oluştu, tekrar deneyin" });
         return;
       }
-      setDone({ emailSent: data.emailSent === true, emailError: data.emailError });
-      // Panel bu postu artık "onay bekliyor" olarak göstermeli; kullanıcı
-      // dönmeden önce arka planda tazelenmiş olsun.
-      router.refresh();
+      setDone(revising ? { emailSent: data.emailSent === true, emailError: data.emailError } : {});
     } catch {
       setError({ message: "Bir hata oluştu, tekrar deneyin" });
     } finally {
@@ -61,11 +68,13 @@ export function ReviseForm({ postId, caption, images }: Props) {
     return (
       <div className="card form">
         <p role="status">
-          {done.emailSent
-            ? "Post onaya geri gönderildi, müşteriye e-posta gitti."
-            : `Post onaya geri gönderildi ama müşteriye e-posta GİTMEDİ${
-                done.emailError ? `: ${done.emailError}` : ""
-              }. Panelden onay linkini kopyalayıp elle iletebilirsin.`}
+          {!revising
+            ? "Değişiklikler kaydedildi. Müşteriye mail gitmedi — post onay bekliyor."
+            : done.emailSent
+              ? "Post onaya geri gönderildi, müşteriye e-posta gitti."
+              : `Post onaya geri gönderildi ama müşteriye e-posta GİTMEDİ${
+                  done.emailError ? `: ${done.emailError}` : ""
+                }. Panelden onay sayfasını açıp linki elle iletebilirsin.`}
         </p>
         <Link className="button-primary" href="/dashboard">
           Panele dön
@@ -75,9 +84,9 @@ export function ReviseForm({ postId, caption, images }: Props) {
   }
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className="card form" encType="multipart/form-data">
-      {/* Müşterinin gördüğü hâl: ajans neyi değiştirdiğine bakarak karar
-          versin, başka sekmede onay sayfasını açmak zorunda kalmasın. */}
+    <form onSubmit={handleSubmit} className="card form" encType="multipart/form-data">
+      {/* Postun o anki hâli: ajans neyi değiştirdiğine bakarak karar versin,
+          başka sekmede onay sayfasını açmak zorunda kalmasın. */}
       <div className="revise-media">
         {images.map((image, index) => (
           // eslint-disable-next-line @next/next/no-img-element
@@ -125,14 +134,23 @@ export function ReviseForm({ postId, caption, images }: Props) {
         />
       </label>
       {error?.field === "caption" && <p className="field-error">{error.message}</p>}
-      <label>
-        Müşteriye not (opsiyonel): ne değiştirdin?
-        <textarea name="message" maxLength={2000} rows={3} aria-label="Müşteriye not" />
-      </label>
+      {/* Not alanı yalnızca revizyonda: sessiz düzeltmede kimseye gitmez. */}
+      {revising && (
+        <label>
+          Müşteriye not (opsiyonel): ne değiştirdin?
+          <textarea name="message" maxLength={2000} rows={3} aria-label="Müşteriye not" />
+        </label>
+      )}
       {error && !error.field && <p className="field-error">{error.message}</p>}
       <div className="form-actions">
         <button type="submit" className="button-primary" disabled={submitting}>
-          {submitting ? "Gönderiliyor…" : "Onaya geri gönder"}
+          {submitting
+            ? revising
+              ? "Gönderiliyor…"
+              : "Kaydediliyor…"
+            : revising
+              ? "Onaya geri gönder"
+              : "Kaydet"}
         </button>
         <Link className="button-secondary" href="/dashboard">
           Vazgeç

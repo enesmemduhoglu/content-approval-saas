@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { deletePostImages } from "@/lib/blob";
+import { deletePostImages, InvalidImageError, uploadPostImage } from "@/lib/blob";
 import { checkOrigin } from "@/lib/origin";
 import { getScopedDb } from "@/lib/scoped-db";
-import { validateCaption } from "@/lib/validation";
+import { MAX_IMAGES_PER_POST, validateCaption } from "@/lib/validation";
 
 /**
  * Post düzenleme ve silme (F2).
@@ -16,14 +16,70 @@ import { validateCaption } from "@/lib/validation";
  * Kapsam `getScopedDb` üzerinden: `id` istekten gelse de her sorgu oturumdaki
  * `agencyId` ile filtrelenir, başka ajansın postu 404 alır.
  *
- * Kapsam dışı bırakılanlar (bilinçli):
- * • Görsel değiştirme — yeni yükleme + eski blob temizliği + sıra yönetimi
- *   demek; caption düzeltmesiyle aynı PR'a sığmaz. Görsel yanlışsa post silinip
- *   yeniden oluşturulur.
- * • Yayınlanmış postu silme — aşağıda gerekçesiyle reddediliyor.
+ * PATCH iki gövde şekli kabul eder: JSON (`{ caption }`) ve panel düzenleme
+ * sayfasının `multipart/form-data`sı (`caption` + `image` dosyaları). Görsel
+ * değiştirme sonradan açıldı — "yanlış görselle oluşan postu silip yeniden
+ * oluştur" tavsiyesi, onay bekleyen postta linki de öldürdüğü için pratikte
+ * kimsenin yapmadığı bir işti.
+ *
+ * Kapsam dışı bırakılan (bilinçli): yayınlanmış postu silme — aşağıda
+ * gerekçesiyle reddediliyor.
  */
 
 type RouteParams = { params: Promise<{ id: string }> };
+
+/** Aynı 409 iki yerden dönüyor: yükleme öncesi ön kontrol ve koşullu UPDATE. */
+const NOT_PENDING_ERROR =
+  "Bu posta karar verilmiş; metni artık değiştirilemez. Yeni bir post oluştur.";
+
+function badRequest(error: string, field?: string, status = 400) {
+  return NextResponse.json({ error, field }, { status });
+}
+
+/** İki gövde şeklinin ortak çıktısı; `undefined` = "bu alana dokunma". */
+type ParsedPatch = { caption?: string; files?: File[] };
+
+async function parsePatchBody(request: Request): Promise<ParsedPatch | NextResponse> {
+  const isJson = (request.headers.get("content-type") ?? "").includes("application/json");
+  if (isJson) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return badRequest("Geçersiz istek");
+    }
+    const { caption } = (body ?? {}) as { caption?: unknown };
+    const captionError = validateCaption(caption);
+    if (captionError) return badRequest(captionError, "caption");
+    return { caption: (caption as string).trim() };
+  }
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return badRequest("Geçersiz istek");
+  }
+  const caption = formData.get("caption");
+  // Boş dosya alanı "görselleri değiştirmiyorum" demek — form her göndermede
+  // alanı taşıdığı için dosyasız istek mevcut görselleri SİLMEZ.
+  const files = formData
+    .getAll("image")
+    .filter((item): item is File => item instanceof File && item.size > 0);
+
+  if (caption !== null) {
+    const captionError = validateCaption(caption);
+    if (captionError) return badRequest(captionError, "caption");
+  }
+  if (files.length > MAX_IMAGES_PER_POST) {
+    return badRequest(`En fazla ${MAX_IMAGES_PER_POST} görsel yükleyebilirsin`, "image");
+  }
+
+  return {
+    caption: caption === null ? undefined : (caption as string).trim(),
+    files: files.length > 0 ? files : undefined,
+  };
+}
 
 export async function PATCH(request: Request, { params }: RouteParams) {
   const session = await auth();
@@ -38,24 +94,42 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: originCheck.message }, { status: 403 });
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Geçersiz istek" }, { status: 400 });
-  }
-
-  const { caption } = (body ?? {}) as { caption?: unknown };
-  const captionError = validateCaption(caption);
-  if (captionError) {
-    return NextResponse.json({ error: captionError, field: "caption" }, { status: 400 });
-  }
+  const parsed = await parsePatchBody(request);
+  if (parsed instanceof NextResponse) return parsed;
 
   const { id } = await params;
-  const result = await getScopedDb(session).posts.updateCaption(
-    id,
-    (caption as string).trim()
-  );
+  const scoped = getScopedDb(session);
+
+  // Yükleme ÖNCESİ durum kontrolü: 409 dönecek istek Blob'a hiç yazmasın,
+  // yoksa reddedilen düzenleme arkasında sahipsiz dosya bırakırdı. Yarışı bu
+  // kontrol değil, `updatePending`in koşullu UPDATE'i kapatıyor.
+  if (parsed.files) {
+    const current = await scoped.posts.findById(id);
+    if (!current) {
+      return NextResponse.json({ error: "Bu post bulunamadı" }, { status: 404 });
+    }
+    if (current.status !== "pending") {
+      return NextResponse.json({ error: NOT_PENDING_ERROR }, { status: 409 });
+    }
+  }
+
+  let imageUrls: string[] | undefined;
+  if (parsed.files) {
+    try {
+      imageUrls = [];
+      for (const image of parsed.files) {
+        imageUrls.push(await uploadPostImage(image));
+      }
+    } catch (error) {
+      if (error instanceof InvalidImageError) {
+        return badRequest(error.message, "image");
+      }
+      console.error("[posts] görsel yükleme hatası:", error);
+      return badRequest("Görsel yüklenemedi, tekrar deneyin", "image");
+    }
+  }
+
+  const result = await scoped.posts.updatePending({ id, caption: parsed.caption, imageUrls });
 
   if (!result.ok) {
     if (result.reason === "not_found") {
@@ -63,14 +137,12 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     }
     // Karar verilmiş postun metnini değiştirmek, müşterinin onayladığı şeyle
     // kayıttaki şeyi ayırırdı — onay kaydını sessizce yalan hâline getirirdi.
-    return NextResponse.json(
-      {
-        error:
-          "Bu posta karar verilmiş; metni artık değiştirilemez. Yeni bir post oluştur.",
-      },
-      { status: 409 }
-    );
+    return NextResponse.json({ error: NOT_PENDING_ERROR }, { status: 409 });
   }
+
+  // Yerini kaybeden görseller DB yazmasından SONRA ve best-effort siliniyor
+  // (F13 deseni): dosya kalsa bile düzenleme gerçekten kaydedildi.
+  await deletePostImages(result.removedImageUrls);
 
   return NextResponse.json({ ok: true });
 }

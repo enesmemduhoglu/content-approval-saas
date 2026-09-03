@@ -25,7 +25,7 @@ vi.mock("@/lib/scoped-db", () => ({
   }),
 }));
 
-import RevisePage from "./page";
+import EditPostPage from "./page";
 
 function postKaydi(overrides: Record<string, unknown> = {}) {
   return {
@@ -52,15 +52,15 @@ function postKaydi(overrides: Record<string, unknown> = {}) {
 }
 
 function render_(id = "p1") {
-  return RevisePage({ params: Promise.resolve({ id }) });
+  return EditPostPage({ params: Promise.resolve({ id }) });
 }
 
 beforeEach(() => {
   post = postKaydi();
 });
 
-describe("Revizyon sayfası", () => {
-  it("müşterinin isteğini, mevcut görseli ve metni bir arada gösterir", async () => {
+describe("Post düzenleme sayfası", () => {
+  it("revizyonda müşterinin isteğini, mevcut görseli ve metni bir arada gösterir", async () => {
     render(await render_());
 
     // İki yerde: formun üstündeki açık istek + katlı revizyon zinciri.
@@ -83,11 +83,23 @@ describe("Revizyon sayfası", () => {
     expect(input.multiple).toBe(true);
   });
 
-  it("revizyon beklemeyen postta form hiç çizilmez", async () => {
-    post = postKaydi({ status: "pending" });
+  it("onay bekleyen postta SESSİZ düzeltme modu açılır", async () => {
+    post = postKaydi({ status: "pending", revisions: [] });
     render(await render_());
 
-    expect(screen.getByText("Bu post revizyon beklemiyor")).toBeTruthy();
+    // Aynı form, farklı sonuç: mail attırmayan bir kaydetme.
+    expect(screen.getByRole("button", { name: "Kaydet" })).toBeTruthy();
+    expect(screen.getByText(/müşteriye mail attırmaz/)).toBeTruthy();
+    // Not alanı yalnızca revizyonda anlamlı — sessiz düzeltmede kimseye gitmez.
+    expect(screen.queryByLabelText("Müşteriye not")).toBeNull();
+    expect(screen.getByLabelText("Post metni")).toBeTruthy();
+  });
+
+  it("karar verilmiş postta form hiç çizilmez", async () => {
+    post = postKaydi({ status: "approved" });
+    render(await render_());
+
+    expect(screen.getByText("Bu post düzenlenemez")).toBeTruthy();
     expect(screen.queryByLabelText("Post metni")).toBeNull();
   });
 
@@ -95,7 +107,7 @@ describe("Revizyon sayfası", () => {
     post = postKaydi({ publishStatus: "published" });
     render(await render_());
 
-    expect(screen.getByText("Yayınlanmış post revize edilemez")).toBeTruthy();
+    expect(screen.getByText("Yayınlanmış post düzenlenemez")).toBeTruthy();
     expect(screen.queryByLabelText("Post metni")).toBeNull();
   });
 
