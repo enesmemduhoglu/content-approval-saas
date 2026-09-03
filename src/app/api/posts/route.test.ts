@@ -567,6 +567,76 @@ describe("POST /api/posts — JSON yolu (makine erişimi)", () => {
     expect(await db.post.count()).toBe(0);
   });
 
+  /* ─── Video (Reels) ──────────────────────────────────────────────────── */
+
+  const VIDEO_URL = "https://abc123.public.blob.vercel-storage.com/videos/a.mp4";
+
+  it("videoUrl ile post oluşturur — görsel satırı yaratılmaz", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    enableApiKey(agency.id);
+
+    const res = await POST(
+      jsonRequest({
+        clientId: client.id,
+        caption: "Reel postu",
+        videoUrl: VIDEO_URL,
+        externalRef: "reels/ingilizce-3-ipucu",
+      })
+    );
+    expect(res.status).toBe(201);
+
+    const post = await db.post.findFirst({ include: { images: true } });
+    expect(post?.videoUrl).toBe(VIDEO_URL);
+    // Karusel tablosuna hiç satır düşmemeli: bir Reel tek medyadır.
+    expect(post?.images).toHaveLength(0);
+    expect(post?.externalRef).toBe("reels/ingilizce-3-ipucu");
+  });
+
+  it("ikisi birden gönderilirse 400 — hangisinin yayınlanacağı belirsiz kalmaz", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    enableApiKey(agency.id);
+
+    const res = await POST(
+      jsonRequest({
+        clientId: client.id,
+        caption: "İkisi birden",
+        imageUrls: ["https://raw.githubusercontent.com/a/1.jpg"],
+        videoUrl: VIDEO_URL,
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(await db.post.count()).toBe(0);
+  });
+
+  it("ikisi de yoksa 400 — medyasız post oluşmaz", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    enableApiKey(agency.id);
+
+    const res = await POST(jsonRequest({ clientId: client.id, caption: "Medyasız" }));
+    expect(res.status).toBe(400);
+    expect(await db.post.count()).toBe(0);
+  });
+
+  it("allowlist dışı video host'u 400 ile reddedilir", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    enableApiKey(agency.id);
+
+    const res = await POST(
+      jsonRequest({
+        clientId: client.id,
+        caption: "Kötü host",
+        videoUrl: "https://evil.example.com/a.mp4",
+      })
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe("videoUrl");
+    expect(await db.post.count()).toBe(0);
+  });
+
   it("11 URL 400 ile reddedilir", async () => {
     const agency = await createAgency();
     const client = await createClient(agency.id);

@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+// Host soneki `validation.ts`'te duruyor: video allowlist'i de aynı bilgiyi
+// kullanıyor ve o dosyanın hiç bağımlılığı yok. Ters yönde import, bu
+// dosyadaki `node:fs`'i validasyonu içeri alan her yere taşırdı.
+import { BLOB_HOST_SUFFIX } from "@/lib/validation";
 
 export const ALLOWED_IMAGE_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -96,9 +100,6 @@ export async function uploadPostImage(file: File): Promise<string> {
   const blob = await put(`posts/${filename}`, Buffer.from(bytes), { access: "public" });
   return blob.url;
 }
-
-/** Vercel Blob'un servis ettiği host — `put()` bu alan adında URL üretir. */
-const BLOB_HOST_SUFFIX = ".public.blob.vercel-storage.com";
 
 /**
  * Bir görsel URL'i BİZİM yüklediğimiz blob mu?

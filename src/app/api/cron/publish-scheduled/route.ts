@@ -3,7 +3,7 @@ import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
 import { notifyAgencyTeam } from "@/lib/agency-notify";
-import { publishApprovedPost } from "@/lib/publish-post";
+import { findStuckVideoPublishes, publishApprovedPost, resumePublish } from "@/lib/publish-post";
 
 /**
  * Zamanlanmış yayın (F8): `publishAt` zamanı gelmiş, onaylanmış ama henüz
@@ -45,6 +45,13 @@ export const maxDuration = 60;
 const RUN_LIMIT = 5;
 const TIME_BUDGET_MS = 50_000;
 
+/**
+ * Bir video yayını bu süredir bitmemişse takılmış sayılır ve cron devralır.
+ * Taze container'lar dışarıda kalır: o an onay sayfasında süren yoklamayla
+ * yarışmanın anlamı yok, ikisi aynı container'ı yayınlamaya çalışırdı.
+ */
+const STUCK_AFTER_MS = 10 * 60_000;
+
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) {
@@ -83,10 +90,44 @@ export async function GET(request: Request) {
       },
     });
 
+    // Emniyet ağı: container'ı açılmış ama yayını bitmemiş VİDEO postları.
+    //
+    // Hızlı yol onay sayfasının yoklaması (`api/approve/[token]/publish-status`);
+    // buradaki tur yalnızca tarayıcı kapandığında devreye giriyor. Hobby planı
+    // cron'ları günde bire sınırladığı için bu ağ YAVAŞ — amacı yayını zamanında
+    // yapmak değil, postun sonsuza kadar `publishing`de asılı kalmamasını
+    // garanti etmek.
+    const stuck = await findStuckVideoPublishes({
+      stuckAfterMs: STUCK_AFTER_MS,
+      take: RUN_LIMIT,
+    });
+
     let published = 0;
     let skipped = 0;
     let failed = 0;
     let deferred = 0;
+    let resumed = 0;
+
+    for (const post of stuck) {
+      if (Date.now() - start > TIME_BUDGET_MS) break;
+      try {
+        const outcome = await resumePublish(post.id);
+        if (outcome.publishStatus === "published") {
+          published += 1;
+          await notifyAgency(post, outcome);
+        } else if (outcome.publishStatus === "publishing") {
+          // Instagram hâlâ işliyor. Bildirim YOK: henüz anlatacak bir sonuç yok
+          // ve her koşuda mail atmak gürültüden ibaret olurdu.
+          resumed += 1;
+        } else {
+          failed += 1;
+          await notifyAgency(post, outcome);
+        }
+      } catch (error) {
+        failed += 1;
+        console.error(`[cron:publish-scheduled] ${post.id} devam ettirilemedi:`, error);
+      }
+    }
 
     for (const post of due) {
       // Zaman bütçesi doldu: kalanlar hiç DENENMEDEN bir sonraki koşuya
@@ -112,7 +153,16 @@ export async function GET(request: Request) {
     }
 
     // Yanıt yalnızca SAYI taşır — caption/müşteri bilgisi sızmaz.
-    return NextResponse.json({ ok: true, checked: due.length, published, skipped, failed, deferred });
+    return NextResponse.json({
+      ok: true,
+      checked: due.length,
+      stuckVideos: stuck.length,
+      published,
+      skipped,
+      failed,
+      deferred,
+      resumed,
+    });
   } catch (error) {
     console.error("[cron:publish-scheduled] cron çöktü:", error);
     await sendAlert(

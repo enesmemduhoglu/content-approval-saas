@@ -8,6 +8,27 @@ export const MAX_IMAGES_PER_POST = 10;
  */
 export const ALLOWED_IMAGE_URL_HOSTS = ["raw.githubusercontent.com"];
 
+/**
+ * Vercel Blob'un servis ettiği host soneki — `put()` ve presigned yükleme bu
+ * alan adında URL üretir. Store başına ayrı bir alt alan adı olduğu için
+ * (`<storeId>.public.blob…`) tam eşleşme değil, sonek kontrolü yapılır.
+ *
+ * `validation.ts`'te duruyor çünkü hem `blob.ts` (kendi dosyamız mı, silelim mi)
+ * hem de aşağıdaki video allowlist'i aynı bilgiye ihtiyaç duyuyor ve bu dosyanın
+ * hiç bağımlılığı yok — tersi yönde import, `node:fs`'i validasyonu içeri alan
+ * her yere taşırdı.
+ */
+export const BLOB_HOST_SUFFIX = ".public.blob.vercel-storage.com";
+
+/** Reels videosu için azami boyut. Instagram'ın kendi tavanı 1GB. */
+export const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
+
+/** Presigned yükleme ve `videoUrl` doğrulamasının kabul ettiği video tipleri. */
+export const ALLOWED_VIDEO_TYPES: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+};
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function validateCaption(value: unknown): string | null {
@@ -48,6 +69,77 @@ export function validateImageUrls(value: unknown): string | null {
     if (!ALLOWED_IMAGE_URL_HOSTS.includes(url.hostname)) {
       return `Bu host'tan görsel kabul edilmiyor: ${url.hostname}`;
     }
+  }
+  return null;
+}
+
+/**
+ * JSON gövdeyle gelen `videoUrl` alanını doğrular. Başarılıysa `null` döner.
+ *
+ * `validateImageUrls` ile aynı koruma mantığı — URL olduğu gibi `Post.videoUrl`'e
+ * yazılıp hem müşteriye hem Instagram'a servis edileceği için host allowlist'i ve
+ * https zorunluluğu tek katman. Görselden farkı: Blob host'u da kabul edilir,
+ * çünkü video git'e girmiyor (repo'yu şişirirdi) ve presigned yüklemeyle Blob'a
+ * çıkıyor. Uzantı kontrolü ek bir kaba eleme; Instagram yine de kendi
+ * doğrulamasını container aşamasında yapar.
+ */
+export function validateVideoUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return "Video URL'i metin olmalı";
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return `Geçersiz video URL'i: ${value}`;
+  }
+  if (url.protocol !== "https:") {
+    return `Video URL'i https olmalı: ${value}`;
+  }
+  const hostOk =
+    ALLOWED_IMAGE_URL_HOSTS.includes(url.hostname) ||
+    url.hostname.endsWith(BLOB_HOST_SUFFIX);
+  if (!hostOk) {
+    return `Bu host'tan video kabul edilmiyor: ${url.hostname}`;
+  }
+  if (!/\.(mp4|mov)$/i.test(url.pathname)) {
+    return "Video URL'i .mp4 ya da .mov ile bitmeli";
+  }
+  return null;
+}
+
+/**
+ * Bir postun medyası: ya görsel(ler) ya bir video — TAM OLARAK biri.
+ *
+ * Şema bu kısıtı ifade edemiyor (`videoUrl` nullable bir kolon, `images` ayrı
+ * bir tablo), o yüzden kapı burası. İkisi birden gelirse hangisinin
+ * yayınlanacağı `publish-post.ts`'in dallanma sırasına kalırdı — sessiz ve
+ * keyfi bir karar; ikisi de gelmezse post medyasız oluşturulup ancak yayın
+ * anında patlardı.
+ */
+export function validatePostMedia(imageUrls: unknown, videoUrl: unknown): string | null {
+  const hasImages = imageUrls !== undefined && imageUrls !== null;
+  const hasVideo = videoUrl !== undefined && videoUrl !== null;
+
+  if (hasImages && hasVideo) {
+    return "Bir post ya görsel ya video içerir — ikisi birden gönderilemez";
+  }
+  if (!hasImages && !hasVideo) {
+    return "Görsel URL'leri ya da bir video URL'i vermelisin";
+  }
+  return hasVideo ? validateVideoUrl(videoUrl) : validateImageUrls(imageUrls);
+}
+
+/** Presigned yükleme isteğinin beyan ettiği tip ve boyut kabul edilebilir mi. */
+export function validateVideoUpload(contentType: unknown, size: unknown): string | null {
+  if (typeof contentType !== "string" || !ALLOWED_VIDEO_TYPES[contentType]) {
+    return "Yalnızca video/mp4 ya da video/quicktime yüklenebilir";
+  }
+  if (typeof size !== "number" || !Number.isInteger(size) || size <= 0) {
+    return "Dosya boyutu pozitif bir tam sayı olmalı";
+  }
+  if (size > MAX_VIDEO_BYTES) {
+    return `Video en fazla ${Math.floor(MAX_VIDEO_BYTES / (1024 * 1024))}MB olabilir`;
   }
   return null;
 }

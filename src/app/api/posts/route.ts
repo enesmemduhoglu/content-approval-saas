@@ -11,7 +11,7 @@ import { maxPostsPerAgency, maxPostsPerDay, QUOTA_WINDOW_MS } from "@/lib/quota"
 import {
   MAX_IMAGES_PER_POST,
   validateCaption,
-  validateImageUrls,
+  validatePostMedia,
   validatePublishAt,
 } from "@/lib/validation";
 
@@ -30,8 +30,14 @@ export async function GET() {
 type ParsedBody = {
   caption: string;
   clientId: string;
-  /** JSON yolu: hazır URL'ler. Form yolu: yüklenecek dosyalar. */
-  images: { kind: "urls"; urls: string[] } | { kind: "files"; files: File[] };
+  /**
+   * JSON yolu: hazır URL'ler. Form yolu: yüklenecek dosyalar.
+   * `kind: "video"` tek bir Reel — karusel değil, bu yüzden ayrı bir dal.
+   */
+  images:
+    | { kind: "urls"; urls: string[] }
+    | { kind: "files"; files: File[] }
+    | { kind: "video"; url: string };
   altTexts?: (string | null)[];
   externalRef?: string | null;
   /** F8: doluysa ve onay anında gelecekteyse yayın crona bırakılır. */
@@ -53,10 +59,12 @@ async function parseJsonBody(request: Request): Promise<ParsedBody | NextRespons
   } catch {
     return badRequest("Geçersiz istek");
   }
-  const { caption, clientId, imageUrls, altTexts, externalRef, publishAt } = (body ?? {}) as {
+  const { caption, clientId, imageUrls, videoUrl, altTexts, externalRef, publishAt } = (body ??
+    {}) as {
     caption?: unknown;
     clientId?: unknown;
     imageUrls?: unknown;
+    videoUrl?: unknown;
     altTexts?: unknown;
     externalRef?: unknown;
     publishAt?: unknown;
@@ -67,8 +75,10 @@ async function parseJsonBody(request: Request): Promise<ParsedBody | NextRespons
   if (typeof clientId !== "string" || !clientId) {
     return badRequest("Müşteri seçmelisin", "clientId");
   }
-  const urlError = validateImageUrls(imageUrls);
-  if (urlError) return badRequest(urlError, "imageUrls");
+  // Görsel mi video mu — ikisinden tam biri. Hangi alanın hatalı olduğunu
+  // `field` ile söylemek makine tarafında (furi) teşhisi kolaylaştırıyor.
+  const mediaError = validatePostMedia(imageUrls, videoUrl);
+  if (mediaError) return badRequest(mediaError, videoUrl !== undefined ? "videoUrl" : "imageUrls");
   // F8: makine yolu (furi) UTC ISO string gönderir — Türkiye saati yorumu
   // yalnızca panel formunda gerekli, çünkü makine tarafı zaten UTC'ye çevirip yollar.
   const publishAtError = validatePublishAt(publishAt);
@@ -77,7 +87,10 @@ async function parseJsonBody(request: Request): Promise<ParsedBody | NextRespons
   return {
     caption: (caption as string).trim(),
     clientId,
-    images: { kind: "urls", urls: (imageUrls as string[]).map((url) => url.trim()) },
+    images:
+      typeof videoUrl === "string"
+        ? { kind: "video", url: videoUrl.trim() }
+        : { kind: "urls", urls: (imageUrls as string[]).map((url) => url.trim()) },
     altTexts: Array.isArray(altTexts)
       ? altTexts.map((item) => (typeof item === "string" && item.trim() ? item.trim() : null))
       : undefined,
@@ -197,8 +210,13 @@ export async function POST(request: Request) {
     );
   }
 
-  let imageUrls: string[];
-  if (parsed.images.kind === "urls") {
+  let imageUrls: string[] = [];
+  let videoUrl: string | null = null;
+  if (parsed.images.kind === "video") {
+    // Blob'a yükleme YOK: video zaten yüklenmiş halde geliyor (bkz.
+    // /api/media/upload-url) — burada yalnızca URL saklanıyor.
+    videoUrl = parsed.images.url;
+  } else if (parsed.images.kind === "urls") {
     imageUrls = parsed.images.urls;
   } else {
     try {
@@ -219,6 +237,7 @@ export async function POST(request: Request) {
     const { post, approvalLink } = await scoped.posts.createWithApprovalLink({
       clientId: parsed.clientId,
       imageUrls,
+      videoUrl,
       caption: parsed.caption,
       altTexts: parsed.altTexts,
       externalRef: parsed.externalRef,

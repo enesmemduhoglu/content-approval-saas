@@ -31,6 +31,11 @@ import type { NextConfig } from "next";
 //   görseli SESSİZCE kırar — ürünün tam kalbi. Sunucu tarafında zaten bir
 //   allowlist var (`validation.ts`), bu yüzden burada https: yeterli kabul
 //   edildi; `http:` ve `data:` dışı şemalar yine kapalı.
+//
+// • `media-src ... https:`: Reel videosu Vercel Blob'dan geliyor. AYRI bir
+//   direktif olmak ZORUNDA — tarayıcı `<video>` için `img-src`'ye bakmaz,
+//   `media-src` tanımsızsa `default-src 'self'`e düşer. Bu satır unutulduğunda
+//   hata sessiz: element kontrolleriyle çizilir, oynat tuşu hiçbir şey yapmaz.
 // Next.js'in DEV sunucusu HMR ve source map'ler için `eval()` kullanır. Bu izin
 // olmadan istemci JS'i hiç çalışmaz: sayfa sunucudan render olmuş görünür ama
 // hidrasyon sessizce ölür — butonlar tıklanır, hiçbir şey olmaz. (Tam olarak bu
@@ -43,6 +48,10 @@ const CSP = [
   `script-src 'self' 'unsafe-inline'${DEV_SCRIPT_SRC}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
+  // Reel videosu (Blob). 2026-08-29'da F14'ün ilk canlı denemesinde bu satır
+  // yoktu: <video> çizildi, oynatma olmadı, tek iz konsoldaki "Refused to load
+  // media" satırıydı — telefondan bakan müşteri onu göremez.
+  "media-src 'self' https:",
   "font-src 'self' data:",
   "connect-src 'self'",
   // `accounts.google.com` BURADA OLMAK ZORUNDA — yoksa panele giriş yapılamaz.

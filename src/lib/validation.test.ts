@@ -6,11 +6,15 @@ import {
   validateCaption,
   validateClientEmail,
   validateClientName,
+  MAX_VIDEO_BYTES,
   validateImageUrls,
   validateInstagramAccessToken,
   validateInstagramTokenExpiry,
   validateInstagramUserId,
+  validatePostMedia,
   validatePublishAt,
+  validateVideoUpload,
+  validateVideoUrl,
 } from "./validation";
 
 describe("validateImageUrls", () => {
@@ -171,5 +175,94 @@ describe("validatePublishAt", () => {
   it("makul gelecekteki tarihi kabul eder", () => {
     const yarin = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     expect(validatePublishAt(yarin)).toBeNull();
+  });
+});
+
+describe("validateVideoUrl", () => {
+  const blob = "https://abc123.public.blob.vercel-storage.com/videos/a.mp4";
+  const raw = "https://raw.githubusercontent.com/enesmemduhoglu/furi/main/reels/a/v.mp4";
+
+  it("Blob ve raw.githubusercontent host'larini kabul eder", () => {
+    expect(validateVideoUrl(blob)).toBeNull();
+    expect(validateVideoUrl(raw)).toBeNull();
+    expect(validateVideoUrl(blob.replace(".mp4", ".mov"))).toBeNull();
+  });
+
+  it("dizi degil tek string bekler", () => {
+    expect(validateVideoUrl([blob])).not.toBeNull();
+    expect(validateVideoUrl(undefined)).not.toBeNull();
+    expect(validateVideoUrl("")).not.toBeNull();
+  });
+
+  it("http ve diger semalari reddeder", () => {
+    expect(validateVideoUrl("http://abc.public.blob.vercel-storage.com/v.mp4")).not.toBeNull();
+    expect(validateVideoUrl("file:///tmp/a.mp4")).not.toBeNull();
+  });
+
+  it("allowlist disi host'lari reddeder", () => {
+    expect(validateVideoUrl("https://evil.example.com/a.mp4")).not.toBeNull();
+    // Sonek kontrolu benzer isimle kandirilamaz
+    expect(
+      validateVideoUrl("https://public.blob.vercel-storage.com.evil.com/a.mp4")
+    ).not.toBeNull();
+  });
+
+  it("mp4/mov disi uzantilari reddeder", () => {
+    expect(validateVideoUrl(blob.replace(".mp4", ".exe"))).not.toBeNull();
+    expect(validateVideoUrl(blob.replace(".mp4", ""))).not.toBeNull();
+  });
+});
+
+describe("validatePostMedia", () => {
+  const image = "https://raw.githubusercontent.com/enesmemduhoglu/furi/main/dizi/a/1.jpg";
+  const video = "https://abc123.public.blob.vercel-storage.com/videos/a.mp4";
+
+  it("yalnizca gorsel gecerli", () => {
+    expect(validatePostMedia([image], undefined)).toBeNull();
+  });
+
+  it("yalnizca video gecerli", () => {
+    expect(validatePostMedia(undefined, video)).toBeNull();
+  });
+
+  it("ikisi birden reddedilir", () => {
+    // Sema bu kisiti ifade edemiyor; kapi burasi. Gecseydi hangisinin
+    // yayinlanacagi publish-post.ts'in dallanma sirasina kalirdi.
+    expect(validatePostMedia([image], video)).not.toBeNull();
+  });
+
+  it("ikisi de yoksa reddedilir", () => {
+    expect(validatePostMedia(undefined, undefined)).not.toBeNull();
+    expect(validatePostMedia(null, null)).not.toBeNull();
+  });
+
+  it("secilen dalin kendi dogrulamasini uygular", () => {
+    expect(validatePostMedia(undefined, "https://evil.example.com/a.mp4")).not.toBeNull();
+    expect(validatePostMedia(["https://evil.example.com/1.jpg"], undefined)).not.toBeNull();
+  });
+});
+
+describe("validateVideoUpload", () => {
+  it("mp4 ve mov kabul eder", () => {
+    expect(validateVideoUpload("video/mp4", 1024)).toBeNull();
+    expect(validateVideoUpload("video/quicktime", 1024)).toBeNull();
+  });
+
+  it("baska tipleri reddeder", () => {
+    expect(validateVideoUpload("image/jpeg", 1024)).not.toBeNull();
+    expect(validateVideoUpload("application/octet-stream", 1024)).not.toBeNull();
+    expect(validateVideoUpload(undefined, 1024)).not.toBeNull();
+  });
+
+  it("gecersiz boyutlari reddeder", () => {
+    expect(validateVideoUpload("video/mp4", 0)).not.toBeNull();
+    expect(validateVideoUpload("video/mp4", -1)).not.toBeNull();
+    expect(validateVideoUpload("video/mp4", 1.5)).not.toBeNull();
+    expect(validateVideoUpload("video/mp4", "1024")).not.toBeNull();
+  });
+
+  it("tavani asan boyutu reddeder", () => {
+    expect(validateVideoUpload("video/mp4", MAX_VIDEO_BYTES)).toBeNull();
+    expect(validateVideoUpload("video/mp4", MAX_VIDEO_BYTES + 1)).not.toBeNull();
   });
 });

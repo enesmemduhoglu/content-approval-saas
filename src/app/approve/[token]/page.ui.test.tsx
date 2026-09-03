@@ -36,6 +36,7 @@ function seedPage({
   igPermalink = null,
   revisionRound = 0,
   revisions = [],
+  videoUrl = null,
 }: {
   instagramConnected: boolean;
   status?: string;
@@ -44,6 +45,7 @@ function seedPage({
   /** Revizyon turu (F10) — varsayılan 0: mevcut akış aynen çalışmalı. */
   revisionRound?: number;
   revisions?: { id: string; message: string | null }[];
+  videoUrl?: string | null;
 }) {
   const client = {
     id: "client-1",
@@ -66,7 +68,8 @@ function seedPage({
       revisions,
       client,
       agency: { name: "Ajans", logoUrl: null, brandColor: null },
-      images: [{ id: "img-1", url: "/uploads/a.png" }],
+      videoUrl: videoUrl ?? null,
+      images: videoUrl ? [] : [{ id: "img-1", url: "/uploads/a.png" }],
     },
   });
   findMany.mockResolvedValue([
@@ -78,6 +81,34 @@ function seedPage({
     },
   ]);
 }
+
+describe("Onay sayfası — video (Reel)", () => {
+  const VIDEO_URL = "https://abc.public.blob.vercel-storage.com/videos/a.mp4";
+
+  it("videoUrl doluysa <video> gösterilir, <img> değil", async () => {
+    seedPage({ instagramConnected: true, videoUrl: VIDEO_URL });
+    const { container } = render(
+      await ApprovePage({ params: Promise.resolve({ token: "tok" }) })
+    );
+
+    const video = container.querySelector("video.approve-video");
+    expect(video).toBeTruthy();
+    expect(video?.getAttribute("src")).toBe(VIDEO_URL);
+    // Otomatik oynatma YOK: müşteri onaylayacağı şeyi kendi başlatsın.
+    expect(video?.hasAttribute("autoplay")).toBe(false);
+    expect(container.querySelector("img.approve-image")).toBeNull();
+  });
+
+  it("video yokken görsel yolu aynen çalışır (regresyon)", async () => {
+    seedPage({ instagramConnected: true });
+    const { container } = render(
+      await ApprovePage({ params: Promise.resolve({ token: "tok" }) })
+    );
+
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelector("img.approve-image")).toBeTruthy();
+  });
+});
 
 describe("Onay sayfası — yayın hedefli müşteride toplu onay", () => {
   it("Instagram bağlıysa 'Tümünü onayla' yerine tek tek onay açıklaması çıkar", async () => {

@@ -7,6 +7,12 @@
  *   tek görsel : POST /{ig}/media → containerBekle → POST /{ig}/media_publish
  *   karusel    : her slayt için POST /{ig}/media (is_carousel_item)
  *                → hepsini bekle → CAROUSEL container → bekle → media_publish
+ *   video/Reel : POST /{ig}/media (media_type=REELS) → container id SAKLANIR
+ *                → ayrı isteklerde yokla → hazır olunca media_publish
+ *
+ * Video'nun neden ayrı bir akış olduğu `createReelContainer` başlığında yazılı;
+ * özeti: Instagram videoyu transcode ederken geçen süre tek bir Vercel
+ * fonksiyon ömrüne (60sn) sığmıyor.
  *
  * `containerBekle` atlanamaz: Instagram görseli kendisi çeker, çekmeden
  * `media_publish` çağrılırsa "Media ID is not available" hatası gelir.
@@ -35,6 +41,16 @@ const REQUEST_TIMEOUT_MS = 30_000;
  * için ~15sn daha gerekebildiğinden, 60sn tavanına pay kalsın diye 40'ta tutulur.
  */
 export const IG_DEFAULT_BUDGET_MS = 40_000;
+
+/**
+ * Video container'ının TEK bir yoklama turunda harcayacağı bütçe.
+ *
+ * Görselden (40sn) daha kısa çünkü amaç farklı: görselde bütçe "işi bitir ya da
+ * hata ver" demek, videoda "bu tur bitirmeye çalış, olmazsa sıradaki tur devam
+ * eder". Kısa tutmak onay sayfasının yoklamasına hızlı cevap döndürüyor ve 60sn
+ * fonksiyon tavanına `media_publish` + permalink için rahat pay bırakıyor.
+ */
+export const IG_VIDEO_BUDGET_MS = 30_000;
 
 /** Container hazır olma yoklaması: 2sn'den başlar, 10sn'ye kadar büyür. */
 const POLL_START_MS = 2_000;
@@ -383,7 +399,15 @@ export async function publishToInstagram(input: PublishInput): Promise<PublishRe
   }
 
   await waitForContainer(containerId, accessToken, deadline);
+  return publishContainer(igUserId, accessToken, containerId);
+}
 
+/** Hazır bir container'ı yayınlar ve permalink'ini çeker. */
+async function publishContainer(
+  igUserId: string,
+  accessToken: string,
+  containerId: string
+): Promise<PublishResult> {
   const published = await call(
     `${igUserId}/media_publish`,
     { creation_id: containerId },
@@ -405,4 +429,96 @@ export async function publishToInstagram(input: PublishInput): Promise<PublishRe
   }
 
   return { mediaId, permalink };
+}
+
+/* ─── Video (Reels) ────────────────────────────────────────────────────────
+ *
+ * Video yayını görselden farklı olarak İKİ FAZLI. Sebep ölçülebilir: görsel
+ * container'ı ~8.5sn'de FINISHED oluyor ve tek istekte yayınlanabiliyor;
+ * videoda Instagram dosyayı indirip transcode ettiği için süre onlarca
+ * saniyeden dakikalara çıkıyor, Vercel'in fonksiyon tavanı ise 60sn (Hobby).
+ *
+ * Bu yüzden `publishToInstagram`ın "oluştur → bekle → yayınla" tek parça akışı
+ * videoda kullanılamaz: bütçe dolduğunda throw eder, çağıran `failed` yazar ve
+ * bir sonraki deneme SIFIRDAN yeni bir container açar. Her deneme yeni
+ * container = Instagram'ın hesap seviyesindeki spam koruması (error_subcode
+ * 2207051) — 2026-08-19'da aynı postun iki container'ı hesabı kısıtlatmıştı.
+ *
+ * Ayrım şu: container id'si çağırana DÖNER ve saklanır; "henüz hazır değil"
+ * bir hata değil, `{ state: "processing" }` olarak raporlanır.
+ */
+
+/**
+ * Reels container'ı açar ve id'sini döner. BEKLEMEZ — bekleme
+ * {@link finalizeContainer}'ın işi.
+ */
+export async function createReelContainer(input: {
+  igUserId: string;
+  accessToken: string;
+  videoUrl: string;
+  caption: string;
+  /** Reel akışına ek olarak profil ızgarasında da görünsün mü. */
+  shareToFeed?: boolean;
+}): Promise<string> {
+  const { igUserId, accessToken, videoUrl, caption } = input;
+  if (!videoUrl) {
+    throw new IGError("Yayınlanacak video yok");
+  }
+  return createContainer(igUserId, accessToken, {
+    media_type: "REELS",
+    video_url: videoUrl,
+    caption,
+    // Varsayılan olarak feed'e de düşsün: sayfanın karusel arşiviyle aynı
+    // yerde görünmezse Reel'ler profilde kayboluyor.
+    share_to_feed: (input.shareToFeed ?? true) ? "true" : "false",
+  });
+}
+
+export type FinalizeResult =
+  | { state: "published"; mediaId: string; permalink: string }
+  | { state: "processing"; lastStatus: string };
+
+/**
+ * Açık bir container'ı bütçe kadar yoklar; hazırsa yayınlar.
+ *
+ * {@link waitForContainer}'dan tek farkı bütçe tükenmesini HATA SAYMAMASI —
+ * video için "daha işliyor" beklenen bir durum, tekrar yoklanacak. `ERROR` /
+ * `EXPIRED` ise gerçek hata olarak throw edilir.
+ */
+export async function finalizeContainer(input: {
+  igUserId: string;
+  accessToken: string;
+  containerId: string;
+  budgetMs?: number;
+}): Promise<FinalizeResult> {
+  const { igUserId, accessToken, containerId } = input;
+  const deadline = Date.now() + (input.budgetMs ?? IG_VIDEO_BUDGET_MS);
+
+  // `waitForContainer` sarılmadı, yoklama burada tekrar yazıldı: o fonksiyon
+  // bütçe dolunca da ERROR/EXPIRED'da da throw ediyor ve ikisi burada taban
+  // tabana zıt anlama geliyor. Ayrımı hatadan geri çıkarmak fazladan bir GET
+  // ve kırılgan bir tahmin demekti.
+  let last = "UNKNOWN";
+  let wait = POLL_START_MS;
+
+  while (Date.now() < deadline) {
+    const body = await call(containerId, { fields: "status_code,status" }, accessToken, "GET");
+    last = String(body.status_code ?? "UNKNOWN");
+    if (last === "FINISHED") {
+      const { mediaId, permalink } = await publishContainer(igUserId, accessToken, containerId);
+      return { state: "published", mediaId, permalink };
+    }
+    if (last === "ERROR" || last === "EXPIRED") {
+      throw new IGError(
+        `Container ${containerId} durumu ${last}: ${String(body.status ?? "")}`,
+        body
+      );
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await sleep(Math.min(wait, remaining));
+    wait = Math.min(wait * 1.5, POLL_MAX_MS);
+  }
+
+  return { state: "processing", lastStatus: last };
 }

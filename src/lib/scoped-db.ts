@@ -686,6 +686,8 @@ export function getScopedDb(session: ScopedSession) {
       createWithApprovalLink: async (input: {
         clientId: string;
         imageUrls: string[];
+        /** Reel postu: doluysa `imageUrls` boş gelir (bkz. `validatePostMedia`). */
+        videoUrl?: string | null;
         caption: string;
         /** Instagram alt_text'leri — `imageUrls` ile aynı sırada, opsiyonel. */
         altTexts?: (string | null | undefined)[];
@@ -709,10 +711,13 @@ export function getScopedDb(session: ScopedSession) {
               clientId: input.clientId,
               caption: input.caption,
               status: "pending",
+              videoUrl: input.videoUrl ?? null,
               externalRef: input.externalRef ?? null,
               publishAt: input.publishAt ?? null,
             },
           });
+          // Video postunda `imageUrls` boş — `createMany` boş diziyle de
+          // sorunsuz çalışır, ayrı bir dal gerekmiyor.
           await tx.postImage.createMany({
             data: input.imageUrls.map((url, index) => ({
               postId: post.id,
