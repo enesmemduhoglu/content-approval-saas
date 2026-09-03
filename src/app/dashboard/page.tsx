@@ -4,7 +4,6 @@ import { getScopedDb } from "@/lib/scoped-db";
 import { AppNav } from "@/components/nav";
 import { PostForm } from "@/components/post-form";
 import { EmailBadge, PublishBadge, StatusBadge } from "@/components/status-badge";
-import { CopyLinkButton } from "@/components/copy-link-button";
 import { PostActions } from "@/components/post-actions";
 import { AuditTrail } from "@/components/audit-trail";
 import { RevisionTrail } from "@/components/revision-trail";
@@ -148,14 +147,25 @@ export default async function DashboardPage() {
                   <time className="post-date">
                     {post.createdAt.toLocaleDateString("tr-TR")}
                   </time>
+                  {/* Linki panoya kopyalamak yerine sayfayı AÇIYOR: ajansın
+                      buradaki asıl işi "müşteri ne görüyor" sorusuna bakmak;
+                      kopyalanan adres çoğu zaman hiçbir yere yapıştırılmıyordu
+                      (paylaşımın kendisi zaten onay maili). */}
                   {post.approvalLink && post.status === "pending" && (
-                    <CopyLinkButton token={post.approvalLink.token} />
+                    <a
+                      className="button-secondary"
+                      href={`/approve/${post.approvalLink.token}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      data-approval-token={post.approvalLink.token}
+                    >
+                      Onay sayfasını aç
+                    </a>
                   )}
                   <PostActions
                     postId={post.id}
                     status={post.status}
                     publishStatus={post.publishStatus}
-                    caption={post.caption}
                     linkExpiresAt={post.approvalLink?.expiresAt.toISOString() ?? null}
                   />
                 </div>
