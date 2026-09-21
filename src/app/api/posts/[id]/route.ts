@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { authenticateApiKey } from "@/lib/api-key";
 import { deletePostImages, InvalidImageError, uploadPostImage } from "@/lib/blob";
 import { checkOrigin } from "@/lib/origin";
 import { getScopedDb } from "@/lib/scoped-db";
@@ -41,6 +42,65 @@ const VIDEO_ERROR =
 /** Aynı 409 iki yerden dönüyor: yükleme öncesi ön kontrol ve koşullu UPDATE. */
 const NOT_PENDING_ERROR =
   "Bu posta karar verilmiş; metni artık değiştirilemez. Yeni bir post oluştur.";
+
+/**
+ * Tek postun AKIBETİ — makine yolunun (furi) okuma ucu.
+ *
+ * Neden var: furi'nin defteri bir postun ne olduğunu yalnızca **public onay
+ * token'ından** (`GET /api/approve/[token]`) okuyabiliyordu. O token 7 gün
+ * yaşıyor (`APPROVAL_LINK_TTL_DAYS`), furi'nin cron'u da haftalık: gönderim ve
+ * okuma aynı periyotta, yani durum tam dolma anında okunuyor — 13.09'da fark
+ * 3 dakikaydı. Ters tarafa düşen ilk haftada okuma 410 alır, karar verilemez
+ * ve o haftanın postu deftere HİÇ girmez. `FURI_API_KEY` zaten `agencyId`
+ * üretiyordu ama okuma yolu yoktu: `GET /api/posts` (route.ts:18) sadece
+ * çerezli oturum kabul ediyor. Bu uç, defteri token ömründen kopartıyor.
+ *
+ * Dar bir izdüşüm dönüyor, `findManyWithRelations` değil: defterin sorduğu tek
+ * soru "onaylandı mı, yayınlandı mı, ne zaman". Caption, görseller, karar ve
+ * revizyon geçmişi panelin işi — makine yoluna göndermek hem gereksiz hem de
+ * her yeni kolonun sessizce dışarı sızdığı bir kanal açardı.
+ *
+ * `publishedAt` bilinçli olarak burada: yayın anının tek kaydı o kolon ve
+ * furi onu okuyamadığı için eşitlemenin koştuğu anı yayın saati sanıyordu.
+ */
+export async function GET(request: Request, { params }: RouteParams) {
+  // Aynı desen `POST /api/posts`te: çerez yoksa API anahtarı denenir. Anahtar
+  // yalnızca agencyId üretir, sorgu yine getScopedDb'den geçer — başka ajansın
+  // postu her iki yolda da 404.
+  const cookieSession = await auth();
+  const session = cookieSession ?? (await authenticateApiKey(request));
+  if (!session?.agencyId) {
+    return NextResponse.json({ error: "Giriş gerekli" }, { status: 401 });
+  }
+
+  // `checkOrigin` YOK: okuma mutasyon değil, CSRF'in çalacağı bir iş yok.
+
+  const { id } = await params;
+  const post = await getScopedDb(session).posts.findById(id);
+  if (!post) {
+    return NextResponse.json({ error: "Bu post bulunamadı" }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    post: {
+      id: post.id,
+      externalRef: post.externalRef,
+      status: post.status,
+      rejectionReason: post.rejectionReason,
+      revisionRound: post.revisionRound,
+      publishStatus: post.publishStatus,
+      publishedAt: post.publishedAt,
+      publishAt: post.publishAt,
+      igPermalink: post.igPermalink,
+      publishError: post.publishError,
+      // Onay maili gitti mi — "mail gitmiyor" teşhisinin kurulacağı tek yer
+      // (bkz. CLAUDE.md > Tuzaklar). Panelde rozet olarak da görünüyor.
+      approvalEmailSent: post.approvalEmailSent,
+      approvalEmailError: post.approvalEmailError,
+      createdAt: post.createdAt,
+    },
+  });
+}
 
 function badRequest(error: string, field?: string, status = 400) {
   return NextResponse.json({ error, field }, { status });

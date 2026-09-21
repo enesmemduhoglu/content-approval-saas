@@ -1,7 +1,7 @@
 # TODOS
 
-Son güncelleme: 2026-08-26 (onay endpoint'i `publishedAt` dönüyor — furi'nin
-yayın defteri gerçek yayın saatini okuyabilsin diye).
+Son güncelleme: 2026-09-21 (makine anahtarına okuma yolu: `GET /api/posts/[id]`
+— furi'nin defteri artık 7 günlük public token'a bağlı değil).
 Canlı: https://content-approval-saas.vercel.app · **Depo PUBLIC** — bulgu
 yazarken "Depo görünürlüğü" bölümündeki kurallar geçerli.
 
@@ -178,6 +178,45 @@ bulunamazsa `sent: false` döner ve sebebi log'a yazar — onay da, yayın da,
 cron da buna bağlı değil.
 
 Test: 567 → 578.
+
+---
+
+## Makine yoluna okuma ucu (2026-09-21) — defteri token ömründen kopartan uç
+
+**Belirti:** furi'nin yayın defteri 13.09'da bekleyen postun akıbetini
+öğrenemedi ve o haftanın postu deftere hiç girmedi.
+
+**Sebep:** Defterin tek okuma kanalı **public onay token'ıydı**
+(`GET /api/approve/<token>`), o da `APPROVAL_LINK_TTL_DAYS = 7` ile ölüyor.
+furi'nin cron'u 06.09'da haftalığa (`7 9 * * 0`) çevrildiğinden gönderim ve
+okuma **aynı periyotta**: durum tam dolma anında okunuyor — 13.09'da fark
+3 dakikaydı. Ters tarafa düşen ilk haftada çağrı 410 alır (`saas_okunamadi`),
+karar verilemez, bekleyen temizlenir ve yayınlanan post kayda geçmez.
+`FURI_API_KEY` zaten `agencyId` üretiyordu ama **okuma yolu yoktu**:
+`GET /api/posts` yalnızca çerezli oturum kabul ediyor (`route.ts:18`).
+
+**Çözüm:** `GET /api/posts/[id]` — çerezli oturum **veya** API anahtarı
+(`POST /api/posts`teki OR deseninin aynısı). Token ömründen bağımsız.
+
+*Kararlar:*
+
+- **`GET /api/posts`e anahtar eklenmedi, tek kayıt dönen dar bir uç yazıldı.**
+  Defterin sorduğu soru "bu post onaylandı mı, yayınlandı mı, ne zaman" —
+  `findManyWithRelations` ise caption, görseller, karar ve revizyon geçmişini
+  taşıyor. Panelin listesini makine yoluna açmak her yeni kolonun sessizce
+  dışarı sızdığı bir kanal olurdu; izdüşüm bu yüzden elle yazılı ve testi var.
+- **`checkOrigin` yok.** CSRF ikinci katmanı mutasyon route'larının işi; okuma
+  yolunda çalınacak bir iş yok. `getScopedDb` kapsamı ise aynen geçerli —
+  başka ajansın postu anahtarlı yolda da 404 (testi var).
+- **Kimlik `id` üzerinden, `externalRef` değil.** furi `saas_post_id`'yi zaten
+  `durum.json > bekleyen`de tutuyor; `externalRef` ise mükerrer yayın kurtarma
+  yolunda bilerek tekrar edebiliyor (`@@unique` yok), yani tek kayda çözülmesi
+  garanti değil.
+
+furi tarafı: `esitle.py` önce anahtarlı ucu dener, cevap gelmezse public
+token'a düşer — eski bir SaaS sürümünde davranış aynen korunur (furi #4).
+
+Test: 642 → 648.
 
 ---
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/auth", () => ({
   auth: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock("@/lib/blob", () => ({
   InvalidImageError: class InvalidImageError extends Error {},
 }));
 
-import { DELETE, PATCH } from "./route";
+import { DELETE, GET, PATCH } from "./route";
 import { auth } from "@/lib/auth";
 import { deletePostImages, uploadPostImage } from "@/lib/blob";
 import { db } from "@/lib/db";
@@ -249,5 +249,106 @@ describe("DELETE /api/posts/[id]", () => {
     const res = await DELETE(deleteRequest(), params(post.id));
     expect(res.status).toBe(404);
     expect(await db.post.findUnique({ where: { id: post.id } })).not.toBeNull();
+  });
+});
+
+describe("GET /api/posts/[id] — makine yolunun okuma ucu", () => {
+  const API_KEY = "f".repeat(48);
+
+  function getRequest(key: string | null = null) {
+    return new Request("http://localhost/api/posts/x", {
+      method: "GET",
+      headers: key ? { authorization: `Bearer ${key}` } : {},
+    });
+  }
+
+  function enableApiKey(agencyId: string) {
+    process.env.FURI_API_KEY = API_KEY;
+    process.env.FURI_API_AGENCY_ID = agencyId;
+  }
+
+  afterEach(() => {
+    delete process.env.FURI_API_KEY;
+    delete process.env.FURI_API_AGENCY_ID;
+  });
+
+  it("API anahtarıyla postun akıbetini döner — çerez gerekmez", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const post = await createPublishedPost(agency.id, client.id, {
+      externalRef: "hikayeli/is-gorusmesinde",
+    });
+    enableApiKey(agency.id);
+    mockAuth.mockResolvedValue(null as never);
+
+    const res = await GET(getRequest(API_KEY), params(post.id));
+    expect(res.status).toBe(200);
+    const { post: okunan } = await res.json();
+    expect(okunan.status).toBe("approved");
+    expect(okunan.publishStatus).toBe("published");
+    expect(okunan.externalRef).toBe("hikayeli/is-gorusmesinde");
+    expect(okunan.igPermalink).toBe("https://instagram.com/p/ESKI/");
+    // Defterin yayın anını buradan okuması bu ucun varlık sebebi.
+    expect(okunan.publishedAt).not.toBeNull();
+  });
+
+  it("onay linki ölmüş olsa bile okunur — ucun varlık sebebi bu", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id, {
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    enableApiKey(agency.id);
+    mockAuth.mockResolvedValue(null as never);
+
+    const res = await GET(getRequest(API_KEY), params(post.id));
+    expect(res.status).toBe(200);
+    expect((await res.json()).post.status).toBe("pending");
+  });
+
+  it("çerezli oturum da okuyabilir", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id);
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await GET(getRequest(), params(post.id));
+    expect(res.status).toBe(200);
+  });
+
+  it("anahtarsız ve oturumsuz istek 401 döner", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id);
+    enableApiKey(agency.id);
+    mockAuth.mockResolvedValue(null as never);
+
+    const res = await GET(getRequest(), params(post.id));
+    expect(res.status).toBe(401);
+  });
+
+  it("anahtar BAŞKA ajansa bağlıysa 404 — kapsam okuma yolunda da geçerli", async () => {
+    const agencyA = await createAgency();
+    const agencyB = await createAgency();
+    const client = await createClient(agencyA.id);
+    const { post } = await createPendingPostWithLink(agencyA.id, client.id);
+    enableApiKey(agencyB.id);
+    mockAuth.mockResolvedValue(null as never);
+
+    const res = await GET(getRequest(API_KEY), params(post.id));
+    expect(res.status).toBe(404);
+  });
+
+  it("caption, görsel ve karar geçmişi dönmez — izdüşüm dar", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id);
+    enableApiKey(agency.id);
+    mockAuth.mockResolvedValue(null as never);
+
+    const { post: okunan } = await (await GET(getRequest(API_KEY), params(post.id))).json();
+    expect(okunan.caption).toBeUndefined();
+    expect(okunan.images).toBeUndefined();
+    expect(okunan.client).toBeUndefined();
   });
 });
