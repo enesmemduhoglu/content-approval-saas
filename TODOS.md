@@ -1,7 +1,12 @@
 # TODOS
 
-Son güncelleme: 2026-08-26 (onay endpoint'i `publishedAt` dönüyor — furi'nin
-yayın defteri gerçek yayın saatini okuyabilsin diye).
+Son güncelleme: 2026-09-25 (video kuyruğu işi başladı — belgeler
+`docs/video-kuyrugu/`).
+
+**Video kuyruğu (V0–V5, 2026-09-25 →):** müşteri video yükler, caption
+otomatik üretilir, seçtiği saatlerde yayınlanır. Çok oturumlu bir iş; planı,
+kararları ve oturum devri burada DEĞİL, `docs/video-kuyrugu/FAZLAR.md`'de.
+Bu dosyaya yalnızca fazlar kapandıkça özet satır düşülür.
 Canlı: https://content-approval-saas.vercel.app · **Depo PUBLIC** — bulgu
 yazarken "Depo görünürlüğü" bölümündeki kurallar geçerli.
 
