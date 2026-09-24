@@ -322,7 +322,13 @@ export type AgencyNoticeEvent =
    * postta yapılacak bir şey yok, burada TOP AJANSTA — mailin de bunu söylemesi
    * gerekiyor, yoksa ajans "reddedildi" sanıp işi kapatır.
    */
-  | "revision_requested";
+  | "revision_requested"
+  /**
+   * Video kuyruğu (V4): portal videosunun slot yayını patladı. `approved` +
+   * `failed` ile anlatılamaz: kararı müşteri vermemiş olabilir (onay kapalıyken
+   * kuyruk onaylar) ve düzeltme yeri onay sayfası değil portal/kuyruk.
+   */
+  | "queue_failed";
 
 export type AgencyNoticeInput = {
   /**
@@ -350,6 +356,8 @@ export type AgencyNoticeInput = {
   revisionRequest?: string | null;
   /** revision_requested: kaçıncı tur. */
   revisionRound?: number;
+  /** queue_failed: sırsız, kısaltılmış hata nedeni (bkz. email-queue.ts > safeReason). */
+  publishError?: string | null;
 };
 
 const YAYIN_METNI: Record<string, string> = {
@@ -369,6 +377,7 @@ export function agencyNoticeSubject(input: AgencyNoticeInput): string {
     rejected: "Reddedildi",
     link_expired: "Link süresi doldu",
     revision_requested: "Revizyon istendi",
+    queue_failed: "Kuyruk yayını başarısız",
   }[input.event];
   return `[${etiket}] ${input.clientName} — ${input.postRef}`;
 }
@@ -417,6 +426,14 @@ function agencyNoticeLines(input: AgencyNoticeInput): string[] {
     lines.push(
       "Panelden postu düzeltip \"Düzeltip tekrar gönder\" ile onaya geri yolla; " +
         "müşteriye aynı linkten haber gider."
+    );
+  } else if (input.event === "queue_failed") {
+    lines.push(`${input.clientName} kuyruğundaki video Instagram'a YAYINLANAMADI.`);
+    if (input.publishError) lines.push(`Neden: ${input.publishError}`);
+    // Ajansın bilmesi gereken: kuyruk DURMADI. Tek hata ritmi bozmaz (README §5).
+    lines.push(
+      "Video kuyrukta hata rozetiyle bekliyor; sonraki slotta sıradaki video yayınlanır. " +
+        "Müşteriye de e-posta gitti."
     );
   } else if (input.event === "link_expired") {
     // Müşteriye hatırlatma göndermenin anlamı yok: elindeki link çalışmıyor.
