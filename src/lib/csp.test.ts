@@ -43,6 +43,24 @@ describe("Content-Security-Policy", () => {
     expect(config).toMatch(/"media-src [^"]*https:/);
   });
 
+  // Video kuyruğu (V3): portal yüklemesi tarayıcıdan doğrudan R2'ye gidiyor.
+  it("connect-src R2'ye açık — portal yüklemesi tarayıcıdan bucket'a PUT eder", () => {
+    expect(config).toMatch(/"connect-src 'self' [^"]*https:\/\/\*\.r2\.cloudflarestorage\.com/);
+  });
+
+  it("connect-src genel https: DEĞİL — XHR/fetch keyfi host'a gidemesin", () => {
+    expect(config).not.toMatch(/"connect-src [^"]*https:[ "]/);
+  });
+
+  it("media-src blob: içerir — portal kare çıkarma seçilen dosyayı <video>'ya blob URL'le verir", () => {
+    expect(config).toMatch(/"media-src [^"]*blob:/);
+  });
+
+  it("R2 imzalı GET'leri (kapak karesi, oynatıcı) img-src/media-src'deki https: kapsıyor", () => {
+    expect(config).toMatch(/"img-src [^"]*https:/);
+    expect(config).toMatch(/"media-src [^"]*https:/);
+  });
+
   it("object-src ve frame-ancestors kapalı", () => {
     expect(config).toContain('"object-src \'none\'"');
     expect(config).toContain('"frame-ancestors \'none\'"');

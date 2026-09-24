@@ -51,9 +51,21 @@ const CSP = [
   // Reel videosu (Blob). 2026-08-29'da F14'ün ilk canlı denemesinde bu satır
   // yoktu: <video> çizildi, oynatma olmadı, tek iz konsoldaki "Refused to load
   // media" satırıydı — telefondan bakan müşteri onu göremez.
-  "media-src 'self' https:",
+  //
+  // `blob:` müşteri portalı için (V3): yükleme ekranı seçilen dosyayı
+  // `URL.createObjectURL` ile bir <video>'ya verip 6 kareyi canvas'a çiziyor.
+  // Bu satırda yoksa kare çıkarma sessizce hiçbir kare üretmez. Portal
+  // oynatıcısı R2 imzalı URL'ini kullanır; o zaten `https:` kapsamında
+  // (img-src'deki kapak kareleri de öyle), ayrıca host yazmaya gerek yok.
+  "media-src 'self' https: blob:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  // R2: portal videoyu ve kareleri TARAYICIDAN doğrudan bucket'a PUT ediyor
+  // (Vercel'in 4.5 MB gövde sınırı yüzünden sunucudan geçemez). XHR/fetch
+  // `connect-src`'ye tabi; host yazılmazsa yükleme "Refused to connect" ile
+  // düşer ve ilerleme çubuğu %0'da kalır. İmzalı URL'in host'u
+  // `<account>.r2.cloudflarestorage.com` (bkz. storage-r2.ts) — joker hesap
+  // kimliğini config'e gömmemek için.
+  "connect-src 'self' https://*.r2.cloudflarestorage.com",
   // `accounts.google.com` BURADA OLMAK ZORUNDA — yoksa panele giriş yapılamaz.
   // Giriş akışı: "Giriş yap" → `/api/auth/signin` → o sayfadaki form
   // `POST /api/auth/signin/google` (same-origin) → NextAuth 302 ile

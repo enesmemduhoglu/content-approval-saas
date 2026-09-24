@@ -80,7 +80,10 @@ export type EmailResult =
 // Fire-and-forget: gönderim başarısız olsa bile ASLA throw etmez — çağıran akış
 // e-postaya bağımlı değildir. Ama SESSİZ de kalmaz: sonucu döndürür ki çağıran
 // taraf "iş yapıldı ama haber gitmedi" durumunu görebilsin.
-async function gonder(
+//
+// Export ediliyor: video kuyruğunun şablonları (`email-portal.ts` vb.) ayrı
+// dosyalarda duruyor ama gönderimin TEK kapısı yine burası (CLAUDE.md).
+export async function gonder(
   // `to` bir DİZİ olabilir: ajans bildirimleri ekibin tamamına gidiyor
   // (bkz. agency-notify.ts). Resend tek istekte çoklu alıcıyı destekliyor;
   // üye başına ayrı istek atmak hem günlük kotayı üyeye bölerdi hem de
