@@ -8,7 +8,11 @@ type FixedWindow = { count: number; windowStart: number };
 // yoksa veya Upstash hata verirse bu in-memory fallback devrededir.
 const windows = new Map<string, FixedWindow>();
 
-export function isRateLimited(ip: string, now: number = Date.now()): boolean {
+export function isRateLimited(
+  ip: string,
+  now: number = Date.now(),
+  max: number = RATE_LIMIT_MAX
+): boolean {
   if (windows.size > 10_000) pruneStaleWindows(now);
   const current = windows.get(ip);
   if (!current || now - current.windowStart >= RATE_LIMIT_WINDOW_MS) {
@@ -16,7 +20,7 @@ export function isRateLimited(ip: string, now: number = Date.now()): boolean {
     return false;
   }
   current.count += 1;
-  return current.count > RATE_LIMIT_MAX;
+  return current.count > max;
 }
 
 function pruneStaleWindows(now: number): void {
@@ -44,7 +48,8 @@ function upstashConfig(): { baseUrl: string; token: string } | null {
 async function isRateLimitedUpstash(
   ip: string,
   now: number,
-  { baseUrl, token }: { baseUrl: string; token: string }
+  { baseUrl, token }: { baseUrl: string; token: string },
+  max: number
 ): Promise<boolean> {
   const windowId = Math.floor(now / RATE_LIMIT_WINDOW_MS);
   const key = `rl:${ip}:${windowId}`;
@@ -66,7 +71,7 @@ async function isRateLimitedUpstash(
   }
   const results = (await res.json()) as { result?: unknown }[];
   const count = Number(results?.[0]?.result ?? 0);
-  return count > RATE_LIMIT_MAX;
+  return count > max;
 }
 
 /**
@@ -75,16 +80,25 @@ async function isRateLimitedUpstash(
  * rate limiting hiçbir durumda isteği patlatmaz, en kötü ihtimalle tek
  * instance'lık korumaya düşer.
  */
-export async function checkRateLimit(ip: string, now: number = Date.now()): Promise<boolean> {
+//
+// `max` opsiyonel: varsayılan tavan tek-tık yüzeyleri (onay linki, davet) için
+// ayarlı. Müşteri portalında kuyruğu sürükleyerek yeniden dizen kullanıcı bir
+// dakikada meşru olarak onlarca istek atabiliyor; ona aynı 10'luk tavanı
+// uygulamak hız sınırını kötüye kullanıma değil normal kullanıma çarptırırdı.
+export async function checkRateLimit(
+  ip: string,
+  now: number = Date.now(),
+  max: number = RATE_LIMIT_MAX
+): Promise<boolean> {
   const config = upstashConfig();
   if (config) {
     try {
-      return await isRateLimitedUpstash(ip, now, config);
+      return await isRateLimitedUpstash(ip, now, config, max);
     } catch (error) {
       console.error("[rate-limit] Upstash hatası, in-memory fallback:", error);
     }
   }
-  return isRateLimited(ip, now);
+  return isRateLimited(ip, now, max);
 }
 
 // Öncelik `x-vercel-forwarded-for`'da: bu başlığı Vercel'in kendi edge katmanı
