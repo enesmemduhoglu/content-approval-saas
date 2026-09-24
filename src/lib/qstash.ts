@@ -62,7 +62,16 @@ export type EnqueueResult = { queued: true; messageId: string } | { queued: fals
  * patlarsa post `captionStatus = pending` kalır ve portaldaki "yeniden üret"
  * aynı işi elle tetikleyebilir — yükleme bu yüzden başarısız sayılmaz.
  */
-export async function enqueueCaption(postId: string): Promise<EnqueueResult> {
+export type CaptionJob = {
+  postId: string;
+  /** Portaldaki "yeniden üret" notu ("daha kısa olsun"); ilk üretimde yok. */
+  note?: string;
+};
+
+export async function enqueueCaption(
+  postId: string,
+  opts: { note?: string } = {}
+): Promise<EnqueueResult> {
   const token = process.env.QSTASH_TOKEN;
   const base = appUrl();
   if (!token || !base) {
@@ -72,7 +81,7 @@ export async function enqueueCaption(postId: string): Promise<EnqueueResult> {
     const client = new Client({ token });
     const res = await client.publishJSON({
       url: `${base}/api/queue/caption/${encodeURIComponent(postId)}`,
-      body: { postId },
+      body: { postId, ...(opts.note ? { note: opts.note } : {}) } satisfies CaptionJob,
       retries: 3,
     });
     return { queued: true, messageId: res.messageId };
