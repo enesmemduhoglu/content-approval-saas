@@ -70,6 +70,34 @@ değişir.
 TODOS.md'de F1–F14 ürün boşluklarına ait; karışmasın diye bu işin fazları
 "V" (video kuyruğu) önekini kullanır.
 
+### K14 · 2026-09-25 · fal Whisper mp4'ü doğrudan kabul ediyor
+V2'de gerçek videoyla denendi (fal deposu URL'i; `.mov` da kabul edildi).
+R2 imzalı URL ile deneme anahtarlar gelince yapılacak. Whisper süresi çok
+değişken: aynı 33 sn video soğuk başlangıçta 65 sn, sonra 5–21 sn. Whisper'a
+30 sn bütçe; aşarsa post `failed` (tekrar denenebilir) olur, QStash tekrar
+dener — yarıda bırakılan fal işi fal tarafında yine ücretlenir (birkaç sent).
+
+### K15 · 2026-09-25 · altText şimdilik saklanmıyor
+Claude alt text üretiyor ama portal postunda (Reels) onu tutacak alan yok;
+`PostImage.altText` görsel satırına ait. Şema kararı bekliyor — Instagram
+Reels API'sinin alt text alıp almadığı da o kararın parçası.
+
+### K16 · 2026-09-25 · Uydurma yasağı kanca ve nota da uygulanır
+İlk prompt sürümü "yaygın yanlış" kancasını ve "Küçük not"u videoda
+olmayan içerikle doldurdu; kaynağı stil belgesindeki kalıplardı. Prompt'a
+"her cümlenin dayanağını kontrol et" eklendi, `caption-stili.md` yumuşatıldı.
+Ayrıca Whisper sayıları yanlış duyabiliyor ("15" → "50"): portal caption'ın
+otomatik üretildiğini ve kontrol edilmesi gerektiğini söyler.
+
+### K17 · 2026-09-25 · Günlük özetin tekrar koruması süreç içinde
+"Bugün gönderildi" bilgisi bellekte; aynı gün farklı bir soğuk instance'ta
+ikinci tetik olursa özet iki kez gider. Tam çözüm `PublishSettings`'e bir
+kolon (şema). Günlük cron günde bir koştuğu için kabul edildi.
+
+### K18 · 2026-09-25 · Instagram bağlı değilse slot video harcamaz
+Token yok ya da süresi dolmuşsa slot `failed` yazılır, müşteri ve ajans
+e-posta alır, video kuyrukta kalır — bir sonraki slotta tekrar denenir.
+
 ---
 
 ## Açık sorular
