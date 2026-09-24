@@ -4,11 +4,12 @@ vi.mock("@/lib/email", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/email")>()),
   sendApprovalReminderEmail: vi.fn(),
   sendAgencyNoticeEmail: vi.fn(),
+  sendRawEmail: vi.fn(),
 }));
 
 import { GET } from "./route";
 import { db } from "@/lib/db";
-import { sendAgencyNoticeEmail, sendApprovalReminderEmail } from "@/lib/email";
+import { sendAgencyNoticeEmail, sendApprovalReminderEmail, sendRawEmail } from "@/lib/email";
 import { REMINDER_AFTER_DAYS } from "@/lib/reminders";
 import {
   createAgency,
@@ -16,6 +17,7 @@ import {
   createPendingPostWithLink,
   resetDb,
 } from "@tests/helpers/db";
+import { createPublishSettings, createQueuePost } from "@tests/helpers/queue";
 
 const mockReminder = vi.mocked(sendApprovalReminderEmail);
 const mockAgencyNotice = vi.mocked(sendAgencyNoticeEmail);
@@ -39,6 +41,7 @@ beforeEach(async () => {
   vi.stubEnv("CRON_SECRET", CRON_SECRET);
   mockReminder.mockResolvedValue({ sent: true });
   mockAgencyNotice.mockResolvedValue({ sent: true });
+  vi.mocked(sendRawEmail).mockResolvedValue({ sent: true });
 });
 
 describe("yetkilendirme", () => {
@@ -209,5 +212,28 @@ describe("dayanıklılık ve gizlilik", () => {
     expect(raw).not.toContain(client.email);
     expect(raw).not.toContain(client.name);
     expect(raw).not.toContain("Test caption");
+  });
+});
+
+describe("video kuyruğu (V4)", () => {
+  it("portal postu tek tek hatırlatılmaz; günlük kuyruk özeti gider", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    await createPublishSettings(client.id, { requireApproval: true });
+    const post = await createQueuePost(agency.id, client.id, { status: "pending" });
+    // Linki ölmüş ve günlerdir bekleyen bir ajans postu olsaydı iki bildirim
+    // birden giderdi; portal postunda ikisi de gitmemeli.
+    await db.approvalLink.create({
+      data: { postId: post.id, token: "portal-token-1", expiresAt: gunOnce(1) },
+    });
+    await yaslandir(post.id, 10);
+
+    const body = await (await GET(cronRequest())).json();
+
+    expect(body).toMatchObject({ checked: 0, reminded: 0, expiryNoticed: 0 });
+    expect(body.queueDigest).toMatchObject({ sent: 1 });
+    expect(mockReminder).not.toHaveBeenCalled();
+    expect(mockAgencyNotice).not.toHaveBeenCalled();
+    expect(vi.mocked(sendRawEmail).mock.calls[0][0].subject).toBe("1 video onayını bekliyor");
   });
 });

@@ -11,6 +11,16 @@ import {
   publishToInstagram,
 } from "@/lib/instagram";
 import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
+import { notifyAgencyTeam } from "@/lib/agency-notify";
+import {
+  portalUrl,
+  queueRecipient,
+  safeReason,
+  sendQueueFailedEmail,
+  sendQueuePublishedEmail,
+} from "@/lib/email-queue";
+import { recordSlotOutcomeForPost } from "@/lib/queue-db";
+import { MAX_GET_URL_TTL_SECONDS, keyBelongsToClient, signGetUrl } from "@/lib/storage-r2";
 
 /**
  * Instagram medya container'ının ömrü. Bu süreyi geçmiş bir container artık
@@ -26,6 +36,9 @@ export type PublishOutcome = {
 };
 
 const GENERIC_ERROR = "Instagram'a yayınlanamadı. Tekrar deneyebilirsin.";
+
+/** Onaysız post yayına sokulmak istendiğinde dönen (ve loglanan) metin. */
+export const NOT_APPROVED_ERROR = "Onaylanmamış post yayınlanamaz";
 
 /**
  * Onaylanmış bir postu Instagram'a yayınlar. Yayın hedefi olan müşteride
@@ -45,6 +58,20 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   });
   if (!post) {
     return { publishStatus: "failed", publishError: GENERIC_ERROR };
+  }
+
+  // GÜVENLİK KURALI (video kuyruğu README §5): onaysız post HİÇBİR yoldan
+  // yayınlanmaz. Kuyrukta ilk kontrol `pickNext`te; bu ikincisi ve yayının
+  // bütün tetikleyicileri (onay yolu, zamanlanmış cron, tekrar dene, tick)
+  // buradan geçtiği için asıl kapı burası. Ajans postunda davranış değişmiyor:
+  // o yolların hepsi bu fonksiyonu zaten onaydan SONRA çağırıyor. Aşağıdaki
+  // kilit de `status: "approved"` koşulunu taşıyor — okuma ile kilit arasında
+  // durum değişirse kilit yine tutmaz.
+  if (post.status !== "approved") {
+    console.warn(
+      `[publish] onaysız post yayına sokulmak istendi: post=${postId} status=${post.status}`
+    );
+    return { publishStatus: post.publishStatus, publishError: NOT_APPROVED_ERROR };
   }
 
   const { client } = post;
@@ -77,6 +104,7 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   const lock = await db.post.updateMany({
     where: {
       id: postId,
+      status: "approved",
       OR: [
         { publishStatus: { in: ["idle", "failed", "scheduled"] } },
         { publishStatus: "publishing", igContainerId: { not: null } },
@@ -133,12 +161,26 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
   }
 
   try {
-    if (post.videoUrl) {
+    // Portal videosu Blob'da değil gizli R2 bucket'ında: `videoUrl` yok,
+    // `videoKey` var. Instagram videoyu container kurulurken BİR KEZ indiriyor,
+    // bu yüzden URL yalnızca container açılacaksa ve azami ömürle (7 gün)
+    // imzalanıyor — indirmenin tam ne zaman yapıldığını bilmiyoruz.
+    const { videoUrl: blobVideoUrl, videoKey } = post;
+    if (blobVideoUrl || videoKey) {
+      const resolveVideoUrl = async (): Promise<string> => {
+        if (blobVideoUrl) return blobVideoUrl;
+        // Anahtar DB'den geliyor ama imza bir müşterinin dosyasına kapı açıyor:
+        // önek bu postun müşterisine ait değilse imzalanmaz (storage-r2 kuralı).
+        if (!keyBelongsToClient(videoKey!, post.clientId)) {
+          throw new Error("Video anahtarı bu müşteriye ait değil");
+        }
+        return signGetUrl(videoKey!, MAX_GET_URL_TTL_SECONDS);
+      };
       return await publishVideo({
         postId,
         igUserId: client.instagramUserId,
         accessToken,
-        videoUrl: post.videoUrl,
+        resolveVideoUrl,
         caption: post.caption,
         containerId: post.igContainerId,
         containerAt: post.containerAt,
@@ -306,7 +348,8 @@ async function publishVideo(input: {
   postId: string;
   igUserId: string;
   accessToken: string;
-  videoUrl: string;
+  /** Yalnızca container açılacaksa çağrılır — portal videosunda imza üretir. */
+  resolveVideoUrl: () => Promise<string>;
   caption: string;
   containerId: string | null;
   containerAt: Date | null;
@@ -318,7 +361,7 @@ async function publishVideo(input: {
     containerId = await createReelContainer({
       igUserId,
       accessToken,
-      videoUrl: input.videoUrl,
+      videoUrl: await input.resolveVideoUrl(),
       caption: input.caption,
     });
     // Yoklamadan ÖNCE yazılır. Sıra tersine dönerse (önce bekle, sonra yaz)
@@ -339,13 +382,20 @@ async function publishVideo(input: {
   return markPublished(postId, result.mediaId, result.permalink);
 }
 
+/**
+ * Yazma KOŞULLU (`publishing` → `published`), `markFailed` ile aynı gerekçe:
+ * video yayını birden çok yerden yoklanabiliyor ve sonucu yalnızca geçişi
+ * YAPAN çağrı sahiplenmeli. Buna bağlı bir yan etki de var — portal postunun
+ * sonuç e-postası (`notifyPortalOutcome`) ancak geçişi kazanan çağrıda gider,
+ * yani çok turlu bir video yayınında e-posta TEK kez gider.
+ */
 async function markPublished(
   postId: string,
   mediaId: string,
   permalink: string
 ): Promise<PublishOutcome> {
-  await db.post.update({
-    where: { id: postId },
+  const yazildi = await db.post.updateMany({
+    where: { id: postId, publishStatus: "publishing" },
     data: {
       publishStatus: "published",
       igMediaId: mediaId,
@@ -354,7 +404,93 @@ async function markPublished(
       publishedAt: new Date(),
     },
   });
+  if (yazildi.count === 0) {
+    const current = await db.post.findUnique({
+      where: { id: postId },
+      select: { publishStatus: true, igPermalink: true },
+    });
+    console.warn(`[instagram] yayın sonucu yazılmadı, post zaten sonuçlanmış: post=${postId}`);
+    return {
+      publishStatus: current?.publishStatus ?? "published",
+      igPermalink: current?.igPermalink ?? null,
+    };
+  }
+  await notifyPortalOutcome(postId, "published");
   return { publishStatus: "published", igPermalink: permalink || null };
+}
+
+/**
+ * Portal (video kuyruğu) postunun yayın sonucunu bildirir: müşteriye e-posta,
+ * hatada ayrıca ajans ekibine; o postun açık SlotRun'ı da kapatılır.
+ *
+ * Yalnızca `markPublished` / `markFailed`in koşullu geçişi KAZANDIĞINDA
+ * çağrılır — "tek sefer" garantisi o geçişte. Ajans postunda (source=agency)
+ * hiçbir şey yapmaz: onların bildirimi çağıran route'larda ve değişmedi.
+ *
+ * ASLA throw etmez: yayın çoktan sonuçlandı, bir bildirim hatası onu geri
+ * almamalı ve `publishApprovedPost`ın "throw etmez" sözünü bozmamalı.
+ */
+async function notifyPortalOutcome(
+  postId: string,
+  outcome: "published" | "failed",
+  detail?: string
+): Promise<void> {
+  try {
+    const post = await db.post.findUnique({
+      where: { id: postId },
+      select: {
+        source: true,
+        caption: true,
+        igPermalink: true,
+        agencyId: true,
+        client: {
+          select: {
+            name: true,
+            email: true,
+            publishSettings: { select: { notifyEmail: true } },
+          },
+        },
+        agency: { select: { email: true } },
+      },
+    });
+    if (!post || post.source !== "portal") return;
+
+    const reason = outcome === "failed" ? safeReason(detail) : null;
+    await recordSlotOutcomeForPost(postId, outcome, reason);
+
+    const to = queueRecipient(post.client.publishSettings, post.client.email);
+    const result =
+      outcome === "published"
+        ? await sendQueuePublishedEmail({
+            to,
+            clientName: post.client.name,
+            caption: post.caption,
+            igPermalink: post.igPermalink,
+          })
+        : await sendQueueFailedEmail({
+            to,
+            clientName: post.client.name,
+            caption: post.caption,
+            reason,
+            portalUrl: portalUrl(),
+          });
+    if (!result.sent) {
+      console.error(`[publish] kuyruk sonuç e-postası gitmedi: post=${postId} (${result.reason})`);
+    }
+
+    if (outcome === "failed") {
+      // Ekibin tamamına (gerekçe `agency-notify.ts` başında).
+      await notifyAgencyTeam(post.agencyId, {
+        agencyEmail: post.agency.email,
+        event: "queue_failed",
+        clientName: post.client.name,
+        postRef: post.caption.split("\n")[0].slice(0, 60),
+        publishError: reason,
+      });
+    }
+  } catch (error) {
+    console.error(`[publish] kuyruk sonuç bildirimi patladı: post=${postId}`, error);
+  }
 }
 
 /**
@@ -489,5 +625,6 @@ async function markFailed(postId: string, detail: string): Promise<PublishOutcom
     "Instagram yayını başarısız oldu",
     { postId, detail: detail.slice(0, 300) }
   );
+  await notifyPortalOutcome(postId, "failed", detail);
   return { publishStatus: "failed", publishError: GENERIC_ERROR };
 }
