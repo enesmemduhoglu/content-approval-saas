@@ -7,8 +7,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 
 - **Son güncelleme:** 2026-09-25
-- **Son durum:** V0 merge edildi (#59). V1 temeli (şema göçü, `storage-r2.ts`, `qstash.ts`, tüm yeni bağımlılıklar) `feat/v1-temeller`'de.
-- **Sıradaki adım:** V1 kalanı + V4 (`queue.ts`, tick), V2 (caption) ve V3 (portal) paralel ajanlarla, ayrı worktree'lerde.
+- **Son durum:** V0 (#59), V1 temeli (#60, #61), V2 caption (#62), V4 tick (#63) merge edildi. V3 portal sürüyor (`feat/v3-portal`, worktree `../cas-wt/v3-portal`).
+- **Sıradaki adım:** V3'ü merge et → R2/QStash anahtarları gelince V1 dış doğrulamaları (R2 imzalı URL ile fal ve Instagram) → V5 canlıya geçiş.
 - **Yarım kalan:** —
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
@@ -43,7 +43,7 @@ branch → PR → bu dosyanın güncellenmesi.
 
 ### V1 — Doğrulama ve temeller 🟡
 - **Yapıldı (`feat/v1-temeller`):** şema göçü `20260925120000_video_kuyrugu` (yalnızca ekleme; eski veri üzerinde sınandı, drift yok), `storage-r2.ts`, `qstash.ts` + testleri, müşteri silme yolunun yeni tabloları temizlemesi, V2–V4'ün tüm npm bağımlılıkları (lock çakışması olmasın diye tek seferde).
-- **Kalan:** `queue.ts` (V4 ajanına), dış doğrulamalar (anahtarlar bekleniyor).
+- **Kalan:** dış doğrulamalar — R2 imzalı URL ile fal ve Instagram (anahtarlar bekleniyor). fal'ın mp4 kabul ettiği fal deposu URL'iyle doğrulandı (K14).
 - **Kapsam:**
   - Dış doğrulamalar (anahtarlar gelince; sonuçlar `KARARLAR.md`'ye):
     fal Whisper R2 imzalı mp4 URL'ini kabul ediyor mu; Instagram imzalı
@@ -56,7 +56,9 @@ branch → PR → bu dosyanın güncellenmesi.
   testleri saat dilimi, gün dönümü, kaçırılmış slot, duraklatma, onay
   modlarını kapsıyor; `tsc` + tüm testler yeşil.
 
-### V2 — Caption üretimi ⬜
+### V2 — Caption üretimi ✅ (#62)
+- **Sonuç:** `src/lib/caption/{transcribe,generate,validate,run,errors}.ts`, `POST /api/queue/caption/[postId]`, `scripts/caption-dene.ts`. 53 yeni test. Gerçek videoyla denendi (K14–K16).
+- **Açık:** altText saklanmıyor (K15).
 - **Kapsam:** `src/lib/caption/{transcribe,generate,validate}.ts`,
   `src/lib/qstash.ts` (imza doğrulama + mesaj yayınlama),
   `POST /api/queue/caption/[postId]`. `caption-stili.md` → Furkan'ın
@@ -65,7 +67,7 @@ branch → PR → bu dosyanın güncellenmesi.
   mock'lu testte `ready`/`failed` geçişleri doğru; mevcut videolarla elle
   deneme sonucu bu dosyaya not.
 
-### V3 — Müşteri portalı ⬜
+### V3 — Müşteri portalı 🟡
 - **Kapsam:** magic-link girişi (`src/lib/client-auth.ts`), müşteri kapsamlı
   `getScopedDb` varyantı, `/api/portal/*` route'ları (`nextjs-prisma:route-ekle`),
   `/portal` sayfaları: yükle (tarayıcıda kare çıkarma), kuyruk (sürükle-bırak),
@@ -73,7 +75,9 @@ branch → PR → bu dosyanın güncellenmesi.
 - **Kabul:** IDOR testleri (A, B'nin kuyruğunu göremez/taşıyamaz/imzalı URL
   alamaz); `checkOrigin` + rate limit; UI testleri; elle yükleme denemesi.
 
-### V4 — Yayın tick'i ve e-postalar ⬜
+### V4 — Yayın tick'i ve e-postalar ✅ (#63)
+- **Sonuç:** `src/lib/queue.ts` (saf kurallar, DST testli), `queue-db.ts`, `POST|GET /api/queue/tick`, `publish-post.ts` onay koruması + R2 imzalı video URL'i + tek seferlik sonuç e-postası, `email-queue.ts`, `queue-digest.ts` (günlük cron'dan). 106 yeni test.
+- **Açık:** günlük özetin tekrar koruması yalnızca süreç içinde (K17).
 - **Kapsam:** `POST /api/queue/tick`, `SlotRun` idempotency, onay modları,
   `auto_approved` audit, tick içinde Reels'in tamamlanması, portal postunun
   onay yolunda anında yayınlanmaması, tüm e-postalar (README §6).
