@@ -7,8 +7,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 
 - **Son güncelleme:** 2026-09-25
-- **Son durum:** V0 (#59), V1 temeli (#60, #61), V2 caption (#62), V4 tick (#63) merge edildi. V3 portal sürüyor (`feat/v3-portal`, worktree `../cas-wt/v3-portal`).
-- **Sıradaki adım:** V3'ü merge et → R2/QStash anahtarları gelince V1 dış doğrulamaları (R2 imzalı URL ile fal ve Instagram) → V5 canlıya geçiş.
+- **Son durum:** V0 (#59), V1 temeli (#60, #61), V2 caption (#62), V4 tick (#63), V3 portal (#65) merge edildi. Kod tarafı tamam; canlıya geçiş dış hesaplara bağlı.
+- **Sıradaki adım:** Kullanıcı R2 + QStash anahtarlarını `.env.local` ve Vercel'e ekleyince: (1) R2 doğrulama betiği (imzalı PUT → HEAD → GET → DELETE), (2) R2 imzalı URL ile fal ve Instagram (test hesabı) denemesi, (3) V5.
 - **Yarım kalan:** —
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
@@ -67,7 +67,8 @@ branch → PR → bu dosyanın güncellenmesi.
   mock'lu testte `ready`/`failed` geçişleri doğru; mevcut videolarla elle
   deneme sonucu bu dosyaya not.
 
-### V3 — Müşteri portalı 🟡
+### V3 — Müşteri portalı ✅ (#65)
+- **Sonuç:** magic-link girişi (`client-auth.ts`, HMAC çerez, her istekte DB doğrulaması), `client-scoped-db.ts`, `/api/portal/**`, `/portal/**` (yükleme + tarayıcıda kare, sürükle-bırak kuyruk, tahmini yayın zamanı, detay, geçmiş, ayarlar), `/clients`'ta "Portal erişimi", CSP'ye R2. ~170 yeni test (IDOR her route için). Kararlar K19.
 - **Kapsam:** magic-link girişi (`src/lib/client-auth.ts`), müşteri kapsamlı
   `getScopedDb` varyantı, `/api/portal/*` route'ları (`nextjs-prisma:route-ekle`),
   `/portal` sayfaları: yükle (tarayıcıda kare çıkarma), kuyruk (sürükle-bırak),

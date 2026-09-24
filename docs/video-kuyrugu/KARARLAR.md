@@ -98,6 +98,24 @@ kolon (şema). Günlük cron günde bir koştuğu için kabul edildi.
 Token yok ya da süresi dolmuşsa slot `failed` yazılır, müşteri ve ajans
 e-posta alır, video kuyrukta kalır — bir sonraki slotta tekrar denenir.
 
+### K19 · 2026-09-25 · Portal davranış kararları (V3)
+- Yükleme taslağı `status: draft` ile başlar, `complete` onu `pending` yapar:
+  yarım kalan yükleme hiçbir akışa girmez ve "kuyruktan çıkarılmış" videodan
+  ayrılır (ikisinde de `queuePosition` null).
+- Red videoyu kuyruktan da çıkarır. Onay için caption `ready` olmalı.
+- Yeniden üretme onaylı videonun onayını geri alır (yeni metni kimse görmedi).
+- "Tekrar dene" `failed → idle` + `slotAt` temizlenir; "sona at" çıkarılmış
+  videoyu geri alır.
+- Magic link GET'te harcanmaz, sayfadaki buton POST'la tüketir: e-posta
+  tarayıcılarının linki önceden açması tek kullanımlık token'ı yakmasın.
+- Giriş maili yanıttan sonra (`after()`) gider: yanıt süresinden adresin kayıtlı
+  olup olmadığı anlaşılmasın.
+- Süre (≤ 90 sn) ve dikeylik yalnızca tarayıcıda kontrol ediliyor; tarayıcının
+  açamadığı video (bazı HEVC .mov) karesiz yüklenir. Instagram yine reddederse
+  yayın `failed` olur ve e-posta gider.
+- Kapsam dışı: "tüm cihazlardan çık", yeniden üretmede eski caption sürümü,
+  ajans panelinde kuyruk görünümü.
+
 ---
 
 ## Açık sorular
