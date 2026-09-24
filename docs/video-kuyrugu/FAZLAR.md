@@ -8,7 +8,7 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 
 - **Son güncelleme:** 2026-09-25
 - **Son durum:** V0 (#59), V1 temeli (#60, #61), V2 caption (#62), V4 tick (#63), V3 portal (#65) merge edildi. Kod tarafı tamam; canlıya geçiş dış hesaplara bağlı.
-- **Sıradaki adım:** Kullanıcı R2 + QStash anahtarlarını `.env.local` ve Vercel'e ekleyince: (1) R2 doğrulama betiği (imzalı PUT → HEAD → GET → DELETE), (2) R2 imzalı URL ile fal ve Instagram (test hesabı) denemesi, (3) V5.
+- **Sıradaki adım:** R2 ✅, QStash token (US) ✅, fal ← R2 imzalı URL ✅ (K14b, K20). Kalan: prod'da QStash imza doğrulaması (deploy sonrası sahte postId'li caption çağrısı), Instagram'ın R2 URL'inden Reels kurması (test hesabı), sonra V5.
 - **Yarım kalan:** —
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
@@ -19,14 +19,14 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 
 ## Elle yapılacaklar (repo yapamaz)
 
-- [ ] **Cloudflare R2:** hesap, gizli bucket, yalnızca o bucket'a yetkili
+- [x] **Cloudflare R2:** (2026-09-25, yerel + Vercel) hesap, gizli bucket, yalnızca o bucket'a yetkili
       API token'ı → `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
       `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` (Vercel + `.env.local`).
       Bucket CORS: portal alan adı + `http://localhost:3000`, `PUT`/`GET`.
-- [ ] **Upstash QStash:** `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`,
+- [x] **Upstash QStash (US bölgesi):** `QSTASH_URL`, `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`,
       `QSTASH_NEXT_SIGNING_KEY` (Vercel + `.env.local`).
-- [ ] **fal.ai:** `FAL_KEY` (subtitle-pipeline'daki anahtar kullanılabilir).
-- [ ] **Anthropic:** `ANTHROPIC_API_KEY`.
+- [x] **fal.ai:** `FAL_KEY` (subtitle-pipeline'daki anahtar kullanılabilir).
+- [x] **Anthropic:** `ANTHROPIC_API_KEY`. (Vercel'e eklendiği kullanıcı beyanı; deploy sonrası doğrulanacak.)
 - [ ] **V5'te:** QStash schedule (`*/5 * * * *` → `/api/queue/tick`), Furkan'ın
       `ClientUser` kaydı ve `PublishSettings`'i.
 

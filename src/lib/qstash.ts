@@ -78,7 +78,15 @@ export async function enqueueCaption(
     return { queued: false, reason: "QSTASH_TOKEN ya da APP_URL tanımlı değil" };
   }
   try {
-    const client = new Client({ token });
+    // Bölge adresi AÇIKÇA veriliyor: token ve imza anahtarları bölgeye özel
+    // (hesap US bölgesinde, DB ve Vercel fonksiyonları da us-east-1). SDK
+    // QSTASH_URL'i env'den okuyabiliyor ama bulamazsa sessizce EU adresine
+    // düşüyor ve istek orada yetkisiz reddediliyor — hatanın kaynağı da
+    // görünmüyor.
+    const client = new Client({
+      token,
+      ...(process.env.QSTASH_URL ? { baseUrl: process.env.QSTASH_URL } : {}),
+    });
     const res = await client.publishJSON({
       url: `${base}/api/queue/caption/${encodeURIComponent(postId)}`,
       body: { postId, ...(opts.note ? { note: opts.note } : {}) } satisfies CaptionJob,

@@ -77,6 +77,19 @@ değişken: aynı 33 sn video soğuk başlangıçta 65 sn, sonra 5–21 sn. Whis
 30 sn bütçe; aşarsa post `failed` (tekrar denenebilir) olur, QStash tekrar
 dener — yarıda bırakılan fal işi fal tarafında yine ücretlenir (birkaç sent).
 
+### K14b · 2026-09-25 · fal, R2 imzalı URL'i okuyor (doğrulandı)
+99 MB'lık örnek video gizli bucket'a yüklendi, 1 saatlik imzalı GET URL'i
+`audio_url` olarak verildi: Whisper 15.8 sn'de transkript döndü. Bucket'a
+imzasız erişim reddediliyor; CORS ön kontrolü canlı adres ve localhost için
+204. Açık kalan tek dış doğrulama: Instagram'ın imzalı URL'den Reels
+konteyneri kurması (test hesabı gerekiyor).
+
+### K20 · 2026-09-25 · QStash US bölgesinde
+Neon `us-east-1`, Vercel fonksiyonları varsayılan `iad1`: QStash'in de US
+bölgesinde olması her tick'in okyanus aşmasını önlüyor. Token/imza anahtarları
+bölgeye özel olduğu için `QSTASH_URL` zorunlu ve `qstash.ts`'te açıkça
+veriliyor.
+
 ### K15 · 2026-09-25 · altText şimdilik saklanmıyor
 Claude alt text üretiyor ama portal postunda (Reels) onu tutacak alan yok;
 `PostImage.altText` görsel satırına ait. Şema kararı bekliyor — Instagram
