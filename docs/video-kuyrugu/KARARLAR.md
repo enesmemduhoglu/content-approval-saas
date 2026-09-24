@@ -90,6 +90,14 @@ bölgesinde olması her tick'in okyanus aşmasını önlüyor. Token/imza anahta
 bölgeye özel olduğu için `QSTASH_URL` zorunlu ve `qstash.ts`'te açıkça
 veriliyor.
 
+### K21 · 2026-09-25 · Instagram, R2 imzalı URL'den Reels kuruyor (doğrulandı)
+Furkan'ın hesabında, 1 saatlik imzalı R2 URL'iyle Reels container'ı açıldı:
+31 sn'de `FINISHED`. `media_publish` BİLİNÇLİ OLARAK çağrılmadı — asıl
+bilinmeyen Instagram'ın gizli bucket'tan indirebilmesiydi, yayın adımı zaten
+mevcut testli kod. Yayınlanmayan container 24 saatte düşüyor; hesapta iz yok.
+Böylece planlanan dış doğrulamaların hepsi tamamlandı (K14b, K20, K21).
+Prod'da QStash imzası da doğrulandı: imzasız/sahte imza 401, gerçek mesaj 200.
+
 ### K15 · 2026-09-25 · altText şimdilik saklanmıyor
 Claude alt text üretiyor ama portal postunda (Reels) onu tutacak alan yok;
 `PostImage.altText` görsel satırına ait. Şema kararı bekliyor — Instagram
