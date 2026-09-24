@@ -5,6 +5,7 @@ import { bearerToken, secretsMatch } from "@/lib/api-key";
 import { notifyAgencyTeam } from "@/lib/agency-notify";
 import { sendApprovalReminderEmail } from "@/lib/email";
 import { REMINDER_AFTER_DAYS, daysPending, reminderDecision } from "@/lib/reminders";
+import { runQueueDigest, type QueueDigestStats } from "@/lib/queue-digest";
 
 /**
  * Bekleyen postlar için günlük hatırlatma (F3).
@@ -67,7 +68,10 @@ export async function GET(request: Request) {
   // ÜSTÜ. Dışarıya hiçbir müşteri verisi çıkmadığından IDOR yüzeyi yok —
   // token yenileme cron'undaki aynı bilinçli istisna.
   const pending = await db.post.findMany({
-    where: { status: "pending" },
+    // Portal (video kuyruğu) postları hariç: onların onay hatırlatması günlük
+    // kuyruk özetinde toplu gidiyor (aşağıda `runQueueDigest`) — video başına
+    // ayrı hatırlatma ya da "link süresi doldu" bildirimi gürültü olurdu.
+    where: { status: "pending", source: "agency" },
     select: {
       id: true,
       caption: true,
@@ -158,6 +162,21 @@ export async function GET(request: Request) {
     }
   }
 
+  // Video kuyruğu (V4) günlük özeti. Ayrı bir cron DEĞİL: Hobby planı cron
+  // sayısını ve sıklığını kısıtlıyor ve bu iş de "günde bir kez müşteriyi
+  // dürt" işi. Kendi try/catch'i var — özet patlarsa yukarıdaki hatırlatmalar
+  // çoktan gitti, onların sayıları yine dönmeli.
+  let queueDigest: QueueDigestStats | { error: true };
+  try {
+    queueDigest = await runQueueDigest(now);
+  } catch (error) {
+    console.error("[cron:reminders] kuyruk özeti çöktü:", error);
+    await sendAlert("cron:queue-digest:crash", "Kuyruk günlük özeti çöktü", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    queueDigest = { error: true };
+  }
+
   // Yanıt yalnızca SAYI taşır — müşteri adı, e-posta, caption hiçbiri geçmez.
   // Bu çıktı Vercel cron loglarına düşüyor.
   return NextResponse.json({
@@ -168,6 +187,7 @@ export async function GET(request: Request) {
     expiryNoticed,
     skipped,
     failed,
+    queueDigest,
   });
   } catch (error) {
     console.error("[cron:reminders] cron çöktü:", error);
