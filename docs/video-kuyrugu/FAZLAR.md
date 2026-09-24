@@ -7,8 +7,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 
 - **Son güncelleme:** 2026-09-25
-- **Son durum:** V0 (belgeler) yazıldı.
-- **Sıradaki adım:** V1 — dış servis doğrulamaları + şema + `queue.ts`.
+- **Son durum:** V0 merge edildi (#59). V1 temeli (şema göçü, `storage-r2.ts`, `qstash.ts`, tüm yeni bağımlılıklar) `feat/v1-temeller`'de.
+- **Sıradaki adım:** V1 kalanı + V4 (`queue.ts`, tick), V2 (caption) ve V3 (portal) paralel ajanlarla, ayrı worktree'lerde.
 - **Yarım kalan:** —
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
@@ -41,7 +41,9 @@ branch → PR → bu dosyanın güncellenmesi.
 - **Kabul:** yeni bir oturum yalnızca bu klasörü okuyarak işe başlayabiliyor.
 - **PR:** `feat/video-kuyrugu-belgeler`
 
-### V1 — Doğrulama ve temeller ⬜
+### V1 — Doğrulama ve temeller 🟡
+- **Yapıldı (`feat/v1-temeller`):** şema göçü `20260925120000_video_kuyrugu` (yalnızca ekleme; eski veri üzerinde sınandı, drift yok), `storage-r2.ts`, `qstash.ts` + testleri, müşteri silme yolunun yeni tabloları temizlemesi, V2–V4'ün tüm npm bağımlılıkları (lock çakışması olmasın diye tek seferde).
+- **Kalan:** `queue.ts` (V4 ajanına), dış doğrulamalar (anahtarlar bekleniyor).
 - **Kapsam:**
   - Dış doğrulamalar (anahtarlar gelince; sonuçlar `KARARLAR.md`'ye):
     fal Whisper R2 imzalı mp4 URL'ini kabul ediyor mu; Instagram imzalı
