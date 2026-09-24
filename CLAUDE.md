@@ -223,5 +223,10 @@ maddeler, bilinen sınırlar ve ölçüm yöntemleri orada. Bir tasarım kararı
 önce oraya bak; çoğu "neden böyle yapılmamış" sorusunun cevabı yazılı. İş bitirdiğinde
 güncelle.
 
+**Video kuyruğu işi (portal, otomatik caption, slot tabanlı yayın) için önce
+`docs/video-kuyrugu/FAZLAR.md`'deki "Oturum devri" bölümünü oku.** İş birden çok
+oturuma yayılıyor; tasarım, kararlar ve kalan adımlar o klasörde. Oturumu o bölümü
+güncelleyerek bitir.
+
 `README.md` ürün ve kurulum anlatır ama Faz E–I (kota, zamanlanmış yayın, ekip üyeleri,
 revizyon turu) sonrası bazı bölümleri bayat — çelişki halinde `TODOS.md` ve kod esastır.
