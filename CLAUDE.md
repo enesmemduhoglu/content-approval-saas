@@ -151,9 +151,11 @@ metne düşüp yüksek sesle uyarır). Yeni bir dış bağımlılık eklerken bu
 Onay transaction'ı commit olduktan **sonra** ayrı adımda yayın denenir; yayın patlarsa
 onay yerinde kalır. `publishApprovedPost` hiçbir zaman throw etmez.
 
-**Üç yayın tetikleyicisi var:** onay yolu (anında), `publish-scheduled` cron'u
-(`publishAt` geçmişse), ve onay sayfasındaki "tekrar dene". Üçü de aynı koşullu UPDATE
-kilidinden geçer — tek kazanan garanti.
+**Dört yayın tetikleyicisi var:** onay yolu (anında — portal postunda DEĞİL),
+`publish-scheduled` cron'u (`publishAt` geçmişse), onay sayfasındaki "tekrar dene", ve
+video kuyruğunun 5 dakikalık tick'i (`/api/queue/tick`, QStash). Dördü de
+`publishApprovedPost`'tan ve aynı koşullu UPDATE kilidinden geçer — tek kazanan garanti.
+Kilit `status: "approved"` koşulunu da taşır: onaysız post hiçbir yoldan yayınlanmaz.
 
 **Makine yolu (furi).** Ayrı bir repodaki bulut rutini `Authorization: Bearer FURI_API_KEY`
 ile post oluşturuyor ve `/api/clients/[id]/instagram-token`'dan token çekiyor. Anahtar

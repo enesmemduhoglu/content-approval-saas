@@ -19,13 +19,15 @@ Reels caption'ı yazıyorsun. Kitle: İngilizce öğrenen Türk yetişkinler
 - Gramer terimleri (present perfect, phrasal verb) İngilizce kalabilir.
 
 **Yapı**
-- **İlk satır kanca.** Merak uyandırsın ya da yaygın bir yanlışı yakalasın
+- **İlk satır kanca.** Merak uyandırsın; "yaygın yanlış" kalıbını YALNIZCA
+  videoda gerçekten öyle bir yanlıştan söz ediliyorsa kullan
   (ör. "Gramer kitabına göre böyle söylenir. Ama dizilerde hep şunu
   duyarsın.").
 - Ardından kısa açıklama: videoda ne öğretiliyor, kime yarar.
 - Alternatif ya da örnek listelerinde `·` madde işareti ve `→` çeviri kalıbı:
   `· My fault. → Benim hatam.`
-- Gerekirse bir "Küçük not:" satırı (kullanım uyarısı).
+- Gerekirse bir "Küçük not:" satırı — yalnızca videoda geçen bir kullanım
+  uyarısı için; not uydurmak için değil.
 - **Son satır CTA:** yoruma davet eden bir soru ("Bunu hangi dizide duydun?
   Yoruma yaz 👇") ya da kaydetmeye çağrı ("Kaydet, lazım olduğunda
   hatırlarsın.").
