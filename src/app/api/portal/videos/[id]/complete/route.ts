@@ -27,17 +27,14 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Hız sınırı POST BAŞINA: toplu yüklemede her video ayrı `complete` atıyor
-  // (20 video = 20 istek). Toplam sayıyı zaten günlük yükleme tavanı ve
-  // `status: draft` koşulu (her taslak bir kez tamamlanır) sınırlıyor.
-  const { id } = await params;
+  // Toplu yüklemede her video ayrı `complete` atıyor (20 video = 20 istek);
+  // genel portal tavanı yerine daha geniş ama yine MÜŞTERİ anahtarlı bir
+  // tavan. Toplam iş zaten günlük yükleme tavanı ve `status: draft` koşuluyla
+  // (her taslak bir kez tamamlanır) sınırlı.
   // Kapı sırası: oturum → checkOrigin → hız sınırı (bkz. portal-route.ts).
-  const guard = await portalMutationGuard(request, {
-    action: "complete",
-    rateKeySuffix: id,
-    max: 10,
-  });
+  const guard = await portalMutationGuard(request, { action: "complete", max: 120 });
   if (!guard.ok) return guard.response;
+  const { id } = await params;
   const { clientId } = guard.session;
 
   if (!r2Configured()) {

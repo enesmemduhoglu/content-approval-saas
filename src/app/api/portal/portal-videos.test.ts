@@ -26,6 +26,7 @@ import { headObject, r2Configured } from "@/lib/storage-r2";
 import { enqueueCaption } from "@/lib/qstash";
 import { publishApprovedPost } from "@/lib/publish-post";
 import { PORTAL_RATE_LIMIT_MAX } from "@/lib/portal-route";
+import { POSITION_STEP } from "@/lib/queue";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
 import {
   createClientUser,
@@ -214,7 +215,7 @@ describe("POST /api/portal/videos/[id]/complete", () => {
 
     const row = await db.post.findUniqueOrThrow({ where: { id: d.id } });
     expect(row.status).toBe("pending");
-    expect(row.queuePosition).toBe(8);
+    expect(row.queuePosition).toBe(7.5 + POSITION_STEP);
     expect(row.frameKeys).toEqual([0, 1, 2, 3].map((i) => `clients/${clientId}/frames/${d.id}/${i}.jpg`));
     expect(enqueueCaption).toHaveBeenCalledWith(d.id);
   });
@@ -263,6 +264,26 @@ describe("GET liste ve detay", () => {
     expect(data.outside.map((v: { id: string }) => v.id)).toEqual([removed.id]);
     expect(data.history.map((v: { id: string }) => v.id)).toEqual([published.id]);
     expect(data.queue[0].coverUrl).toContain(`clients/${clientId}/frames/`);
+  });
+
+  it("kuyruk kartı tahmini yayın anını taşır — onay açıkken onaysız video takvimde yok", async () => {
+    await db.publishSettings.create({
+      data: { clientId, slots: ["19:00"], timezone: "Europe/Istanbul", requireApproval: true },
+    });
+    const approved = await createPortalPost(agencyId, clientId, { queuePosition: 1, status: "approved" });
+    const waiting = await createPortalPost(agencyId, clientId, { queuePosition: 2 });
+    const data = await (await listVideos(portalRequest("/api/portal/videos", { cookie }))).json();
+    const byId = Object.fromEntries(
+      data.queue.map((v: { id: string; estimatedSlotAt: string | null }) => [v.id, v.estimatedSlotAt])
+    );
+    expect(byId[approved.id]).not.toBeNull();
+    expect(byId[waiting.id]).toBeNull();
+  });
+
+  it("ayar satırı yoksa tahmin yok (tick o müşteriyi taramaz)", async () => {
+    await createPortalPost(agencyId, clientId, { status: "approved" });
+    const data = await (await listVideos(portalRequest("/api/portal/videos", { cookie }))).json();
+    expect(data.queue[0].estimatedSlotAt).toBeNull();
   });
 
   it("detay imzalı video URL'i döner", async () => {
@@ -348,7 +369,7 @@ describe("POST move — sıralama", () => {
     const positions = (
       await db.post.findMany({ where: { clientId }, orderBy: { queuePosition: "asc" } })
     ).map((p) => p.queuePosition);
-    expect(positions).toEqual([1, 2, 3]);
+    expect(positions).toEqual([1, 2, 3].map((i) => i * POSITION_STEP));
   });
 
   it("bayat komşu çifti (artık yan yana değil) 409", async () => {
@@ -454,10 +475,12 @@ describe("kuyruktan çıkar / tekrar dene / sona at", () => {
     expect((await removeVideo(post(`/api/portal/videos/${v.id}/remove`), idParams(v.id))).status).toBe(409);
   });
 
-  it("tekrar dene: failed → idle, yayın çağrılmaz; idle'da 409", async () => {
+  it("tekrar dene: failed → idle + slotAt temizlenir, yayın çağrılmaz; idle'da 409", async () => {
     const v = await createPortalPost(agencyId, clientId, { status: "approved", publishStatus: "failed" });
+    await db.post.update({ where: { id: v.id }, data: { slotAt: new Date(), publishError: "IG hatası" } });
     expect((await retryVideo(post(`/api/portal/videos/${v.id}/retry`), idParams(v.id))).status).toBe(200);
-    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).publishStatus).toBe("idle");
+    const row = await db.post.findUniqueOrThrow({ where: { id: v.id } });
+    expect(row).toMatchObject({ publishStatus: "idle", slotAt: null, publishError: null });
     expect(publishApprovedPost).not.toHaveBeenCalled();
     expect((await retryVideo(post(`/api/portal/videos/${v.id}/retry`), idParams(v.id))).status).toBe(409);
   });
@@ -468,6 +491,15 @@ describe("kuyruktan çıkar / tekrar dene / sona at", () => {
     expect((await toEndVideo(post(`/api/portal/videos/${failed.id}/to-end`), idParams(failed.id))).status).toBe(200);
     expect(await queueOrder()).toEqual([other.id, failed.id]);
     expect((await db.post.findUniqueOrThrow({ where: { id: failed.id } })).publishStatus).toBe("idle");
+  });
+
+  it("sona at: idle videonun slotAt'ine DOKUNMAZ (tick onu sahiplenmiş olabilir)", async () => {
+    const claimed = await createPortalPost(agencyId, clientId, { queuePosition: 1 });
+    await createPortalPost(agencyId, clientId, { queuePosition: 2 });
+    const slotAt = new Date("2026-09-25T16:00:00Z");
+    await db.post.update({ where: { id: claimed.id }, data: { slotAt } });
+    await toEndVideo(post(`/api/portal/videos/${claimed.id}/to-end`), idParams(claimed.id));
+    expect((await db.post.findUniqueOrThrow({ where: { id: claimed.id } })).slotAt).toEqual(slotAt);
   });
 
   it("sona at: kuyruktan çıkarılmış videoyu geri alır; reddedileni almaz", async () => {

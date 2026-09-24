@@ -190,6 +190,9 @@ export function QueueBoard({
         if (res.status === 409) router.refresh();
         return;
       }
+      // Tahmini yayın zamanları sıraya bağlı ve sunucuda hesaplanıyor
+      // (projectSchedule); yeni sırayla yeniden çizilsinler.
+      router.refresh();
     } catch {
       setOrder(previous);
       setError("Bağlantı hatası, sıra değiştirilemedi");

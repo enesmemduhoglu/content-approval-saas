@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getClientScopedDb, type PortalVideo } from "@/lib/client-scoped-db";
 import { toCard } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
+import { estimatePublishTimes, formatEta } from "@/lib/portal-schedule";
 import { PortalNav } from "@/components/portal/portal-nav";
 import { QueueBoard, type QueueCard } from "@/components/portal/queue-board";
 import { PortalBadges } from "@/components/portal/portal-badges";
@@ -36,6 +37,12 @@ export default async function PortalQueuePage() {
     cardsFor(queue, session.clientId),
     cardsFor(outside, session.clientId),
   ]);
+  // Tahmin, tick'in kurallarıyla (V4 `projectSchedule`): takvimde olmayan
+  // kartta hiçbir şey yazmaz — onay bekleyen video "yayınlanacak" görünmesin.
+  const etaTimes = estimatePublishTimes(queue, settings);
+  const etas = Object.fromEntries(
+    [...etaTimes].map(([id, at]) => [id, `Tahmini yayın: ${formatEta(at, settings!.timezone)}`])
+  );
 
   return (
     <>
@@ -64,7 +71,7 @@ export default async function PortalQueuePage() {
             : "Onay kapalı: yayın saatinde sıradaki video onay beklemeden yayınlanır."}{" "}
           Sırayı sürükleyerek ya da oklarla değiştir.
         </p>
-        <QueueBoard cards={queueCards} requireApproval={requireApproval} />
+        <QueueBoard cards={queueCards} requireApproval={requireApproval} etas={etas} />
 
         {outsideCards.length > 0 && (
           <section className="portal-section">

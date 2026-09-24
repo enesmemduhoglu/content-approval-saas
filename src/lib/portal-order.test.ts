@@ -1,16 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { planMove, positionAtEnd } from "@/lib/portal-order";
+import { POSITION_STEP } from "@/lib/queue";
 
 const q = (...positions: number[]) =>
   positions.map((queuePosition, i) => ({ id: String.fromCharCode(97 + i), queuePosition }));
 
 describe("planMove", () => {
-  it("başa taşıma: ilk elemanın bir eksiği", () => {
-    expect(planMove(q(1, 2, 3), "c", { beforeId: "a" })).toEqual({ kind: "single", position: 0 });
+  // Adım ve ortalama kuralı queue.ts'te (V4); burada portalın onu doğru
+  // komşularla çağırdığı sınanıyor.
+  it("başa taşıma: ilk elemanın bir adım gerisi", () => {
+    expect(planMove(q(1, 2, 3), "c", { beforeId: "a" })).toEqual({
+      kind: "single",
+      position: 1 - POSITION_STEP,
+    });
   });
 
-  it("sona taşıma: son elemanın bir fazlası", () => {
-    expect(planMove(q(1, 2, 3), "a", { afterId: "c" })).toEqual({ kind: "single", position: 4 });
+  it("sona taşıma: son elemanın bir adım ilerisi", () => {
+    expect(planMove(q(1, 2, 3), "a", { afterId: "c" })).toEqual({
+      kind: "single",
+      position: 3 + POSITION_STEP,
+    });
   });
 
   it("araya taşıma: komşuların ortalaması", () => {
@@ -65,10 +74,8 @@ describe("planMove", () => {
 });
 
 describe("positionAtEnd", () => {
-  it("boş kuyrukta 1, doluysa en büyüğün tam sayı üstü", () => {
-    expect(positionAtEnd(null)).toBe(1);
-    expect(positionAtEnd(3)).toBe(4);
-    expect(positionAtEnd(3.5)).toBe(4);
-    expect(positionAtEnd(-2.5)).toBe(-2);
+  it("boş kuyrukta ilk adım, doluysa en büyüğün bir adım ilerisi", () => {
+    expect(positionAtEnd(null)).toBe(POSITION_STEP);
+    expect(positionAtEnd(3.5)).toBe(3.5 + POSITION_STEP);
   });
 });

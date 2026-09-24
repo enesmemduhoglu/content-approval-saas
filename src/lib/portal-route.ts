@@ -38,7 +38,7 @@ export async function portalMutationGuard(
   if (!origin.ok) {
     return { ok: false, response: NextResponse.json({ error: origin.message }, { status: 403 }) };
   }
-  const key = `portal:${opts.action}:${opts.rateKeySuffix ?? session.clientId}`;
+  const key = `portal:${opts.action}:${session.clientId}`;
   if (await checkRateLimit(key, Date.now(), opts.max ?? PORTAL_RATE_LIMIT_MAX)) {
     return {
       ok: false,

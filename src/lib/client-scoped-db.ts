@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import type { ClientSession } from "@/lib/client-auth";
 import { videoKey } from "@/lib/storage-r2";
 import { planMove, positionAtEnd, type MoveTarget } from "@/lib/portal-order";
+import { renumberPositions } from "@/lib/queue";
 import type { PublishSettingsInput } from "@/lib/portal-validation";
 
 /**
@@ -232,11 +233,15 @@ export function getClientScopedDb(session: ClientSession) {
         return result.count === 1;
       },
 
-      /** "Tekrar dene": hata → idle; video kuyruktaki yerinde bir sonraki slotu bekler. */
+      /**
+       * "Tekrar dene": hata → idle; video kuyruktaki yerinde bir sonraki slotu
+       * bekler. `slotAt` da temizlenir: tick eski sahiplenmeyi zaten bayat
+       * sayıyor ama "bu post artık hiçbir slota bağlı değil" niyeti açık dursun.
+       */
       retry: async (id: string): Promise<boolean> => {
         const result = await db.post.updateMany({
           where: { id, ...scope, publishStatus: "failed", queuePosition: { not: null } },
-          data: { publishStatus: "idle", publishError: null },
+          data: { publishStatus: "idle", publishError: null, slotAt: null },
         });
         return result.count === 1;
       },
@@ -249,6 +254,10 @@ export function getClientScopedDb(session: ClientSession) {
        */
       moveToEnd: (id: string): Promise<boolean> =>
         db.$transaction(async (tx) => {
+          const current = await tx.post.findFirst({
+            where: { id, ...scope },
+            select: { publishStatus: true },
+          });
           const agg = await tx.post.aggregate({
             where: { ...scope, queuePosition: { not: null }, id: { not: id } },
             _max: { queuePosition: true },
@@ -266,7 +275,19 @@ export function getClientScopedDb(session: ClientSession) {
               publishError: null,
             },
           });
-          return result.count === 1;
+          if (result.count !== 1) return false;
+          // `slotAt` YALNIZCA hatalı videoda temizlenir ("tekrar dene" ile aynı
+          // niyet). `idle` bir videoda dolu `slotAt`, tick'in onu şu an bir
+          // slota sahiplendiği anlamına gelebilir (bkz. queue-db
+          // `claimPostForSlot`); onu silmek aynı videonun ikinci bir slota da
+          // sahiplenilmesine kapı açardı.
+          if (current?.publishStatus === "failed") {
+            await tx.post.updateMany({
+              where: { id, ...scope, publishStatus: "idle" },
+              data: { slotAt: null },
+            });
+          }
+          return true;
         }),
 
       /** Sürükle-bırak / ok tuşları. Hesap `portal-order.ts`'te (saf, testli). */
@@ -304,12 +325,13 @@ export function getClientScopedDb(session: ClientSession) {
               data: { queuePosition: plan.position },
             });
           } else {
-            // Float çözünürlüğü tükendi: bütün kuyruk 1..n. Her satır yine
-            // kapsam filtresiyle — id listesi DB'den gelse bile.
-            for (const [index, postId] of plan.order.entries()) {
+            // Float çözünürlüğü tükendi: bütün kuyruk eşit aralıkla yeniden
+            // numaralanır (adım `queue.ts`te). Her satır yine kapsam
+            // filtresiyle — id listesi DB'den gelse bile.
+            for (const row of renumberPositions(plan.order)) {
               await tx.post.updateMany({
-                where: { id: postId, ...scope, queuePosition: { not: null } },
-                data: { queuePosition: index + 1 },
+                where: { id: row.id, ...scope, queuePosition: { not: null } },
+                data: { queuePosition: row.queuePosition },
               });
             }
           }
