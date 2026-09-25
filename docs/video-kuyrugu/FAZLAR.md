@@ -7,8 +7,10 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 
 - **Son güncelleme:** 2026-09-25
-- **Son durum:** V0 (#59), V1 temeli (#60, #61), V2 caption (#62), V4 tick (#63), V3 portal (#65) merge edildi. Kod tarafı tamam; canlıya geçiş dış hesaplara bağlı.
-- **Sıradaki adım:** V5 kalanı — Furkan'ın portal kullanıcısı (e-posta kullanıcıdan bekleniyor; `/clients` → "Portal erişimi"), Furkan portal ayarlarından yayın saatlerini seçer, ilk gerçek yükleme uçtan uca izlenir, bir hafta onay açık modda izleme.
+- **Son durum:** V0–V4 merge edildi (#59–#65), dış doğrulamalar tamam (#67, #68), **V5 canlıda.** İlk gerçek yayın 2026-09-25 03:10 (onaylı video, slot 03:09 → Reels ~20 sn'de yayında); 03:13 boş slotu `empty` + "onaylı video yok" e-postası (Resend kabul etti, log temiz). Yayınlanan video dikey çıktı → V6.
+- **Planlanan, UYGULANMADI:** [V6 — kare kırpma](V6-kare-kirpma.md) ve [V7 — PWA](V7-pwa.md). Belgeler hazır; **kullanıcı başlatana kadar kod yazma.** Başlarken sırayı sor (öneri: önce V7).
+- **Sıradaki adım:** V5 kalanı — Furkan'ın portal e-postası (kullanıcıdan bekleniyor) eklenip test kullanıcısı kaldırılır; Furkan gerçek yayın saatlerini seçer; bir hafta onay açık modda izleme. Sonra V6/V7 (kullanıcı başlatınca).
+- **Açık durumlar (prod):** portalın tek kullanıcısı test için `eneshan034@gmail.com` (Furkan'ın müşteri kaydında); `PublishSettings.slots = ["03:13"]` hâlâ ayarlı olabilir — her gece boş slot e-postası üretir, kullanıcıya duraklatması söylendi; kuyrukta 2 onaysız test videosu.
 - **Canlıda kurulu:** Vercel env (R2, QStash US, fal, Anthropic — Production + Preview), QStash schedule `scd_4rmi9RPUgv1uQkyzWBRwTagJEQQk` (`*/5 * * * *` → `POST /api/queue/tick`, ilk tick 200), Furkan'ın `captionStyle`'ı (`scripts/caption-stili-yukle.mjs`).
 - **Dikkat:** Furkan'ın Instagram token'ı 2026-10-15'te bitiyor; yenileme cron'u 20 gün kala devreye girer — 2026-09-26 sabahı yenilendiğini kontrol et.
 - **Yarım kalan:** —
@@ -90,11 +92,26 @@ branch → PR → bu dosyanın güncellenmesi.
   şablonları testli.
 
 ### V5 — Canlıya geçiş 🟡
+- **Canlı test (2026-09-25):** 3 video yüklendi, üçünün caption'ı dakikalar içinde `ready`; onaylı olan 03:09 slotunda yayınlandı (container aynı tick'te `FINISHED`, tek sonuç e-postası), onaysız ikisi kuyrukta kaldı; 03:13 slotu onaylı video olmadığı için `empty` + e-posta. E-posta Gmail'de spam'e düşebilir — kullanıcıya "Spam değil" dedirt.
 - **Kapsam:** QStash schedule, Furkan'ın kaydı ve ayarları, furi1'de Reels
   elle gönderim yolunun emekliye ayrıldığı notu, bir hafta onay açık modda
   izleme.
 - **Kabul:** uçtan uca senaryo (README'deki doğrulama listesi) canlıda
   geçti; sonuç bu dosyaya yazıldı.
+
+### V6 — Yüklemede 1:1 kare kırpma ⬜
+- **Belge:** [`V6-kare-kirpma.md`](V6-kare-kirpma.md) · Karar: K22.
+- **Özet:** kırpma kullanıcının tarayıcısında (Mediabunny / WebCodecs), video
+  başına "Kare / Orijinal" (varsayılan kare), çerçeve orta + kaydırılabilir.
+  Sunucu ve şema değişmez.
+- **Kabul:** belgedeki §6 doğrulama listesi (iPhone `.mov` rotasyonu dahil).
+
+### V7 — PWA (telefonda uygulama gibi) ⬜
+- **Belge:** [`V7-pwa.md`](V7-pwa.md) · Karar: K23.
+- **Özet:** manifest + ikonlar + viewport, en küçük service worker (API asla
+  önbelleğe alınmaz), **iOS için kodla giriş** (PWA çerezleri Safari'den
+  ayrı), Android paylaşım hedefi (isteğe bağlı).
+- **Kabul:** belgedeki §4 doğrulama listesi.
 
 ## Uçtan uca doğrulama senaryosu (V5)
 
