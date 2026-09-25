@@ -13,6 +13,13 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
+// `next/font` derleme zamanı yükleyicisi (SWC dönüştürür); vitest'te çağrılabilir
+// bir fonksiyon değil. Testin konusu meta/viewport, font sınıfları değil.
+vi.mock("./fonts", () => ({
+  archivo: { variable: "archivo" },
+  figtree: { variable: "figtree" },
+}));
+
 import { db } from "@/lib/db";
 import { signClientSession } from "@/lib/client-auth";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";

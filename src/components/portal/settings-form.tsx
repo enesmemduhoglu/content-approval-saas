@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { timezoneLabel } from "@/lib/portal-format";
 import { IconClose } from "@/components/portal/icons";
+import { PushToggle } from "@/components/portal/push-toggle";
 
 export type SettingsValue = {
   slots: string[];
@@ -278,9 +279,13 @@ export function SettingsForm({
           BİLDİRİMLER
         </h2>
         <div className="p-set-card p-set-card--rows">
-          {/* V7c: <PushToggle /> buraya — telefon bildirimi anahtarı kendi
-              `p-set-row`'unu çizer (başlık + açıklama + role="switch").
-              Kaydet'ten bağımsız: izin isteği bir dokunuşla anında yapılmalı. */}
+          {/* V7c: telefon bildirimi anahtarı kendi satırını ve stilini
+              (push-toggle.module.css) getiriyor; sarmalayıcı yalnızca kartın
+              yatay payını ve satır ayırıcısını veriyor. Kaydet'ten bağımsız:
+              izin isteği bir dokunuşla anında yapılmalı (iOS kuralı). */}
+          <div className="p-set-slot">
+            <PushToggle />
+          </div>
           <div className="p-set-row p-set-row--stack">
             <label htmlFor="ayar-eposta" className="p-set-title">
               Yedek e-posta

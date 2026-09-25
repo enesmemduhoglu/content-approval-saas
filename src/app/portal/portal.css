@@ -1460,6 +1460,16 @@ body:has(.portal-root) {
   border-top: 1px solid var(--p-line-soft);
 }
 
+/* Başka bileşenin kendi satırını çizdiği yuva (PushToggle): yalnızca pay + ayırıcı. */
+.p-set-slot {
+  padding: 2px 16px;
+}
+
+.p-set-slot + .p-set-row,
+.p-set-row + .p-set-slot {
+  border-top: 1px solid var(--p-line-soft);
+}
+
 .p-set-row--stack {
   flex-direction: column;
   align-items: stretch;
