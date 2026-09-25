@@ -82,6 +82,49 @@ describe("PUT /api/portal/settings", () => {
     expect(res.status).toBe(200);
   });
 
+  it("GET varsayılanı tüm günler; ilk kayıtta days gönderilmezse şema varsayılanı yazılır", async () => {
+    const res = await GET(portalRequest("/api/portal/settings", { cookie }));
+    expect((await res.json()).settings.days).toEqual([1, 2, 3, 4, 5, 6, 7]);
+
+    expect((await put(valid)).status).toBe(200);
+    const row = await db.publishSettings.findUniqueOrThrow({ where: { clientId } });
+    expect(row.days).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("yayın günleri sıralanarak saklanır ve yanıtta döner", async () => {
+    const res = await put({ ...valid, days: [5, 1, 4] });
+    expect(res.status).toBe(200);
+    expect((await res.json()).settings.days).toEqual([1, 4, 5]);
+    const row = await db.publishSettings.findUniqueOrThrow({ where: { clientId } });
+    expect(row.days).toEqual([1, 4, 5]);
+  });
+
+  it("days alanı gönderilmezse mevcut seçim KORUNUR (eski istemci her güne çevirmesin)", async () => {
+    await put({ ...valid, days: [1] });
+    const res = await put({ ...valid, slots: ["09:30"] });
+    expect(res.status).toBe(200);
+    const row = await db.publishSettings.findUniqueOrThrow({ where: { clientId } });
+    expect(row).toMatchObject({ days: [1], slots: ["09:30"] });
+  });
+
+  it.each([
+    ["boş gün listesi", []],
+    ["dizi olmayan", "1,2"],
+    ["null", null],
+    ["0", [0, 1]],
+    ["8", [1, 8]],
+    ["tekrarlı gün", [1, 1]],
+    ["kesirli gün", [1.5]],
+    ["metin gün", ["1"]],
+  ])("days: %s → 400 (field: days), mevcut değer değişmez", async (_label, days) => {
+    await put({ ...valid, days: [2, 3] });
+    const res = await put({ ...valid, days });
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe("days");
+    const row = await db.publishSettings.findUniqueOrThrow({ where: { clientId } });
+    expect(row.days).toEqual([2, 3]);
+  });
+
   it("yabancı Origin 403", async () => {
     expect((await put(valid, "https://kotu.example")).status).toBe(403);
     expect(await db.publishSettings.count()).toBe(0);

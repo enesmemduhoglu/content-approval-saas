@@ -126,6 +126,14 @@ branch → PR → bu dosyanın güncellenmesi.
   yedek. Kabul: §6.2.
 - **V7d — Android paylaşım hedefi ⬜** — `share_target` + SW. Kabul: §7.
 
+### V8 — Yayın günleri ✅ — belge: [`V8-yayin-gunleri.md`](V8-yayin-gunleri.md) · K28
+Haftanın hangi günleri yayın olacağı (tek gün kümesi × tek saat listesi).
+Göç `20260926130000_yayin_gunleri` (`PublishSettings.days`, varsayılan tüm
+günler; eski veriyle sınandı), `slotInstants` yerel gün filtresi, ayar
+doğrulaması (`field: "days"`, alan yoksa korunur), Ayarlar'da "Yayın günleri
+ve saatleri" kartı (gün çipleri, hazır seçimler, canlı özet + sıradaki 3
+yayın), kuyrukta "Perşembe · 19:00". PR: bkz. aşağıdaki oturum devri.
+
 ## Uçtan uca doğrulama senaryosu (V5)
 
 1. Portaldan 3 video yükle → caption'lar birkaç dakikada hazır.

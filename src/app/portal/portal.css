@@ -1586,6 +1586,131 @@ body:has(.portal-root) {
   background: var(--p-bg);
 }
 
+/* ─── Yayın günleri (V8) — "Ayarlar-gunler" maketi ─────────────────────── */
+
+.p-set-card--schedule {
+  gap: 16px;
+}
+
+.p-set-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.p-set-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.p-set-divider {
+  height: 1px;
+  background: var(--p-line-soft);
+}
+
+/* 7 sütun tek satır: 390 px telefonda çip ≈ 44 px genişlik, 48 px yükseklik —
+   dokunma hedefi alt sınırın üstünde, satır kırılmıyor. */
+.p-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.p-day {
+  height: 48px;
+  padding: 0;
+  border-radius: 14px;
+  border: 1.5px solid #d9cfb6;
+  background: var(--p-card);
+  color: var(--p-ink);
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.p-day[aria-pressed="true"] {
+  border-color: var(--p-ink);
+  background: var(--p-ink);
+  color: var(--p-bg);
+}
+
+.p-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.p-preset {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  border: 1.5px solid var(--p-line-strong);
+  background: transparent;
+  color: var(--p-body-2);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.p-preset[aria-pressed="true"] {
+  border-color: var(--p-ink);
+  background: var(--p-sand);
+  color: var(--p-ink);
+}
+
+.p-note--sm {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.p-summary {
+  background: var(--p-ink);
+  color: var(--p-bg);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.p-summary p,
+.p-summary ul {
+  margin: 0;
+}
+
+.p-summary-title {
+  font-family: var(--p-font-display), Archivo, sans-serif;
+  font-stretch: 82%;
+  font-weight: 800;
+  font-size: 19px;
+  line-height: 1.15;
+}
+
+.p-summary-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  color: #ffb59a;
+}
+
+.p-summary-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  color: #e6e9f0;
+}
+
+.p-summary-foot {
+  font-size: 12px;
+  color: #aeb7c8;
+}
+
 .p-switch {
   width: 52px;
   height: 32px;

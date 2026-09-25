@@ -37,6 +37,7 @@ import { sendAgencyNoticeEmail, sendRawEmail } from "@/lib/email";
 import { IGError, createReelContainer, finalizeContainer } from "@/lib/instagram";
 import { signGetUrl } from "@/lib/storage-r2";
 import { AUTO_APPROVAL_IP } from "@/lib/queue-db";
+import { localWeekday } from "@/lib/queue";
 import {
   createAgency,
   createClient,
@@ -85,13 +86,19 @@ beforeEach(async () => {
 
 /** Instagram bağlı müşteri + ayar; slot `minutesAgo` dakika önce. */
 async function seed(
-  options: { minutesAgo?: number[]; requireApproval?: boolean; paused?: boolean } = {}
+  options: {
+    minutesAgo?: number[];
+    requireApproval?: boolean;
+    paused?: boolean;
+    days?: (slotAts: Date[]) => number[];
+  } = {}
 ) {
   const agency = await createAgency();
   const client = await createInstagramClient(agency.id);
   const slots = (options.minutesAgo ?? [5]).map((m) => slotMinutesAgo(m));
   await createPublishSettings(client.id, {
     slots: slots.map((s) => s.slot),
+    days: options.days?.(slots.map((s) => s.slotAt)),
     requireApproval: options.requireApproval ?? true,
     paused: options.paused ?? false,
   });
@@ -330,6 +337,34 @@ describe("duraklatma ve kaçırılmış slot", () => {
     const body = await (await POST(tickRequest())).json();
     expect(body).toMatchObject({ clients: 0, published: 0 });
     expect(mockCreateReel).not.toHaveBeenCalled();
+  });
+});
+
+describe("yayın günleri (V8)", () => {
+  // Slot gerçek saatten kuruluyor; gün de slotun İstanbul'daki YEREL günü —
+  // test gece yarısına denk gelse bile "bugün" UTC'ye göre okunmasın.
+  const otherDays = ([at]: Date[]) =>
+    [1, 2, 3, 4, 5, 6, 7].filter((d) => d !== localWeekday(at, "Europe/Istanbul"));
+
+  it("seçili olmayan günde slot doğmaz: SlotRun yok, yayın yok, 'slot boş' e-postası/bildirimi yok", async () => {
+    const { agency, client } = await seed({ days: otherDays });
+    const post = await createQueuePost(agency.id, client.id);
+
+    expect(await (await POST(tickRequest())).json()).toMatchObject({ ok: true, published: 0 });
+    expect(await db.slotRun.count({ where: { clientId: client.id } })).toBe(0);
+    expect((await db.post.findUniqueOrThrow({ where: { id: post.id } })).publishStatus).toBe("idle");
+    expect(mockCreateReel).not.toHaveBeenCalled();
+    expect(mockRaw).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("aynı saat, bugün seçiliyken yayınlanır", async () => {
+    const { agency, client } = await seed({
+      days: ([at]) => [localWeekday(at, "Europe/Istanbul")],
+    });
+    await createQueuePost(agency.id, client.id);
+    expect(await (await POST(tickRequest())).json()).toMatchObject({ ok: true, published: 1 });
+    expect(await db.slotRun.count({ where: { clientId: client.id } })).toBe(1);
   });
 });
 

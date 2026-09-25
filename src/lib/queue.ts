@@ -17,6 +17,14 @@ export type QueueSettings = {
   slots: string[];
   /** IANA adı ("Europe/Istanbul"). Sabit ofset VARSAYILMAZ — DST'li bölgeler de çalışmalı. */
   timezone: string;
+  /**
+   * V8 (K28) — yayın günleri, ISO hafta günü (1 = Pazartesi … 7 = Pazar),
+   * `timezone`a göre YEREL gün. `slots` yalnızca bu günlerde üretilir. Eksik
+   * ya da boşsa TÜM günler: V8 öncesi çağıranlar (ve en az bir günü zorunlu
+   * tutan doğrulamayı atlayan elle bozulmuş bir satır) "hiç yayın yok"a
+   * düşmesin — hiç yayın istemeyenin yolu `paused`.
+   */
+  days?: number[] | null;
   requireApproval: boolean;
   paused: boolean;
   /**
@@ -153,15 +161,52 @@ function normalizedSlots(slots: string[]): { hour: number; minute: number }[] {
   return out.sort((a, b) => a.hour - b.hour || a.minute - b.minute);
 }
 
+/** ISO hafta günleri, 1 = Pazartesi … 7 = Pazar. */
+export const ALL_DAYS: readonly number[] = [1, 2, 3, 4, 5, 6, 7];
+
+/**
+ * Geçerli yayın günleri kümesi. Geçersiz değerler atılır; geriye bir şey
+ * kalmazsa tüm günler (bkz. `QueueSettings.days`).
+ */
+function normalizedDays(days: number[] | null | undefined): Set<number> {
+  const valid = (days ?? []).filter((d) => Number.isInteger(d) && d >= 1 && d <= 7);
+  return new Set(valid.length > 0 ? valid : ALL_DAYS);
+}
+
+/**
+ * Yerel TAKVİM tarihinin ISO hafta günü (1 = Pazartesi … 7 = Pazar).
+ *
+ * Tarih zaten müşterinin yerel takvimi (`localParts`/`Intl`'den geliyor),
+ * yani burada saat dilimi yok: tarih UTC gece yarısına oturtulup gün
+ * okunuyor. Anın kendisinden (`Date.getDay()`) okunsaydı sunucunun saat
+ * dilimi (Vercel'de UTC) karışırdı — İstanbul'da Pazartesi 01:00, UTC'de
+ * hâlâ Pazar.
+ */
+export function isoWeekday(date: { year: number; month: number; day: number }): number {
+  const utcDay = new Date(Date.UTC(date.year, date.month - 1, date.day)).getUTCDay();
+  return utcDay === 0 ? 7 : utcDay;
+}
+
+/** Bir anın `timeZone`daki ISO hafta günü. */
+export function localWeekday(instant: Date, timeZone: string): number {
+  return isoWeekday(localParts(instant, timeZone));
+}
+
 /**
  * `[from, to]` aralığına düşen slot anları (UTC), artan sırada.
  *
  * Günler müşterinin YEREL takvimine göre gezilir: İstanbul'da 01:00'daki bir
  * slot UTC'de önceki güne düşer; UTC günü gezilseydi o slot ya iki kez ya hiç
- * üretilirdi.
+ * üretilirdi. Yayın günü filtresi (V8) de bu yerel günde uygulanır: gün
+ * sınırı müşterinin gece yarısı, UTC'ninki değil. Takvim günü üzerinden
+ * gidildiği için DST günü de tek gün sayılır (23 ya da 25 saat olsa bile).
+ *
+ * Saf ve istemcide de çalışır (yalnızca `Intl`): Ayarlar ekranı henüz
+ * kaydedilmemiş seçimin "sıradaki yayınlar"ını bu fonksiyonla hesaplıyor —
+ * ekranda görünen ile tick'in uyguladığı kural tek yerde.
  */
 export function slotInstants(
-  settings: Pick<QueueSettings, "slots" | "timezone">,
+  settings: Pick<QueueSettings, "slots" | "timezone" | "days">,
   range: { from: Date; to: Date }
 ): Date[] {
   const slots = normalizedSlots(settings.slots);
@@ -173,12 +218,14 @@ export function slotInstants(
   const last = addDays(localParts(range.to, settings.timezone), 1);
   const lastKey = Date.UTC(last.year, last.month - 1, last.day);
 
+  const days = normalizedDays(settings.days);
   const out: Date[] = [];
   for (
     let day = first;
     Date.UTC(day.year, day.month - 1, day.day) <= lastKey;
     day = addDays(day, 1)
   ) {
+    if (!days.has(isoWeekday(day))) continue;
     for (const slot of slots) {
       const instant = zonedTimeToUtc({ ...day, ...slot }, settings.timezone);
       if (instant >= range.from && instant <= range.to) out.push(instant);
@@ -222,7 +269,7 @@ export type DueSlot = {
  * gereksiz INSERT denemelerini azaltır.
  */
 export function dueSlots(
-  settings: Pick<QueueSettings, "slots" | "timezone" | "createdAt">,
+  settings: Pick<QueueSettings, "slots" | "timezone" | "days" | "createdAt">,
   now: Date,
   existingRunSlotAts: Date[]
 ): DueSlot[] {
@@ -337,24 +384,26 @@ export type ProjectedSlot = { postId: string; slotAt: Date };
  */
 export function projectSchedule<T extends QueueItem>(
   queue: T[],
-  settings: Pick<QueueSettings, "slots" | "timezone" | "requireApproval" | "paused">,
+  settings: Pick<QueueSettings, "slots" | "timezone" | "days" | "requireApproval" | "paused">,
   now: Date,
   n: number
 ): ProjectedSlot[] {
   if (settings.paused || n <= 0) return [];
-  const perDay = normalizedSlots(settings.slots).length;
-  if (perDay === 0) return [];
+  const perWeek = normalizedSlots(settings.slots).length * normalizedDays(settings.days).size;
+  if (perWeek === 0) return [];
 
   let remaining = queue.filter((item) => isEligible(item, settings.requireApproval));
   const want = Math.min(n, remaining.length);
   if (want === 0) return [];
 
   // `now` anındaki slot çoktan tick'e ait (ya işlendi ya işleniyor) — yalnızca
-  // sonrası. +2 gün: DST günü ve bugünün geçmiş slotları için pay.
-  const days = Math.ceil(want / perDay) + 2;
+  // sonrası. Aralık tam hafta katı: 7k günlük her pencere, seçili her günü
+  // tam k kez içerir (yalnızca Pazartesi seçiliyse 3 yayın için 3 hafta).
+  // +2 gün: DST günü ve bugünün geçmiş slotları için pay.
+  const spanDays = Math.ceil(want / perWeek) * 7 + 2;
   const instants = slotInstants(settings, {
     from: new Date(now.getTime() + 1),
-    to: new Date(now.getTime() + days * DAY_MS),
+    to: new Date(now.getTime() + spanDays * DAY_MS),
   });
 
   const out: ProjectedSlot[] = [];

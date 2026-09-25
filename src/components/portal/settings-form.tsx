@@ -1,13 +1,24 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { timezoneLabel } from "@/lib/portal-format";
+import { useEffect, useMemo, useState } from "react";
+import {
+  DAY_PRESETS,
+  WEEKDAYS,
+  dayCountLabel,
+  presetFor,
+  scheduleSummary,
+  timezoneLabel,
+  weekdayDateTime,
+} from "@/lib/portal-format";
+import { parseSlot, slotInstants } from "@/lib/queue";
 import { IconClose } from "@/components/portal/icons";
 import { PushToggle } from "@/components/portal/push-toggle";
 
 export type SettingsValue = {
   slots: string[];
+  /** ISO hafta günleri (1 = Pazartesi … 7 = Pazar), sıralı. */
+  days: number[];
   timezone: string;
   requireApproval: boolean;
   paused: boolean;
@@ -15,6 +26,11 @@ export type SettingsValue = {
 };
 
 const MAX_SLOTS = 6;
+
+/** Özet kutusundaki "sıradaki yayınlar" sayısı. */
+const UPCOMING_COUNT = 3;
+/** Yalnız bir gün seçiliyken 3 yayın 3 haftaya yayılır; +1 gün DST/bugün payı. */
+const UPCOMING_SPAN_MS = 22 * 24 * 60 * 60 * 1000;
 
 /** Sık kullanılanlar; kayıtlı değer listede yoksa o da eklenir (hiçbir ayar sessizce değişmesin). */
 const TIMEZONES = [
@@ -74,6 +90,8 @@ export function SettingsForm({
 }) {
   const router = useRouter();
   const [slots, setSlots] = useState<string[]>(initial.slots);
+  const [days, setDays] = useState<number[]>(initial.days);
+  const [dayGuard, setDayGuard] = useState(false);
   const [timezone, setTimezone] = useState(initial.timezone);
   const [requireApproval, setRequireApproval] = useState(initial.requireApproval);
   const [confirmingOff, setConfirmingOff] = useState(false);
@@ -85,9 +103,45 @@ export function SettingsForm({
 
   const zones = TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES];
 
+  // "Şimdi" yalnızca tarayıcıda, montajdan sonra: sunucuda çizilen metinle
+  // istemcidekinin bir slot sınırında ayrışıp hidrasyon uyarısı vermesin.
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => setNow(new Date()), []);
+
   function setSlot(index: number, value: string) {
     setSlots((prev) => prev.map((s, i) => (i === index ? value : s)));
   }
+
+  /**
+   * Gün seçimi. Son gün kaldırılamaz (K28): hiç günü olmayan ayar "hiç yayın
+   * yok" demek olurdu, onun yolu "Yayını duraklat". Çip kapanmaz, altta neden
+   * kapanmadığı söylenir — sessizce yok saymak "dokunuş algılanmadı" sanılırdı.
+   */
+  function applyDays(next: number[]) {
+    if (next.length === 0) {
+      setDayGuard(true);
+      return;
+    }
+    setDayGuard(false);
+    setDays([...next].sort((a, b) => a - b));
+  }
+
+  // Özet, kaydedilmemiş seçimle canlı: kullanıcı "Kaydet"ten ÖNCE ne
+  // seçtiğini somut tarihlerle görsün. Hesap tick'in kullandığı saf
+  // `slotInstants` — ekrandaki tarih ile yayının gerçekten yapılacağı gün
+  // aynı kuraldan çıkıyor (yerel gün, DST). Kuyruk burada yok: bunlar yayın
+  // SAATLERİ; hangi videonun gideceği kuyruk ekranında.
+  const validSlots = useMemo(
+    () => [...new Set(slots.filter((slot) => parseSlot(slot)))].sort(),
+    [slots]
+  );
+  const upcoming = useMemo(() => {
+    if (!now) return [];
+    return slotInstants(
+      { slots: validSlots, timezone, days },
+      { from: new Date(now.getTime() + 1), to: new Date(now.getTime() + UPCOMING_SPAN_MS) }
+    ).slice(0, UPCOMING_COUNT);
+  }, [now, validSlots, timezone, days]);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -101,6 +155,7 @@ export function SettingsForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           slots,
+          days,
           timezone,
           requireApproval,
           paused,
@@ -113,6 +168,7 @@ export function SettingsForm({
         return;
       }
       setSlots(data.settings.slots);
+      if (Array.isArray(data.settings.days)) setDays(data.settings.days);
       setSaved(true);
       router.refresh();
     } catch {
@@ -126,66 +182,135 @@ export function SettingsForm({
     <form className="p-settings-form" onSubmit={save} noValidate>
       <section className="p-set" aria-labelledby="ayar-saatler">
         <h2 className="p-kicker p-kicker--accent" id="ayar-saatler">
-          YAYIN SAATLERİ
+          YAYIN GÜNLERİ VE SAATLERİ
         </h2>
-        <div className="p-set-card">
-          <div className="p-chips">
-            {slots.map((slot, index) => (
-              <span key={index} className="p-chip">
-                {/* Görünen saat bizim "HH:MM" değerimiz; gerçek `<input type="time">`
-                    onun üstüne serili ve görünmez. Alanın kendi çizimi cihazın
-                    yerel ayarına uyuyor: 12 saatlik ayarda dar çipte "19:00"
-                    "07:00" (PM kesilmiş) görünüyordu. Dokununca iOS'un tekerlek
-                    seçicisi yine açılır. */}
-                <span className="p-chip-time" aria-hidden="true">
-                  {slot || "--:--"}
-                </span>
-                <input
-                  type="time"
-                  aria-label={`${index + 1}. yayın saati`}
-                  value={slot}
-                  required
-                  onChange={(e) => setSlot(index, e.target.value)}
-                />
+        <div className="p-set-card p-set-card--schedule">
+          <div className="p-set-group">
+            <div className="p-set-head">
+              <span className="p-set-title">Günler</span>
+              <span className="p-set-sub">{dayCountLabel(days)}</span>
+            </div>
+            <div className="p-days" role="group" aria-label="Yayın günleri">
+              {WEEKDAYS.map((day) => {
+                const picked = days.includes(day.iso);
+                return (
+                  <button
+                    key={day.iso}
+                    type="button"
+                    className="p-day"
+                    aria-pressed={picked}
+                    aria-label={day.long}
+                    onClick={() =>
+                      applyDays(picked ? days.filter((d) => d !== day.iso) : [...days, day.iso])
+                    }
+                  >
+                    {day.short}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="p-presets">
+              {DAY_PRESETS.map((preset) => (
                 <button
+                  key={preset.label}
                   type="button"
-                  className="p-chip-x"
-                  aria-label={`${slot || "Boş"} saatini kaldır`}
-                  disabled={slots.length <= 1}
-                  onClick={() => setSlots((prev) => prev.filter((_, i) => i !== index))}
+                  className="p-preset"
+                  aria-pressed={presetFor(days) === preset.label}
+                  onClick={() => applyDays([...preset.days])}
                 >
-                  <IconClose size={14} strokeWidth={2.4} />
+                  {preset.label}
                 </button>
-              </span>
-            ))}
-            {slots.length < MAX_SLOTS && (
-              <button
-                type="button"
-                className="p-chip-add"
-                onClick={() => setSlots((prev) => [...prev, "12:00"])}
-              >
-                + Saat ekle
-              </button>
+              ))}
+            </div>
+            {dayGuard && (
+              <p className="p-note p-note--warn p-note--sm" role="status">
+                En az bir gün seç. Hiç yayın istemiyorsan aşağıdan <strong>Yayını duraklat</strong>.
+              </p>
+            )}
+            {error?.field === "days" && (
+              <p className="p-error" role="alert">
+                {error.message}
+              </p>
             )}
           </div>
-          {error?.field === "slots" && (
-            <p className="p-error" role="alert">
-              {error.message}
-            </p>
-          )}
-          <p className="p-hint p-hint--md">
-            Günde {slots.length} video · {timezoneLabel(timezone)}
-          </p>
-          <label className="p-tz">
-            Saat dilimi
-            <select className="p-select" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-              {zones.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
+
+          <div className="p-set-divider" aria-hidden="true" />
+
+          <div className="p-set-group">
+            <span className="p-set-title">Saatler</span>
+            <div className="p-chips">
+              {slots.map((slot, index) => (
+                <span key={index} className="p-chip">
+                  {/* Görünen saat bizim "HH:MM" değerimiz; gerçek `<input type="time">`
+                      onun üstüne serili ve görünmez. Alanın kendi çizimi cihazın
+                      yerel ayarına uyuyor: 12 saatlik ayarda dar çipte "19:00"
+                      "07:00" (PM kesilmiş) görünüyordu. Dokununca iOS'un tekerlek
+                      seçicisi yine açılır. */}
+                  <span className="p-chip-time" aria-hidden="true">
+                    {slot || "--:--"}
+                  </span>
+                  <input
+                    type="time"
+                    aria-label={`${index + 1}. yayın saati`}
+                    value={slot}
+                    required
+                    onChange={(e) => setSlot(index, e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="p-chip-x"
+                    aria-label={`${slot || "Boş"} saatini kaldır`}
+                    disabled={slots.length <= 1}
+                    onClick={() => setSlots((prev) => prev.filter((_, i) => i !== index))}
+                  >
+                    <IconClose size={14} strokeWidth={2.4} />
+                  </button>
+                </span>
               ))}
-            </select>
-          </label>
+              {slots.length < MAX_SLOTS && (
+                <button
+                  type="button"
+                  className="p-chip-add"
+                  onClick={() => setSlots((prev) => [...prev, "12:00"])}
+                >
+                  + Saat ekle
+                </button>
+              )}
+            </div>
+            {error?.field === "slots" && (
+              <p className="p-error" role="alert">
+                {error.message}
+              </p>
+            )}
+            <label className="p-tz">
+              Saat dilimi
+              <select className="p-select" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                {zones.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="p-summary">
+            <p className="p-summary-title">
+              {validSlots.length > 0 ? scheduleSummary(days, validSlots) : "Saat seçilmedi"}
+            </p>
+            <p className="p-summary-kicker">SIRADAKİ YAYINLAR</p>
+            <ul className="p-summary-list" aria-label="Sıradaki yayınlar">
+              {upcoming.map((at) => (
+                <li key={at.getTime()}>{weekdayDateTime(at, timezone)}</li>
+              ))}
+            </ul>
+            <p className="p-summary-foot">
+              {timezoneLabel(timezone)} ·{" "}
+              {paused
+                ? "yayın duraklatıldı; devam ettirince bu saatlerde sürer"
+                : "onaylı video yoksa slot boş geçer"}
+            </p>
+          </div>
         </div>
       </section>
 
@@ -309,7 +434,7 @@ export function SettingsForm({
         </div>
       </section>
 
-      {error && error.field !== "slots" && (
+      {error && error.field !== "slots" && error.field !== "days" && (
         <p className="p-note p-note--danger" role="alert">
           {error.message}
         </p>
