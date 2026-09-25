@@ -65,4 +65,38 @@ describe("Content-Security-Policy", () => {
     expect(config).toContain('"object-src \'none\'"');
     expect(config).toContain('"frame-ancestors \'none\'"');
   });
+
+  // V7a — portal service worker'ı.
+  describe("service worker ve manifest", () => {
+    const register = readFileSync(
+      path.join(process.cwd(), "src/components/portal/sw-register.tsx"),
+      "utf8"
+    );
+
+    it("worker-src yalnızca 'self' — SW aynı kaynaktan", () => {
+      expect(config).toContain('"worker-src \'self\'"');
+      expect(config).toContain('"manifest-src \'self\'"');
+    });
+
+    it("blob: worker'a izin yok (ne worker-src ne de onun düştüğü script-src)", () => {
+      expect(config).not.toMatch(/worker-src [^"`]*blob:/);
+      expect(config).not.toMatch(/script-src [^"`]*blob:/);
+    });
+
+    it("SW kaydı aynı kaynaktaki köke bağlı bir yol (/sw.js), dış URL değil", () => {
+      expect(register).toMatch(/export const SW_URL = "\/sw\.js";/);
+      expect(register).toContain(".register(SW_URL,");
+      // Kapsam portalla sınırlı: ajans paneli SW kontrolüne girmez.
+      expect(register).toMatch(/export const SW_SCOPE = "\/portal";/);
+    });
+
+    it("SW dosyası public/ altında ve API'yi önbelleğe almıyor", () => {
+      const sw = readFileSync(path.join(process.cwd(), "public/sw.js"), "utf8");
+      expect(sw).toContain('url.pathname.startsWith("/api/")');
+      expect(sw).toContain("url.origin !== self.location.origin");
+      // Navigasyon yanıtı önbelleğe yazılmaz: `cache.put` yalnızca kurulumda
+      // ve ikon dalında geçmeli.
+      expect(sw.match(/cache\.put\(/g)?.length).toBe(2);
+    });
+  });
 });

@@ -78,6 +78,16 @@ const CSP = [
   // Buradaki host yalnızca OAuth'un BAŞLANGIÇ adresi; Google'ın geri dönüşü
   // normal bir GET redirect olduğu için `form-action` kapsamına girmiyor.
   "form-action 'self' https://accounts.google.com",
+  // V7a — portal service worker'ı (`/sw.js`) ve manifest'i
+  // (`/portal/manifest.webmanifest`) aynı kaynaktan. İkisi tanımsızken de
+  // `script-src`/`default-src 'self'`e düşüp çalışırdı; açıkça yazılmasının
+  // sebebi sınırı sabitlemek: `script-src`'ye bir gün `blob:` ya da bir CDN
+  // eklenirse worker'lar o yoldan yüklenebilir hâle GELMESİN. `blob:` worker,
+  // sayfaya sızmış bir script'in dosya barındırmadan arka planda kod
+  // çalıştırmasının en kısa yolu — portalda worker kullanan tek şey SW ve o
+  // `/sw.js`'ten geliyor, yani `blob:` burada bilerek yok.
+  "worker-src 'self'",
+  "manifest-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
