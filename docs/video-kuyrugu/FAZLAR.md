@@ -8,7 +8,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 
 - **Son güncelleme:** 2026-09-25
 - **Son durum:** V0–V4 merge edildi (#59–#65), dış doğrulamalar tamam (#67, #68), **V5 canlıda.** İlk gerçek yayın 2026-09-25 03:10 (onaylı video, slot 03:09 → Reels ~20 sn'de yayında); 03:13 boş slotu `empty` + "onaylı video yok" e-postası (Resend kabul etti, log temiz). Yayınlanan video dikey çıktı → V6.
-- **Planlanan, UYGULANMADI:** [V6 — kare kırpma](V6-kare-kirpma.md) ve [V7 — PWA](V7-pwa.md). Belgeler hazır; **kullanıcı başlatana kadar kod yazma.** Başlarken sırayı sor (öneri: önce V7).
+- **V6 iptal (K24):** video telefonda hazırlanıp yüklenecek; portal videoya dokunmaz.
+- **Sıradaki iş: V7 (PWA)** — [`V7-pwa.md`](V7-pwa.md), sıra V7a → V7b → V7c → V7d. Kullanıcı 2026-09-25'te "şimdi halledeceğiz" dedi.
 - **Sıradaki adım:** V5 kalanı — Furkan'ın portal e-postası (kullanıcıdan bekleniyor) eklenip test kullanıcısı kaldırılır; Furkan gerçek yayın saatlerini seçer; bir hafta onay açık modda izleme. Sonra V6/V7 (kullanıcı başlatınca).
 - **Açık durumlar (prod):** portalın tek kullanıcısı test için `eneshan034@gmail.com` (Furkan'ın müşteri kaydında); `PublishSettings.slots = ["03:13"]` hâlâ ayarlı olabilir — her gece boş slot e-postası üretir, kullanıcıya duraklatması söylendi; kuyrukta 2 onaysız test videosu.
 - **Canlıda kurulu:** Vercel env (R2, QStash US, fal, Anthropic — Production + Preview), QStash schedule `scd_4rmi9RPUgv1uQkyzWBRwTagJEQQk` (`*/5 * * * *` → `POST /api/queue/tick`, ilk tick 200), Furkan'ın `captionStyle`'ı (`scripts/caption-stili-yukle.mjs`).
@@ -99,19 +100,22 @@ branch → PR → bu dosyanın güncellenmesi.
 - **Kabul:** uçtan uca senaryo (README'deki doğrulama listesi) canlıda
   geçti; sonuç bu dosyaya yazıldı.
 
-### V6 — Yüklemede 1:1 kare kırpma ⬜
-- **Belge:** [`V6-kare-kirpma.md`](V6-kare-kirpma.md) · Karar: K22.
-- **Özet:** kırpma kullanıcının tarayıcısında (Mediabunny / WebCodecs), video
-  başına "Kare / Orijinal" (varsayılan kare), çerçeve orta + kaydırılabilir.
-  Sunucu ve şema değişmez.
-- **Kabul:** belgedeki §6 doğrulama listesi (iPhone `.mov` rotasyonu dahil).
+### V6 — Yüklemede 1:1 kare kırpma ❌ İPTAL
+- **Belge:** [`V6-kare-kirpma.md`](V6-kare-kirpma.md) (tarihsel) · Kararlar: K22 → K24.
 
-### V7 — PWA (telefonda uygulama gibi) ⬜
-- **Belge:** [`V7-pwa.md`](V7-pwa.md) · Karar: K23.
-- **Özet:** manifest + ikonlar + viewport, en küçük service worker (API asla
-  önbelleğe alınmaz), **iOS için kodla giriş** (PWA çerezleri Safari'den
-  ayrı), Android paylaşım hedefi (isteğe bağlı).
-- **Kabul:** belgedeki §4 doğrulama listesi.
+### V7 — PWA (telefonda uygulama olarak) — belge: [`V7-pwa.md`](V7-pwa.md) · K23, K25
+Öncelikli cihaz iPhone; ad/ikon sayfaya özel.
+- **V7a — Kurulum + kodla giriş + mobil arayüz ⬜** — dinamik manifest,
+  ikonlar, viewport/güvenli alan, 6 haneli kodla giriş, kaydırmalı oturum,
+  alt sekme çubuğu, iOS kurulum rehberi, en küçük service worker. Şema:
+  `Client.app*`, `ClientLoginToken.codeHash/attempts`. Kabul: §4.7.
+- **V7b — Dayanıklı yükleme ⬜** — R2 çok parçalı, kaldığı yerden devam,
+  IndexedDB ilerleme, wakeLock, yarım yükleme temizliği. Şema:
+  `Post.uploadId`. Kabul: §5.2.
+- **V7c — Bildirimler (Web Push) ⬜** — VAPID, `PushSubscription` tablosu,
+  yayın/hata/boş slot/caption hazır/günlük hatırlatma bildirimleri; e-posta
+  yedek. Kabul: §6.2.
+- **V7d — Android paylaşım hedefi ⬜** — `share_target` + SW. Kabul: §7.
 
 ## Uçtan uca doğrulama senaryosu (V5)
 

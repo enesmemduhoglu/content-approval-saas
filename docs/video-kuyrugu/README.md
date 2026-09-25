@@ -3,8 +3,7 @@
 > **Yeni oturum mu?** Önce [`FAZLAR.md`](FAZLAR.md)'deki "Oturum devri" bölümünü oku.
 > Kararların gerekçeleri [`KARARLAR.md`](KARARLAR.md)'de, caption kuralları
 > [`caption-stili.md`](caption-stili.md)'de.
-> **Planlanan (uygulanmadı):** [V6 — kare kırpma](V6-kare-kirpma.md),
-> [V7 — PWA](V7-pwa.md).
+> **Sıradaki:** [V7 — PWA](V7-pwa.md). [V6 — kare kırpma](V6-kare-kirpma.md) iptal (K24).
 
 Başlangıç: 2026-09-25. İlk müşteri: @furkanteacherteaching (Türklere İngilizce
 öğreten kısa Reels). Yapı çok müşterili kurulur ki sonra başka sayfalara da
@@ -18,8 +17,8 @@ Sayfa sahibinin yaptığı **tek iş video yüklemek** olsun:
    Videolar depolanır ve bir **kuyrukta** birikir.
 2. Yükleme anında her video için **caption üretilir** (açıklama + hashtag +
    alt text). Videonun kendisine **hiçbir işlem yapılmaz** — ışık ayarı,
-   altyazı, kırpma yok. *(Planlanan: yüklemede isteğe bağlı 1:1 kırpma,
-   tarayıcıda — V6 / K22.)*
+   altyazı, kırpma yok. Kırpma ve renk ayarını yükleyen kişi telefonda
+   yapar (K24).
 3. Kullanıcı kuyruğu görür, **sırayı değiştirir**, caption'ı düzenler ya da
    yeniden ürettirir.
 4. Kullanıcı yayın saatlerini seçer (ör. günde 1 video, 19:00). Her saatte

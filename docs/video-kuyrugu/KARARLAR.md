@@ -10,8 +10,6 @@ neden geri alındığı anlaşılmaz.
 İlk taslakta ışık/renk ayarı ve altyazı gömme (subtitle-pipeline aşamaları)
 vardı. Kullanıcı çıkardı: "videoda işlem kısmını boşver, sadece caption."
 Sonuç: ffmpeg yok, worker yok, her şey Vercel'de.
-*Not (2026-09-25): "kırpma yok" kısmı K22 ile değişecek (V6). V6 uygulanınca
-bu kararın ilgili kısmının üstü çizilir; ışık/altyazı kısmı geçerli kalır.*
 
 ### K2 · 2026-09-25 · Ayrı sunucu yok; özellik content-approval-saas içine
 Oracle Always Free / ev bilgisayarında Docker worker değerlendirildi (K1'den
@@ -139,7 +137,7 @@ e-posta alır, video kuyrukta kalır — bir sonraki slotta tekrar denenir.
 - Kapsam dışı: "tüm cihazlardan çık", yeniden üretmede eski caption sürümü,
   ajans panelinde kuyruk görünümü.
 
-### K22 · 2026-09-25 · Yüklemede 1:1 kırpma, tarayıcıda (karar verildi, uygulama bekliyor — V6)
+### ~~K22 · 2026-09-25 · Yüklemede 1:1 kırpma, tarayıcıda~~ → K24 ile iptal
 Sayfa videoları dikey çekip kare yayınlıyor; ilk canlı yayın dikey çıktı.
 Kullanıcı kararları: son görünüm yalnızca kare (dolgu/yazı yok); çerçeve
 varsayılan orta, kaydırılabilir; video başına "Kare / Orijinal", varsayılan
@@ -148,20 +146,39 @@ WebCodecs): ücretsiz, 60 sn sınırı yok, K2 bozulmuyor. Kırpma başarısızs
 sessizce orijinale düşülmez, kullanıcıya sorulur. Ayrıntı:
 [`V6-kare-kirpma.md`](V6-kare-kirpma.md).
 
-### K23 · 2026-09-25 · Portal PWA olacak; iOS için kodla giriş (karar verildi, uygulama bekliyor — V7)
-Yükleme telefondan yapılacak. iOS'ta ana ekran PWA'sının çerezleri Safari'den
-ayrı olduğu için magic link PWA'da oturum açmıyor → e-postaya 6 haneli,
-tek kullanımlık, hash'li, deneme sınırlı kod eklenir. Service worker API ve
-oturumlu yanıtları asla önbelleğe almaz. Ayrıntı: [`V7-pwa.md`](V7-pwa.md).
+### K23 · 2026-09-25 · Portal PWA olacak; iOS için kodla giriş (V7)
+Yükleme telefondan yapılacak. Yerel uygulama (App Store) yerine PWA: ücret ve
+inceleme yok, kod tabanı aynı. iOS'ta ana ekran PWA'sının çerezleri
+Safari'den ayrı olduğu için magic link PWA'da oturum açmıyor → e-postaya 6
+haneli, tek kullanımlık, hash'li, 5 deneme sınırlı kod. Service worker API ve
+oturumlu yanıtları asla önbelleğe almaz. Kullanıcı kararları: kapsam V7a
+(kurulum + kodla giriş) + V7b (parçalı, kaldığı yerden devam eden yükleme) +
+V7c (Web Push bildirim, e-posta yedek) + V7d (Android paylaşım hedefi);
+öncelikli cihaz iPhone; uygulama adı ve ikonu **sayfaya özel** (dinamik
+manifest, `Client.app*` alanları). Ayrıntı: [`V7-pwa.md`](V7-pwa.md).
+
+### K24 · 2026-09-25 · V6 (kare kırpma) iptal — video telefonda hazırlanır
+K22'yi geri alır. Kullanıcı: "videolar her zaman kare olmayabilir, farklı
+türde videolar da yüklenebilir"; kırpma ve renk ayarını yükleyen kişi
+telefonda yapacak (iPhone Fotoğraflar'da Kırp → en-boy oranı → Kare var).
+Tarayıcıda kırpmanın riskleri (iPhone rotasyon üst verisi, HEVC/WebCodecs
+desteği, telefon ısınması) hiç doğmuyor; K1 ("video işlenmez") aynen
+geçerli. "Kare değilse uyar" önerisi de videolar kare olmak zorunda
+olmadığı için alınmadı.
+
+### K25 · 2026-09-25 · Müşteri oturumu kaydırmalı (V7a)
+PWA'da her 30 günde bir yeniden giriş istemek (kod beklemek) kötü deneyim.
+Çerez kalan süre 15 günün altına düşünce yenilenir: kullanılan cihaz hiç
+düşmez, bırakılan cihaz 30 günde düşer; oturum zaten her istekte DB'den
+doğrulandığı için erişim kaldırma anında etkili kalır.
 
 ---
 
 ## Açık sorular
 
-- **V6 / V7 sırası:** öneri önce V7 (kurulum + kodla giriş), sonra V6 —
-  kırpma telefonda test edilecek. Kullanıcı başlatırken sorulacak.
-- **Web Push:** yüklü PWA'da "yayınlandı / onay bekliyor" bildirimleri —
-  V7 kapsamı dışında, ayrı faz.
+- **V7 ikon deposu:** ilk sürümde `public/icons/<müşteri>/`; çok müşteride
+  Blob mu — V7a'da karar.
+- **Preview'da test:** R2 CORS preview adreslerini kapsamıyor — V7'de karar.
 
 - **R2 10 GB'a yaklaşınca?** Yayınlanmış videoları silmek mi (Instagram'da
   kopyası var), ücretli katmana geçmek mi — kullanıcı karar verecek. Bugün
