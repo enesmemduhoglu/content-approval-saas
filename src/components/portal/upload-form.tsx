@@ -108,13 +108,11 @@ function UploadCard({ item }: { item: ItemState }) {
  */
 export function UploadForm() {
   const router = useRouter();
-  const { files, items, running, error, doneCount, pick, start } = useVideoUpload({
+  // Seçim yüklemeyi hemen başlatır (ayrı "Yükle" düğmesi yok). Hata alanlar
+  // yeniden seçerek devam eder (hook'un kaldığı yerden devamı).
+  const { items, running, error, doneCount, pick } = useVideoUpload({
     onFinished: () => router.refresh(),
   });
-  // "Yükle" düğmesi yalnızca taze bir seçimde: yarısı bitmiş bir seçimi aynı
-  // düğmeyle yeniden başlatmak biten videoları KUYRUĞA İKİNCİ KEZ eklerdi.
-  // Hata alanları yeniden seçerek devam eder (hook'un kaldığı yerden devamı).
-  const fresh = items.length > 0 && items.every((item) => item.phase === "bekliyor");
 
   return (
     <>
@@ -134,9 +132,9 @@ export function UploadForm() {
         <span className="p-picker-badge" aria-hidden="true">
           <IconUpload size={26} />
         </span>
-        <span className="p-picker-title">Galeriden video seç</span>
+        <span className="p-picker-title">{running ? "Yükleniyor…" : "Galeriden video seç"}</span>
         <span className="p-picker-sub">
-          Birden fazla seçebilirsin · en fazla 90 sn, 300 MB
+          Seçince hemen yüklenir · en fazla 90 sn, 300 MB
           <span className="sr-only"> · tek seferde en fazla {MAX_FILES} video</span>
         </span>
       </label>
@@ -164,11 +162,6 @@ export function UploadForm() {
       )}
 
       <div className="p-bottom">
-        {fresh && !running && (
-          <button type="button" className="p-btn p-btn--primary p-btn--lg p-btn--block" onClick={start}>
-            {files.length === 1 ? "Videoyu yükle" : `${files.length} videoyu yükle`}
-          </button>
-        )}
         {doneCount > 0 && !running && (
           <Link href="/portal" className="p-btn p-btn--outline p-btn--block">
             Kuyruğa git

@@ -1931,8 +1931,36 @@ body:has(.portal-root) {
   }
 }
 
+/* ─── Yükleme iskeleti (loading.tsx) ───────────────────────────────────── */
+
+.p-skel-card {
+  height: 84px;
+  border-radius: 20px;
+  background: var(--p-skeleton);
+}
+
+.p-skel-card--tall {
+  height: 120px;
+}
+
+.p-skel--name {
+  width: 96px;
+  margin: 3px 0 6px;
+}
+
+.p-skel-pulse {
+  animation: p-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes p-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .p-code-caret {
+  .p-code-caret,
+  .p-skel-pulse {
     animation: none;
   }
 

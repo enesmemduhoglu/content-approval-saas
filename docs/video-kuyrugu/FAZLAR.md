@@ -14,8 +14,19 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 - **Açık durumlar (prod):** portalın tek kullanıcısı test için `eneshan034@gmail.com` (Furkan'ın müşteri kaydında); `PublishSettings.slots = ["03:13"]` hâlâ ayarlı olabilir — her gece boş slot e-postası üretir, kullanıcıya duraklatması söylendi; kuyrukta 2 onaysız test videosu.
 - **Canlıda kurulu:** Vercel env (R2, QStash US, fal, Anthropic — Production + Preview), QStash schedule `scd_4rmi9RPUgv1uQkyzWBRwTagJEQQk` (`*/5 * * * *` → `POST /api/queue/tick`, ilk tick 200), Furkan'ın `captionStyle`'ı (`scripts/caption-stili-yukle.mjs`).
 - **Dikkat:** Furkan'ın Instagram token'ı 2026-10-15'te bitiyor; yenileme cron'u 20 gün kala devreye girer — 2026-09-26 sabahı yenilendiğini kontrol et.
-- **V8 (yayın günleri, K28):** PR #77 açık, merge bekliyor (şema göçü içeriyor;
-  eski veriyle ve boş DB'de sınandı). Merge sonrası Furkan Ayarlar'dan günleri seçer.
+- **V8 (yayın günleri, K28):** #77 merge edildi. Furkan Ayarlar'dan günleri seçer.
+- **iPhone denemesi (2026-09-25, kullanıcı):** portal açılıyor, çoğu şey çalışıyor,
+  video yüklendi; yüklenen videonun yayını telefondan henüz denenmedi.
+- **Portal hızı + seçince yükle (`perf/portal-iskelet`):** ölçüm (Türkiye → iad1,
+  sıcak): sayfa yanıtları 200–300 ms, bunun ~130 ms'i ağ; DB (Neon us-east-1)
+  Vercel'le aynı bölgede, sorgular paralel, JS ~100 kB — sunucu darboğaz değil.
+  Asıl sorun sekmeye dokununca yanıt gelene kadar ekranın hiç değişmemesiydi
+  (`loading.tsx` yoktu) → `app/portal/loading.tsx` iskeleti eklendi. Yükle
+  ekranında "Videoyu yükle" düğmesi kalktı: galeriden seçim yüklemeyi hemen
+  başlatır. Soğuk başlangıç ölçülemedi (Vercel log erişimi yok).
+- **Müşteriye iPhone kurulum rehberi** yazıldı (sohbette kullanıcıya verildi).
+  Göndermeden önce: Furkan'ın `ClientUser` kaydı, `Client.app*` alanları ve
+  Vercel'de `VAPID_*` env'i doğrulanmalı.
 - **Yarım kalan:** —
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
