@@ -142,10 +142,21 @@ export function getScopedDb(session: ScopedSession) {
         if (client._count.posts > 0) {
           return { ok: false, reason: "has_posts", postCount: client._count.posts };
         }
-        // Kapsam burada da tekrarlanır: findFirst ile delete arasında geçen
-        // sürede başka bir şey olduysa yanlış satıra dokunmayalım.
-        const result = await db.client.deleteMany({ where: { id, agencyId } });
-        return result.count === 1 ? { ok: true } : { ok: false, reason: "not_found" };
+        // Video kuyruğu (V1) tabloları Client'a RESTRICT FK ile bağlı: elle
+        // silinmezse postsuz bir müşteri bile çıplak bir Prisma hatasıyla
+        // silinemezdi. Kapsam burada da tekrarlanır: findFirst ile delete
+        // arasında geçen sürede başka bir şey olduysa yanlış satıra dokunmayalım.
+        const count = await db.$transaction(async (tx) => {
+          const owned = await tx.client.count({ where: { id, agencyId } });
+          if (owned !== 1) return 0;
+          await tx.clientLoginToken.deleteMany({ where: { clientUser: { clientId: id } } });
+          await tx.clientUser.deleteMany({ where: { clientId: id } });
+          await tx.slotRun.deleteMany({ where: { clientId: id } });
+          await tx.publishSettings.deleteMany({ where: { clientId: id } });
+          const result = await tx.client.deleteMany({ where: { id, agencyId } });
+          return result.count;
+        });
+        return count === 1 ? { ok: true } : { ok: false, reason: "not_found" };
       },
       /**
        * Instagram kimlik bilgilerini yazar/temizler. `updateMany` + `agencyId`

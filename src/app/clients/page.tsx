@@ -5,6 +5,7 @@ import { AppNav } from "@/components/nav";
 import { ClientForm } from "@/components/client-form";
 import { ClientActions } from "@/components/client-actions";
 import { InstagramForm } from "@/components/instagram-form";
+import { PortalAccess } from "@/components/portal/portal-access";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export default async function ClientsPage() {
                     tokenHint={client.instagramTokenHint}
                     tokenExpiry={client.instagramTokenExpiry?.toISOString() ?? null}
                   />
+                  <PortalAccess clientId={client.id} clientName={client.name} />
                   <ClientActions clientId={client.id} clientName={client.name} />
                 </div>
               </li>

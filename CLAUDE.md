@@ -151,9 +151,11 @@ metne düşüp yüksek sesle uyarır). Yeni bir dış bağımlılık eklerken bu
 Onay transaction'ı commit olduktan **sonra** ayrı adımda yayın denenir; yayın patlarsa
 onay yerinde kalır. `publishApprovedPost` hiçbir zaman throw etmez.
 
-**Üç yayın tetikleyicisi var:** onay yolu (anında), `publish-scheduled` cron'u
-(`publishAt` geçmişse), ve onay sayfasındaki "tekrar dene". Üçü de aynı koşullu UPDATE
-kilidinden geçer — tek kazanan garanti.
+**Dört yayın tetikleyicisi var:** onay yolu (anında — portal postunda DEĞİL),
+`publish-scheduled` cron'u (`publishAt` geçmişse), onay sayfasındaki "tekrar dene", ve
+video kuyruğunun 5 dakikalık tick'i (`/api/queue/tick`, QStash). Dördü de
+`publishApprovedPost`'tan ve aynı koşullu UPDATE kilidinden geçer — tek kazanan garanti.
+Kilit `status: "approved"` koşulunu da taşır: onaysız post hiçbir yoldan yayınlanmaz.
 
 **Makine yolu (furi).** Ayrı bir repodaki bulut rutini `Authorization: Bearer FURI_API_KEY`
 ile post oluşturuyor ve `/api/clients/[id]/instagram-token`'dan token çekiyor. Anahtar
@@ -222,6 +224,11 @@ zamanı. Güvenlik gerekçesiyle Next 16'ya koşma.
 maddeler, bilinen sınırlar ve ölçüm yöntemleri orada. Bir tasarım kararını sorgulamadan
 önce oraya bak; çoğu "neden böyle yapılmamış" sorusunun cevabı yazılı. İş bitirdiğinde
 güncelle.
+
+**Video kuyruğu işi (portal, otomatik caption, slot tabanlı yayın) için önce
+`docs/video-kuyrugu/FAZLAR.md`'deki "Oturum devri" bölümünü oku.** İş birden çok
+oturuma yayılıyor; tasarım, kararlar ve kalan adımlar o klasörde. Oturumu o bölümü
+güncelleyerek bitir.
 
 `README.md` ürün ve kurulum anlatır ama Faz E–I (kota, zamanlanmış yayın, ekip üyeleri,
 revizyon turu) sonrası bazı bölümleri bayat — çelişki halinde `TODOS.md` ve kod esastır.

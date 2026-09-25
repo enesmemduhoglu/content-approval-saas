@@ -1,0 +1,324 @@
+/* Video kuyruğu (V3) — müşteri portalı. Renk ve tipografi değişkenleri
+   globals.css'ten (D7); burada yalnızca portala özgü düzen var. Mobil öncelikli:
+   temel kurallar telefona göre, geniş ekran @media ile genişliyor. */
+
+.portal-main h1 {
+  margin-bottom: 0.75rem;
+}
+
+.portal-section {
+  margin-top: 2rem;
+}
+
+.portal-section h2 {
+  font-size: 18px;
+}
+
+/* Nav telefonda 4 link + ad + çıkışı tek satıra sığdıramıyor: sarılsın. */
+.portal-nav {
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.portal-nav nav {
+  flex-wrap: wrap;
+  gap: 0.25rem 0.9rem;
+}
+
+.portal-nav nav a[aria-current="page"] {
+  color: var(--color-accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.portal-cta {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* --- Kuyruk --- */
+.queue-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.queue-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  position: relative;
+}
+
+.queue-card-dragging {
+  z-index: 2;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  opacity: 0.95;
+}
+
+/* `touch-action: none` yalnızca tutamaçta: kartın geri kalanında telefon
+   sayfayı normal kaydırsın. */
+.queue-drag-handle {
+  touch-action: none;
+  cursor: grab;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  min-width: 32px;
+  min-height: 44px;
+  font-size: 18px;
+  letter-spacing: -3px;
+}
+
+.queue-index {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  min-width: 1.4em;
+  text-align: right;
+}
+
+.queue-card-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Reels dikey: kapak 9:16 */
+.queue-cover {
+  width: 54px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: var(--color-accent-soft);
+  display: block;
+}
+
+.queue-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.queue-caption {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.portal-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.portal-eta {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.queue-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.queue-arrows .button-secondary {
+  min-height: 40px;
+  min-width: 40px;
+  padding: 0;
+  font-size: 16px;
+}
+
+/* Masaüstünde oklar ikincil (sürükle-bırak var); yine de klavye için kalıyor. */
+@media (min-width: 720px) {
+  .queue-card {
+    padding: 0.6rem 0.75rem;
+    gap: 0.75rem;
+  }
+
+  .queue-arrows {
+    flex-direction: row;
+  }
+}
+
+/* --- Yükleme --- */
+.upload-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.upload-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.upload-picker input[type="file"] {
+  font-size: 16px;
+}
+
+.upload-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.upload-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.upload-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.upload-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--color-accent);
+}
+
+/* --- Video detayı --- */
+.portal-video .approve-video {
+  margin: 0 auto;
+}
+
+.video-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.video-meta .button-secondary {
+  align-self: flex-start;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.video-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.video-section h2 {
+  font-size: 18px;
+}
+
+.video-caption-input {
+  min-width: 0;
+  font-size: 15px;
+}
+
+.caption-auto-note {
+  margin: 0;
+}
+
+.portal-confirm {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.portal-confirm p {
+  margin: 0 0 0.75rem;
+}
+
+/* --- Ayarlar --- */
+.portal-fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.portal-fieldset legend {
+  font-weight: 600;
+  font-size: 15px;
+  padding: 0;
+  margin-bottom: 0.35rem;
+}
+
+.slot-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.slot-row input {
+  font-family: inherit;
+  font-size: 16px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+}
+
+.form label.portal-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 44px;
+}
+
+.portal-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-accent);
+}
+
+/* --- Giriş --- */
+.portal-login h1 {
+  margin-top: 1rem;
+}

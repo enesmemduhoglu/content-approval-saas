@@ -119,6 +119,16 @@ export async function POST(request: Request, { params }: RouteParams) {
       link.post.status === "approved" &&
       (link.post.publishStatus === "failed" || link.post.publishStatus === "idle")
     ) {
+      // Portal (video kuyruğu) postunda yayının ne zaman olacağına link değil
+      // SLOT karar verir; "tekrar dene" de portalın işi (hatalı videoyu kuyruğa
+      // geri döndürür). Buradan yayın tetiklemek slotu ve sırayı atlardı.
+      if (link.post.source === "portal") {
+        return NextResponse.json({
+          status: "approved",
+          publishStatus: link.post.publishStatus,
+          queued: true,
+        });
+      }
       const outcome = await publishApprovedPost(link.postId);
       // Tekrar denemenin sonucu da bildirilir: ilk denemesi "failed" diye mail
       // alan is sahibi, ikincisinin tuttugunu ogrenemezse panele bakmak zorunda.
@@ -209,8 +219,16 @@ export async function POST(request: Request, { params }: RouteParams) {
   // Karar `status` update'iyle AYNI transaction'da yazılır (publishStatus da) —
   // aksi halde iki ayrı yazma arasında cron'un status='approved' ama
   // publishStatus hâlâ 'idle' bir postu yakalayıp ERKEN yayınlaması mümkün olurdu.
+  //
+  // Portal (video kuyruğu) postu bu dalın dışında: onun zamanlaması `publishAt`
+  // değil kuyruk slotu, `scheduled` durumu da onu kuyruktan düşürürdü
+  // (`pickNext` yalnızca `idle` seçer).
+  const isQueuePost = link.post.source === "portal";
   const willSchedule =
-    newStatus === "approved" && !!link.post.publishAt && link.post.publishAt.getTime() > Date.now();
+    !isQueuePost &&
+    newStatus === "approved" &&
+    !!link.post.publishAt &&
+    link.post.publishAt.getTime() > Date.now();
 
   // Yarış koruması: UPDATE yalnızca `status = 'pending'` iken çalışır — aynı anda
   // gelen ikinci karar 0 satır etkiler ve 409 alır. Audit kaydı aynı transaction'da.
@@ -250,6 +268,15 @@ export async function POST(request: Request, { params }: RouteParams) {
       publishAt: link.post.publishAt,
     });
     return NextResponse.json({ status: newStatus, publishStatus: "scheduled" });
+  }
+
+  if (isQueuePost) {
+    // Onay ≠ yayın, kuyrukta iki katı: onaylanan video kuyrukta yerinde kalır
+    // (`publishStatus: idle`) ve sırası geldiğinde tick yayınlar. Burada
+    // yayınlamak sırayı ve seçilen yayın saatini atlardı. Ajansa "onaylandı"
+    // bildirimi de gitmiyor — anlatılacak yayın sonucu yok; sonuç e-postası
+    // yayın anında kuyruktan gider (bkz. publish-post.ts > notifyPortalOutcome).
+    return NextResponse.json({ status: newStatus, publishStatus: "idle", queued: true });
   }
 
   // Onay commit oldu; buradan sonrası onayı ETKİLEMEZ. publishApprovedPost

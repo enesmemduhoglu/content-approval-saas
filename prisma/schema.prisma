@@ -156,7 +156,128 @@ model Client {
   instagramAccessToken String? // long-lived token (60 gün)
   instagramTokenExpiry DateTime?
 
+  // Video kuyruğu (V1) — bkz. docs/video-kuyrugu/README.md.
+  // Müşteriye özel caption talimatı. Tek bir sabit prompt yerine alan: yapı
+  // çok müşterili kalsın, ikinci bir sayfa geldiğinde kod değişmesin (K6).
+  captionStyle    String?
+  publishSettings PublishSettings?
+  users           ClientUser[]
+  slotRuns        SlotRun[]
+
   @@index([agencyId])
+}
+
+/**
+ * Video kuyruğu (V1) — müşterinin yayın ritmi. Satır yoksa müşterinin kuyruğu
+ * hiç yayın yapmaz; tick yalnızca ayarı olan müşterileri tarar.
+ */
+model PublishSettings {
+  id       String @id @default(cuid())
+  clientId String @unique
+  client   Client @relation(fields: [clientId], references: [id])
+
+  /**
+   * "HH:MM" (24 saat), `timezone`'a göre yerel saat. Günlük yayın sayısı =
+   * dizi uzunluğu; ayrı bir `postsPerDay` alanı iki gerçeğin çelişebileceği
+   * bir yer açardı.
+   */
+  slots    String[] @default(["19:00"])
+  timezone String   @default("Europe/Istanbul")
+
+  /**
+   * Varsayılan AÇIK — güvenli taraf (K3). Kapalıyken sırası gelen video onay
+   * beklemeden yayınlanır ve `ApprovalAudit`e `auto_approved` yazılır.
+   */
+  requireApproval Boolean @default(true)
+  paused          Boolean @default(false)
+  /** Yayın sonucu e-postalarının adresi; boşsa `Client.email`. */
+  notifyEmail     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum SlotOutcome {
+  published
+  failed
+  /** Uygun video yoktu (onay açık + onaylı video yok, ya da kuyruk boş). */
+  empty
+  /** Slot saatinden çok geç görüldü; kesinti sonrası art arda yayın olmasın (K8). */
+  skipped
+  /** Müşteri kuyruğu duraklatmıştı. */
+  paused
+}
+
+/**
+ * Video kuyruğu (V1) — bir slotun bir kez işlendiğinin kaydı. Asıl işi
+ * `(clientId, slotAt)` UNIQUE yapıyor: iki tick aynı anda gelirse yalnızca
+ * INSERT'i başaran devam eder. Yayın kilidi (`publishStatus` koşullu UPDATE)
+ * tek POSTUN çift yayınını önlüyor ama aynı slotta İKİ FARKLI postun
+ * yayınlanmasını önlemiyor — onu bu tablo önlüyor.
+ */
+model SlotRun {
+  id       String   @id @default(cuid())
+  clientId String
+  client   Client   @relation(fields: [clientId], references: [id])
+  /** Slotun UTC anı (yerel "19:00" + gün → UTC). */
+  slotAt   DateTime
+  postId   String?
+  /** Boş = satır alındı, sonuç henüz yazılmadı (tick yarıda kaldıysa görünür). */
+  outcome  SlotOutcome?
+  detail   String?
+  createdAt DateTime @default(now())
+
+  @@unique([clientId, slotAt])
+}
+
+/**
+ * Video kuyruğu (V1) — müşteri tarafı giriş. Bugüne kadar müşterinin hesabı
+ * yoktu; tek yetkisi post başına onay linkiydi. Portal (kuyruk, sıralama,
+ * ayarlar) kalıcı bir kimlik istiyor. Giriş magic link ile (şifre yok).
+ */
+model ClientUser {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+  /**
+   * DAİMA küçük harfe indirgenmiş. GLOBAL `@unique`: bir e-posta tek bir
+   * müşteriye ait — `AgencyMember.googleId` ile aynı gerekçe; çoklu üyelik
+   * "hangi müşteridesin" sorusunu bir seçici arayüze bağlardı.
+   */
+  email       String   @unique
+  lastLoginAt DateTime?
+  createdAt   DateTime @default(now())
+  loginTokens ClientLoginToken[]
+
+  @@index([clientId])
+}
+
+/** Tek kullanımlık giriş linki. Token'ın kendisi değil HASH'i saklanır. */
+model ClientLoginToken {
+  id           String     @id @default(cuid())
+  clientUserId String
+  clientUser   ClientUser @relation(fields: [clientUserId], references: [id])
+  tokenHash    String     @unique
+  expiresAt    DateTime
+  usedAt       DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([clientUserId])
+}
+
+/** Video kuyruğu (V1) — postun nereden geldiği. */
+enum PostSource {
+  /** Panel ya da makine yolu (furi): mevcut davranış, onayda anında yayın. */
+  agency
+  /** Müşteri portalından yüklendi: onay yayın DEĞİL, post kuyrukta slotunu bekler. */
+  portal
+}
+
+enum CaptionStatus {
+  pending
+  generating
+  ready
+  failed
 }
 
 enum PostStatus {
@@ -287,6 +408,30 @@ model Post {
   revisionRound Int            @default(0)
   revisions     PostRevision[]
 
+  // ─── Video kuyruğu (V1) ─────────────────────────────────────────────────
+  // Hepsi ya varsayılanlı ya nullable: mevcut postlar `agency` kaynaklı kalır
+  // ve kuyruğa hiç girmez (`queuePosition` null).
+  source        PostSource     @default(agency)
+  /**
+   * Kuyruk sırası. Float: araya taşıma iki komşunun ortalaması, yani tek
+   * satır güncellenir (Int olsaydı her taşıma arkadaki tüm satırları
+   * kaydırırdı). `null` = kuyrukta değil (ajans postu ya da çıkarılmış).
+   */
+  queuePosition Float?
+  /** Portal postunda dolu; ajans postunda null (caption'ı insan yazıyor). */
+  captionStatus CaptionStatus?
+  captionError  String?
+  /** Whisper çıktısı; "yeniden üret" Whisper'ı tekrar çağırmasın diye. */
+  transcript    String?
+  /**
+   * R2 nesne anahtarı (URL değil — R2 bucket'ı gizli, erişim süreli imzalı
+   * URL'le). `videoUrl` Blob akışında kalır; portal postunda null.
+   */
+  videoKey      String?
+  frameKeys     String[]       @default([])
+  /** Hangi slotta yayınlandığı (UTC). */
+  slotAt        DateTime?
+
   @@index([agencyId])
   @@index([clientId])
   @@index([externalRef])
@@ -295,6 +440,8 @@ model Post {
   // Zamanlanmış yayın cron'u "scheduled" + "zamanı geçmiş" postları tarıyor —
   // bileşik index olmadan her koşu publishStatus'a göre tam tablo taraması yapar.
   @@index([publishStatus, publishAt])
+  // Kuyruk ekranı ve tick "bu müşterinin kuyruğu, sırasıyla" sorusunu soruyor.
+  @@index([clientId, queuePosition])
 }
 
 model PostImage {

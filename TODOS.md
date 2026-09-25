@@ -1,7 +1,13 @@
 # TODOS
 
-Son güncelleme: 2026-09-21 (makine anahtarına okuma yolu: `GET /api/posts/[id]`
-— furi'nin defteri artık 7 günlük public token'a bağlı değil).
+Son güncelleme: 2026-09-25 (video kuyruğu işi başladı — belgeler
+`docs/video-kuyrugu/`; öncesi 2026-09-21: makine anahtarına okuma yolu
+`GET /api/posts/[id]`).
+
+**Video kuyruğu (V0–V5, 2026-09-25 →):** müşteri video yükler, caption
+otomatik üretilir, seçtiği saatlerde yayınlanır. Çok oturumlu bir iş; planı,
+kararları ve oturum devri burada DEĞİL, `docs/video-kuyrugu/FAZLAR.md`'de.
+Bu dosyaya yalnızca fazlar kapandıkça özet satır düşülür.
 Canlı: https://content-approval-saas.vercel.app · **Depo PUBLIC** — bulgu
 yazarken "Depo görünürlüğü" bölümündeki kurallar geçerli.
 
