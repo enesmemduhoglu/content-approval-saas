@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CLIENT_SESSION_TTL_SECONDS,
+  clientSessionRenewAt,
+  generateLoginCode,
+  hashLoginCode,
+  shouldRenewClientSession,
   signClientSession,
   verifyClientSession,
 } from "@/lib/client-auth";
@@ -59,5 +63,37 @@ describe("portal oturum çerezi (HMAC)", () => {
     const [, payload, sig] = value.split(".");
     const naive = createHmac("sha256", "test-secret").update(`v1.${payload}`).digest("base64url");
     expect(sig).not.toBe(naive);
+  });
+});
+
+describe("kaydırmalı oturum eşiği (K25)", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = new Date("2026-09-26T12:00:00Z");
+
+  it("kalan 15 günün altındaysa yenilenir, üstündeyse yenilenmez", () => {
+    expect(shouldRenewClientSession(new Date(now.getTime() + 16 * DAY), now)).toBe(false);
+    expect(shouldRenewClientSession(new Date(now.getTime() + 14 * DAY), now)).toBe(true);
+    expect(shouldRenewClientSession(new Date(now.getTime() + 1000), now)).toBe(true);
+  });
+
+  it("yenileme anı = bitiş − 15 gün", () => {
+    const exp = new Date(now.getTime() + 30 * DAY);
+    expect(clientSessionRenewAt(exp).getTime()).toBe(now.getTime() + 15 * DAY);
+  });
+});
+
+describe("giriş kodu", () => {
+  it("her zaman 6 hane (baştaki sıfırlar korunur)", () => {
+    for (let i = 0; i < 200; i++) expect(generateLoginCode()).toMatch(/^\d{6}$/);
+  });
+
+  it("hash satıra bağlı: aynı kod farklı token'da farklı hash", () => {
+    expect(hashLoginCode("a", "123456")).not.toBe(hashLoginCode("b", "123456"));
+    expect(hashLoginCode("a", "123456")).toBe(hashLoginCode("a", "123456"));
+  });
+
+  it("AUTH_SECRET yoksa hash üretilmez (kapalı başarısızlık)", () => {
+    delete process.env.AUTH_SECRET;
+    expect(() => hashLoginCode("a", "123456")).toThrow();
   });
 });

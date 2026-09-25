@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  CLIENT_SESSION_COOKIE,
-  consumeLoginToken,
-  sessionCookieOptions,
-  signClientSession,
-} from "@/lib/client-auth";
+import { consumeLoginToken, setClientSessionCookie } from "@/lib/client-auth";
 import { checkOrigin } from "@/lib/origin";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
@@ -54,8 +49,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { value, expiresAt } = signClientSession(session);
   const response = NextResponse.json({ ok: true });
-  response.cookies.set(CLIENT_SESSION_COOKIE, value, sessionCookieOptions(expiresAt));
+  setClientSessionCookie(response, session);
   return response;
 }

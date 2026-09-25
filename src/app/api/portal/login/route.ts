@@ -24,7 +24,7 @@ const LOGIN_EMAIL_RATE_MAX = 3;
 
 const GENERIC_OK = {
   ok: true,
-  message: "Bu adres kayıtlıysa birkaç dakika içinde bir giriş linki gelecek.",
+  message: "Bu adres kayıtlıysa birkaç dakika içinde bir giriş linki ve kodu gelecek.",
 };
 
 function appBaseUrl(request: Request): string {

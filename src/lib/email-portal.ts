@@ -13,6 +13,12 @@ export type PortalLoginEmailInput = {
   to: string;
   clientName: string;
   loginUrl: string;
+  /**
+   * V7a — aynı token'a bağlı 6 haneli kod. iPhone'da ana ekran uygulamasının
+   * çerezleri Safari'den ayrı: link Safari'de açılır ve uygulamaya oturum
+   * taşımaz. Uygulamadan giren kişi bu kodu yazar.
+   */
+  code: string;
   /** Link geçerlilik süresi (dakika) — metinde söyleniyor ki "link çalışmadı" sorusu azalsın. */
   ttlMinutes: number;
   /**
@@ -38,6 +44,7 @@ export function portalLoginSubject(input: Pick<PortalLoginEmailInput, "invited">
 export function renderPortalLoginText({
   clientName,
   loginUrl,
+  code,
   ttlMinutes,
   invited,
 }: Omit<PortalLoginEmailInput, "to">): string {
@@ -51,17 +58,21 @@ ${giris}
 Giriş linki:
 ${loginUrl}
 
-Link ${ttlMinutes} dakika geçerli ve yalnızca bir kez kullanılabilir.
+Uygulamadan giriyorsan bu kodu gir: ${code}
+
+Link ve kod ${ttlMinutes} dakika geçerli ve yalnızca bir kez kullanılabilir; biri kullanılınca diğeri de geçersiz olur.
 Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin.`;
 }
 
 export function renderPortalLoginHtml({
   clientName,
   loginUrl,
+  code,
   ttlMinutes,
   invited,
 }: Omit<PortalLoginEmailInput, "to">): string {
   const client = escapeHtml(clientName);
+  const kod = escapeHtml(code);
   const url = escapeHtml(loginUrl);
   const giris = invited
     ? "Video portalına erişimin açıldı. Buradan videolarını yükleyip yayın sırasını yönetebilirsin."
@@ -71,7 +82,9 @@ export function renderPortalLoginHtml({
     <p style="font-size: 16px; margin: 0 0 8px;">Merhaba ${client},</p>
     <p style="font-size: 16px; line-height: 1.5; margin: 0 0 24px;">${escapeHtml(giris)}</p>
     <a href="${url}" style="display: inline-block; background: #1e3a34; color: #ffffff; text-decoration: none; font-size: 16px; padding: 14px 28px; border-radius: 6px;">Portala giriş yap</a>
-    <p style="font-size: 13px; color: #6b6b6b; margin: 24px 0 0;">Link ${ttlMinutes} dakika geçerli ve yalnızca bir kez kullanılabilir. Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin.</p>
+    <p style="font-size: 14px; line-height: 1.5; margin: 28px 0 8px;">Uygulamadan giriyorsan bu kodu gir:</p>
+    <p style="font-size: 32px; font-weight: 700; letter-spacing: 8px; font-family: 'Courier New', monospace; margin: 0;">${kod}</p>
+    <p style="font-size: 13px; color: #6b6b6b; margin: 24px 0 0;">Link ve kod ${ttlMinutes} dakika geçerli ve yalnızca bir kez kullanılabilir; biri kullanılınca diğeri de geçersiz olur. Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin.</p>
   </div>
 </div>`;
 }

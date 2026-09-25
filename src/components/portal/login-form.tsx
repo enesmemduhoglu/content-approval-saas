@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { CodeLoginForm } from "@/components/portal/code-login-form";
 
 /**
  * Giriş linki isteği. Yanıt adres kayıtlı olsa da olmasa da aynı (sunucu
@@ -13,6 +14,7 @@ export function PortalLoginForm() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasCode, setHasCode] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -38,11 +40,20 @@ export function PortalLoginForm() {
     }
   }
 
-  if (sent) {
+  // V7a: e-postada link + kod birlikte gelir. Kod formu gönderimden sonra
+  // hemen altta (iPhone ana ekran uygulamasında link oturum açmaz); "Kodum
+  // var" ise maili başka bir cihazdan/sekmeden zaten istemiş kişi için.
+  if (sent || hasCode) {
     return (
-      <p className="approve-confirmation" role="status">
-        {sent} Gelen kutunu (ve spam klasörünü) kontrol et.
-      </p>
+      <>
+        {sent && (
+          <p className="approve-confirmation" role="status">
+            {sent} Gelen kutunu (ve spam klasörünü) kontrol et. Linke dokunabilir ya da
+            e-postadaki kodu aşağıya yazabilirsin.
+          </p>
+        )}
+        <CodeLoginForm initialEmail={sent ? email : undefined} />
+      </>
     );
   }
 
@@ -65,6 +76,9 @@ export function PortalLoginForm() {
       )}
       <button type="submit" className="button-primary" disabled={sending || !email.trim()}>
         {sending ? "Gönderiliyor…" : "Giriş linki gönder"}
+      </button>
+      <button type="button" className="button-secondary" onClick={() => setHasCode(true)}>
+        Kodum var
       </button>
     </form>
   );
