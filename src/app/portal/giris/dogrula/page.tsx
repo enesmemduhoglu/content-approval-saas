@@ -1,4 +1,6 @@
+import { getPortalContext } from "@/lib/portal-app";
 import { PortalVerifyButton } from "@/components/portal/login-form";
+import { LoginBrand } from "@/components/portal/login-brand";
 
 export const dynamic = "force-dynamic";
 
@@ -14,23 +16,21 @@ export default async function PortalVerifyPage({
 }) {
   const { token } = await searchParams;
   const value = typeof token === "string" ? token : "";
+  const { app } = await getPortalContext();
 
   return (
-    <main className="approve-page portal-login">
-      <header className="approve-header">
-        <span>Video Portalı</span>
-      </header>
+    <main className="p-login">
       {value ? (
         <>
-          <h1>Giriş yap</h1>
-          <p className="settings-hint">Bu cihazda portala giriş yapmak için butona bas.</p>
+          <LoginBrand app={app} title="Giriş yap" />
+          <p className="p-login-lead">Bu cihazda portala giriş yapmak için butona bas.</p>
           <PortalVerifyButton token={value} />
         </>
       ) : (
         <>
-          <h1>Link eksik</h1>
-          <p className="settings-hint">
-            Bu adres bir giriş linki içermiyor. <a href="/portal/giris">Yeni link iste</a>.
+          <LoginBrand app={app} title="Link eksik" />
+          <p className="p-login-lead">
+            Bu adres bir giriş linki içermiyor. <a href="/portal/giris">Yeni kod iste</a>.
           </p>
         </>
       )}

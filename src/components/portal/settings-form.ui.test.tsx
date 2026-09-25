@@ -28,26 +28,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function approvalBox(): HTMLInputElement {
-  return screen.getByRole("checkbox", { name: "Yayından önce onayım gereksin" }) as HTMLInputElement;
+/** Onay anahtarı: `role="switch"`, durumu `aria-checked`'te. */
+function approvalSwitch(): HTMLElement {
+  return screen.getByRole("switch", { name: "Yayından önce onay iste" });
 }
 
+const isOn = (el: HTMLElement) => el.getAttribute("aria-checked") === "true";
+
 describe("SettingsForm — onayı kapatırken uyarı", () => {
-  it("kutu işareti kaldırılınca onay HEMEN kapanmaz; önce uyarı çıkar", () => {
+  it("anahtar kapatılınca onay HEMEN kapanmaz; önce uyarı çıkar", () => {
     render(<SettingsForm initial={initial} defaultNotifyEmail="musteri@ornek.com" />);
-    fireEvent.click(approvalBox());
+    fireEvent.click(approvalSwitch());
 
     expect(screen.getByRole("alertdialog", { name: "Onayı kapatma uyarısı" })).toBeTruthy();
-    expect(approvalBox().checked).toBe(true);
+    expect(isOn(approvalSwitch())).toBe(true);
     // Uyarı açıkken kaydetme kapalı: yarım kalmış bir kararla ayar yazılmasın.
     expect((screen.getByRole("button", { name: "Kaydet" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("'Vazgeç' onayı açık bırakır", () => {
     render(<SettingsForm initial={initial} defaultNotifyEmail={null} />);
-    fireEvent.click(approvalBox());
+    fireEvent.click(approvalSwitch());
     fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
-    expect(approvalBox().checked).toBe(true);
+    expect(isOn(approvalSwitch())).toBe(true);
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
@@ -56,9 +59,9 @@ describe("SettingsForm — onayı kapatırken uyarı", () => {
       new Response(JSON.stringify({ settings: { ...initial, requireApproval: false } }), { status: 200 })
     );
     render(<SettingsForm initial={initial} defaultNotifyEmail={null} />);
-    fireEvent.click(approvalBox());
+    fireEvent.click(approvalSwitch());
     fireEvent.click(screen.getByRole("button", { name: "Anladım, onayı kapat" }));
-    expect(approvalBox().checked).toBe(false);
+    expect(isOn(approvalSwitch())).toBe(false);
     expect(screen.getByText(/Onay kapalı: videolar sırası gelince/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
@@ -72,10 +75,13 @@ describe("SettingsForm — onayı kapatırken uyarı", () => {
 
   it("en fazla 6 saat eklenebilir, tek saat kaldırılamaz", () => {
     render(<SettingsForm initial={initial} defaultNotifyEmail={null} />);
-    expect((screen.getByRole("button", { name: "Kaldır" }) as HTMLButtonElement).disabled).toBe(true);
-    for (let i = 0; i < 5; i++) fireEvent.click(screen.getByRole("button", { name: "Saat ekle" }));
+    expect(
+      (screen.getByRole("button", { name: "19:00 saatini kaldır" }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    for (let i = 0; i < 5; i++) fireEvent.click(screen.getByRole("button", { name: /Saat ekle/ }));
     expect(screen.getAllByLabelText(/yayın saati/)).toHaveLength(6);
-    expect(screen.queryByRole("button", { name: "Saat ekle" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Saat ekle/ })).toBeNull();
+    expect(screen.getByText(/Günde 6 video · Türkiye saati/)).toBeTruthy();
   });
 
   it("sunucunun alan hatası saatlerin altında gösterilir", async () => {
@@ -87,5 +93,19 @@ describe("SettingsForm — onayı kapatırken uyarı", () => {
     render(<SettingsForm initial={initial} defaultNotifyEmail={null} />);
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
     expect(await screen.findByText("Aynı saat iki kez seçilemez")).toBeTruthy();
+  });
+
+  it("duraklat anahtarı kayıtta paused: true gönderir", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ settings: { ...initial, paused: true } }), { status: 200 })
+    );
+    render(<SettingsForm initial={initial} defaultNotifyEmail={null} />);
+    const pause = screen.getByRole("switch", { name: "Yayını duraklat" });
+    expect(isOn(pause)).toBe(false);
+    fireEvent.click(pause);
+    expect(isOn(pause)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ paused: true });
   });
 });
