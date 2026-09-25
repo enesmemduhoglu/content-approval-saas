@@ -29,8 +29,18 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
   zaten söylüyor); saat dilimi seçicisi kalktı, kayıt hep `Europe/Istanbul`
   gönderir; Kuyruk başlığındaki sağ üst Ayarlar düğmesi kalktı (alt çubukta var).
 - **Müşteriye iPhone kurulum rehberi** yazıldı (sohbette kullanıcıya verildi).
-  Göndermeden önce: Furkan'ın `ClientUser` kaydı, `Client.app*` alanları ve
-  Vercel'de `VAPID_*` env'i doğrulanmalı.
+  Göndermeden önce: `Client.app*` alanları ve Vercel'de `VAPID_*` env'i
+  doğrulanmalı.
+- **Furkan portala eklendi (2026-09-25):** `furkanking668@gmail.com` "Portal
+  erişimi"ne eklendi, davet linki gitti. `Client.email` zaten bu adres.
+  Kullanıcı kendisi yapacak: portal Ayarlar'daki "Yedek e-posta"yı
+  (`notifyEmail` = `eneshan034@gmail.com`) boşaltıp kaydetmek, sonra test
+  kullanıcısını (`eneshan034@gmail.com`) paneldan kaldırmak. Yayın şu an
+  duraklatılmış, tek slot 03:19 — Furkan gerçek saatleri seçip devam ettirecek.
+  Instagram token'ı yenilenmiş (bitiş 2026-11-24).
+- **Merge izni:** #79'dan sonra Claude Code'un otomatik izin denetimi
+  "incelemesiz merge" diye uyardı; aşağıdaki yazılı izne rağmen yeni
+  oturumlar merge'den önce kullanıcıya sormalı.
 - **Yarım kalan:** —
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
