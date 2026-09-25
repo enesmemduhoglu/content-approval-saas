@@ -11,7 +11,7 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 - **V6 iptal (K24):** video telefonda hazırlanıp yüklenecek; portal videoya dokunmaz.
 - **Sıradaki iş: V7 (PWA)** — [`V7-pwa.md`](V7-pwa.md), sıra V7a → V7b → V7c → V7d. Kullanıcı 2026-09-25'te "şimdi halledeceğiz" dedi.
 - **Sıradaki adım:** V5 kalanı — Furkan'ın portal e-postası (kullanıcıdan bekleniyor) eklenip test kullanıcısı kaldırılır; Furkan gerçek yayın saatlerini seçer; bir hafta onay açık modda izleme. Sonra V6/V7 (kullanıcı başlatınca).
-- **Açık durumlar (prod):** portalın tek kullanıcısı test için `eneshan034@gmail.com` (Furkan'ın müşteri kaydında); `PublishSettings.slots = ["03:13"]` hâlâ ayarlı olabilir — her gece boş slot e-postası üretir, kullanıcıya duraklatması söylendi; kuyrukta 2 onaysız test videosu.
+- **Açık durumlar (prod):** portalın tek kullanıcısı test için `eneshan034@gmail.com` (Furkan'ın müşteri kaydında); yayın duraklatılmış, tek slot 03:19. **Test videoları temizlendi (2026-09-25):** Furkan'ın 5 portal videosu (2 yayınlanmış, 3 kuyruk dışı) + 35 R2 nesnesi `scripts/portal-video-temizligi.mjs --apply` ile silindi (kullanıcı çalıştırdı); Instagram'daki 2 test Reel'i (DdsKHIJjE6N, DdsI93Uk3wl) yerinde — silinmesi kullanıcıda.
 - **Canlıda kurulu:** Vercel env (R2, QStash US, fal, Anthropic — Production + Preview), QStash schedule `scd_4rmi9RPUgv1uQkyzWBRwTagJEQQk` (`*/5 * * * *` → `POST /api/queue/tick`, ilk tick 200), Furkan'ın `captionStyle`'ı (`scripts/caption-stili-yukle.mjs`).
 - **Dikkat:** Furkan'ın Instagram token'ı 2026-10-15'te bitiyor; yenileme cron'u 20 gün kala devreye girer — 2026-09-26 sabahı yenilendiğini kontrol et.
 - **V8 (yayın günleri, K28):** #77 merge edildi. Furkan Ayarlar'dan günleri seçer.
@@ -29,8 +29,18 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
   zaten söylüyor); saat dilimi seçicisi kalktı, kayıt hep `Europe/Istanbul`
   gönderir; Kuyruk başlığındaki sağ üst Ayarlar düğmesi kalktı (alt çubukta var).
 - **Müşteriye iPhone kurulum rehberi** yazıldı (sohbette kullanıcıya verildi).
-  Göndermeden önce: Furkan'ın `ClientUser` kaydı, `Client.app*` alanları ve
-  Vercel'de `VAPID_*` env'i doğrulanmalı.
+  Göndermeden önce: `Client.app*` alanları ve Vercel'de `VAPID_*` env'i
+  doğrulanmalı.
+- **Furkan portala eklendi (2026-09-25):** `furkanking668@gmail.com` "Portal
+  erişimi"ne eklendi, davet linki gitti. `Client.email` zaten bu adres.
+  Kullanıcı kendisi yapacak: portal Ayarlar'daki "Yedek e-posta"yı
+  (`notifyEmail` = `eneshan034@gmail.com`) boşaltıp kaydetmek, sonra test
+  kullanıcısını (`eneshan034@gmail.com`) paneldan kaldırmak. Yayın şu an
+  duraklatılmış, tek slot 03:19 — Furkan gerçek saatleri seçip devam ettirecek.
+  Instagram token'ı yenilenmiş (bitiş 2026-11-24).
+- **Merge izni:** #79'dan sonra Claude Code'un otomatik izin denetimi
+  "incelemesiz merge" diye uyardı; aşağıdaki yazılı izne rağmen yeni
+  oturumlar merge'den önce kullanıcıya sormalı.
 - **Yarım kalan:** —
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
