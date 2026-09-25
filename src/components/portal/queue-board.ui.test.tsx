@@ -97,6 +97,23 @@ describe("QueueBoard", () => {
     expect(screen.getByRole("link", { name: "Video yükle" }).getAttribute("href")).toBe("/portal/yukle");
   });
 
+  it("yayın hatası kartı hatayı ve 'Tekrar dene' çağrısını gösterir", () => {
+    render(
+      <QueueBoard
+        cards={[card("a", { status: "approved", publishStatus: "failed", publishError: "Token süresi doldu." })]}
+        requireApproval
+      />
+    );
+    expect(screen.getByText(/Token süresi doldu\./)).toBeTruthy();
+    expect(screen.getByText("Tekrar dene")).toBeTruthy();
+    expect(screen.getByText("Yayınlanamadı")).toBeTruthy();
+  });
+
+  it("tahmini zaman rozetin yanında yazar", () => {
+    render(<QueueBoard cards={[card("a", { status: "approved" })]} requireApproval etas={{ a: "Yarın 19:00" }} />);
+    expect(screen.getByText("Yarın 19:00")).toBeTruthy();
+  });
+
   it("caption hazırlanırken kartta metin yerine durum yazar", () => {
     render(
       <QueueBoard cards={[card("a", { captionStatus: "generating", caption: "" })]} requireApproval />
@@ -123,11 +140,19 @@ describe("portalBadges", () => {
     expect(labels(false)).not.toContain("Onay bekliyor");
   });
 
-  it("yayın hatası 'Hata' rozeti çıkarır", () => {
+  it("yayın hatası 'Yayınlanamadı' rozeti çıkarır; yanına 'Onaylı' eklenmez", () => {
     const labels = portalBadges(
       { status: "approved", captionStatus: "ready", publishStatus: "failed" },
       true
     ).map((b) => b.label);
-    expect(labels).toContain("Hata");
+    expect(labels).toEqual(["Yayınlanamadı"]);
+  });
+
+  it("tonlar mobil tasarımın rozetleri: Onaylı lacivert, Onay bekliyor şeftali, hazırlanıyor gri", () => {
+    const tone = (input: Parameters<typeof portalBadges>[0]) => portalBadges(input, true)[0].tone;
+    expect(tone({ status: "approved", captionStatus: "ready", publishStatus: "idle" })).toBe("navy");
+    expect(tone({ status: "pending", captionStatus: "ready", publishStatus: "idle" })).toBe("peach");
+    expect(tone({ status: "pending", captionStatus: "generating", publishStatus: "idle" })).toBe("gray");
+    expect(tone({ status: "approved", captionStatus: "ready", publishStatus: "failed" })).toBe("red");
   });
 });

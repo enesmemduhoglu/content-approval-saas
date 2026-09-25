@@ -22,6 +22,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { PortalBadges } from "@/components/portal/portal-badges";
+import { IconChevronDown, IconChevronUp, IconGrip } from "@/components/portal/icons";
 
 export type QueueCard = {
   id: string;
@@ -56,6 +57,13 @@ export function moveBody(order: string[], index: number): { beforeId?: string; a
   return body;
 }
 
+function cardTone(card: QueueCard, requireApproval: boolean): "busy" | "failed" | "pending" | null {
+  if (card.captionStatus === "pending" || card.captionStatus === "generating") return "busy";
+  if (card.publishStatus === "failed" || card.captionStatus === "failed") return "failed";
+  if (card.status === "pending" && requireApproval && card.captionStatus === "ready") return "pending";
+  return null;
+}
+
 function SortableRow({
   card,
   index,
@@ -75,63 +83,86 @@ function SortableRow({
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id, disabled: busy });
+  const tone = cardTone(card, requireApproval);
 
   return (
     <li
       ref={setNodeRef}
-      className={`queue-card${isDragging ? " queue-card-dragging" : ""}`}
+      className={`p-qcard${tone ? ` p-qcard--${tone}` : ""}${isDragging ? " p-qcard--dragging" : ""}`}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
       {/* Tutamaç yalnızca bu buton: kartın tamamı sürüklenebilir olsaydı
-          telefonda sayfayı kaydırmak imkânsızlaşırdı. */}
+          telefonda sayfayı kaydırmak imkânsızlaşırdı. CSS onu yalnızca
+          fare/iz dörtgeninde gösteriyor; dokunmatikte oklar var. */}
       <button
         type="button"
         ref={setActivatorNodeRef}
-        className="queue-drag-handle"
+        className="p-grip"
         aria-label={`${index + 1}. videoyu sürükle`}
         {...attributes}
         {...listeners}
       >
-        ⋮⋮
+        <IconGrip size={18} />
       </button>
-      <span className="queue-index" aria-hidden="true">
-        {index + 1}
-      </span>
-      <Link href={`/portal/video/${card.id}`} className="queue-card-link">
+      <Link href={`/portal/video/${card.id}`} className="p-qcard-link">
         {card.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={card.coverUrl} alt="" className="queue-cover" loading="lazy" />
+          <img
+            src={card.coverUrl}
+            alt=""
+            className={`p-cover${tone === "failed" ? " p-cover--dim" : ""}`}
+            loading="lazy"
+          />
         ) : (
-          <span className="queue-cover queue-cover-empty" aria-hidden="true" />
+          <span
+            className={`p-cover${tone === "busy" ? " p-cover--busy" : ""}${tone === "failed" ? " p-cover--dim" : ""}`}
+            aria-hidden="true"
+          />
         )}
-        <span className="queue-card-body">
-          <span className="queue-caption">{captionHead(card)}</span>
-          <PortalBadges video={card} requireApproval={requireApproval} />
-          {card.publishStatus === "failed" && card.publishError && (
-            <span className="rejection-reason">{card.publishError}</span>
+        <span className="p-qcard-body">
+          <span className="p-qcard-meta">
+            <PortalBadges video={card} requireApproval={requireApproval} />
+            {eta ? <span className="p-eta">{eta}</span> : null}
+          </span>
+          {tone === "busy" ? (
+            <>
+              {/* İskelet: metin henüz yok, kartın yeri ve boyu şimdiden belli. */}
+              <span className="p-skel" style={{ width: "92%" }} aria-hidden="true" />
+              <span className="p-skel" style={{ width: "64%" }} aria-hidden="true" />
+              <span className="p-eta">Konuşma yazıya dökülüyor…</span>
+            </>
+          ) : card.publishStatus === "failed" ? (
+            <>
+              <span className="p-qcard-error">
+                {card.publishError ?? "Instagram'a gönderilemedi."} Video sırada bekliyor.
+              </span>
+              <span className="p-qcard-cta">Tekrar dene</span>
+            </>
+          ) : (
+            <span className={`p-qcard-caption${card.caption.trim() ? "" : " p-qcard-caption--muted"}`}>
+              {captionHead(card)}
+            </span>
           )}
-          {/* Tahmini yayın zamanı V4'ün queue.ts'iyle gelecek; yer hazır. */}
-          {eta ? <span className="portal-eta">{eta}</span> : null}
         </span>
       </Link>
-      <span className="queue-arrows">
+      <span className="p-arrows">
         <button
           type="button"
-          className="button-secondary"
+          className="p-arrow"
           aria-label="Yukarı taşı"
           disabled={busy || index === 0}
           onClick={() => onStep(card.id, -1)}
         >
-          ↑
+          <IconChevronUp size={18} />
         </button>
         <button
           type="button"
-          className="button-secondary"
+          className="p-arrow"
           aria-label="Aşağı taşı"
           disabled={busy || index === total - 1}
           onClick={() => onStep(card.id, 1)}
         >
-          ↓
+          <IconChevronDown size={18} />
         </button>
       </span>
     </li>
@@ -154,7 +185,7 @@ export function QueueBoard({
 }: {
   cards: QueueCard[];
   requireApproval: boolean;
-  /** Kart id'si → tahmini yayın zamanı metni (V4 entegrasyonunda dolacak). */
+  /** Kart id'si → tahmini yayın zamanı metni ("Yarın 19:00"); takvimde olmayan kartta yok. */
   etas?: Record<string, ReactNode>;
 }) {
   const router = useRouter();
@@ -220,7 +251,7 @@ export function QueueBoard({
 
   if (ids.length === 0) {
     return (
-      <p className="empty-state">
+      <p className="p-empty">
         Kuyruk boş. <Link href="/portal/yukle">Video yükle</Link>, sırası gelince yayınlansın.
       </p>
     );
@@ -229,13 +260,13 @@ export function QueueBoard({
   return (
     <>
       {error && (
-        <p className="field-error" role="alert">
+        <p className="p-error" role="alert">
           {error}
         </p>
       )}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-          <ol className="queue-list" aria-label="Yayın kuyruğu">
+          <ol className="p-list" aria-label="Yayın kuyruğu">
             {ids.map((id, index) => {
               const card = byId.get(id);
               if (!card) return null;

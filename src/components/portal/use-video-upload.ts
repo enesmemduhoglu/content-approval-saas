@@ -56,7 +56,8 @@ type Prepared = { file: File; key: string; frames: Blob[]; resume: ResumeRecord 
 
 export const MAX_FILES = 20;
 
-const STATUS_TEXT: Record<Exclude<MultipartStatus, "uploading">, string> = {
+/** Dışa açık: görünüm "bekleyen" durumları (turuncu kart) bu metinlerle ayırt ediyor. */
+export const STATUS_TEXT: Record<Exclude<MultipartStatus, "uploading">, string> = {
   "waiting-network": "Bağlantı bekleniyor",
   "waiting-visible": "Uygulamaya dönünce devam eder",
   retrying: "Bağlantı koptu, yeniden deneniyor",

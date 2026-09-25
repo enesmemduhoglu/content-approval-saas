@@ -22,8 +22,8 @@ export type PortalApp = {
   iconBase: string;
 };
 
-/** globals.css `--color-bg`: açılış ekranı ve durum çubuğu sayfayla aynı zeminde dursun. */
-const DEFAULT_BG = "#fafaf8";
+/** portal.css `--p-bg` (krem): açılış ekranı ve durum çubuğu sayfayla aynı zeminde dursun. */
+const DEFAULT_BG = "#faf6e9";
 export const DEFAULT_ICON_BASE = "/icons/varsayilan";
 export const DEFAULT_PORTAL_APP: PortalApp = {
   name: "Video Kuyruğu",

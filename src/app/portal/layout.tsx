@@ -3,12 +3,15 @@ import { getPortalContext } from "@/lib/portal-app";
 import { clientSessionRenewAt } from "@/lib/client-auth";
 import { ServiceWorkerRegister } from "@/components/portal/sw-register";
 import { SessionKeeper } from "@/components/portal/session-keeper";
+import { UpdateBand } from "@/components/portal/update-band";
+import { archivo, figtree } from "./fonts";
 import "./portal.css";
 
 // Portal stilleri ayrı dosyada: `globals.css` ajans paneliyle ortak ve video
 // kuyruğunun diğer fazlarıyla paralel değişebilir; portalın kuralları burada
-// durursa birleştirme çakışması doğmaz. Renk/tipografi değişkenleri yine
-// globals.css'ten (D7) geliyor — görsel dil ortak.
+// durursa birleştirme çakışması doğmaz. V7 mobil tasarımıyla portalın görsel
+// dili ajans panelinden ayrıldı (krem/lacivert, Archivo + Figtree) — kurallar
+// `.portal-root` altında kapsanıyor, ajans sayfalarına sızmıyor.
 
 /**
  * V7a — iOS "Ana Ekrana Ekle" manifest'i OKUMAZ; adı `apple-mobile-web-app-title`
@@ -61,13 +64,14 @@ export async function generateViewport(): Promise<Viewport> {
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const { session, expiresAt } = await getPortalContext();
   return (
-    <>
+    <div className={`portal-root ${archivo.variable} ${figtree.variable}`}>
       <link rel="manifest" href="/portal/manifest.webmanifest" crossOrigin="use-credentials" />
       {children}
+      <UpdateBand />
       <ServiceWorkerRegister />
       {session && expiresAt && (
         <SessionKeeper renewAt={clientSessionRenewAt(expiresAt).getTime()} />
       )}
-    </>
+    </div>
   );
 }
