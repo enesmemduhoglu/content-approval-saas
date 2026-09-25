@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 import { getClientScopedDb } from "@/lib/client-scoped-db";
 import { portalMutationGuard, readJson } from "@/lib/portal-route";
-import { FRAME_COUNT, validateUploadFiles } from "@/lib/portal-validation";
-import { frameKey, r2Configured, signPutUrl } from "@/lib/storage-r2";
+import {
+  FRAME_COUNT,
+  MULTIPART_PART_SIZE,
+  MULTIPART_THRESHOLD_BYTES,
+  validateUploadFiles,
+} from "@/lib/portal-validation";
+import {
+  abortMultipartUpload,
+  createMultipartUpload,
+  frameKey,
+  r2Configured,
+  signPutUrl,
+} from "@/lib/storage-r2";
 
 /**
  * Video kuyruğu (V3) — yükleme başlatma (README §7 "Yükle" 1. adım).
@@ -13,6 +24,12 @@ import { frameKey, r2Configured, signPutUrl } from "@/lib/storage-r2";
  *
  * Toplu yükleme TEK istekte başlar (20 dosyaya kadar): dosya başına istek
  * atılsaydı 20 videoluk bir yükleme hız sınırına tek başına çarpardı.
+ *
+ * V7b: `MULTIPART_THRESHOLD_BYTES` ve üstündeki video çok parçalı yüklenir —
+ * burada R2'de yükleme açılır, kimliği (`uploadId`) taslağa yazılır ve
+ * istemciye yalnızca `multipart: true` + parça boyutu döner. Parça URL'leri
+ * `videos/[id]/parts`'tan, parça parça ve süreli alınır. Küçük dosyanın tek
+ * PUT yolu aynen duruyor.
  */
 
 /**
@@ -63,18 +80,53 @@ export async function POST(request: Request) {
 
   const drafts = await scoped.posts.createDrafts(parsed.files);
 
+  // Büyük dosyalar için R2 çok parçalı yüklemesi. Kimlik yalnızca DB'ye
+  // yazılır; açılamazsa bu istekte doğan bütün taslaklar geri alınır — yarım
+  // bir toplu yükleme günlük tavanı yemesin, kullanıcı aynı seçimi yeniden
+  // denesin.
+  const multipart = new Map<string, string>();
+  try {
+    for (const [index, draft] of drafts.entries()) {
+      if (parsed.files[index].size < MULTIPART_THRESHOLD_BYTES) continue;
+      const uploadId = await createMultipartUpload(draft.videoKey, parsed.files[index].contentType);
+      multipart.set(draft.id, uploadId);
+      await scoped.posts.setUploadId(draft.id, uploadId);
+    }
+  } catch (error) {
+    console.error("[portal-upload] çok parçalı yükleme açılamadı:", (error as Error).message);
+    const byId = new Map(drafts.map((draft) => [draft.id, draft.videoKey]));
+    await Promise.all(
+      [...multipart].map(([id, uploadId]) =>
+        abortMultipartUpload(byId.get(id)!, uploadId).catch(() => undefined)
+      )
+    );
+    await scoped.posts.deleteDrafts(drafts.map((draft) => draft.id));
+    return NextResponse.json(
+      { error: "Depolama şu an yanıt vermiyor, biraz sonra tekrar dene" },
+      { status: 502 }
+    );
+  }
+
   // İmzalar DB'deki anahtardan üretiliyor, istemcinin beyanından değil; kare
-  // anahtarları da aynı müşteri önekinde (`frameKey`).
+  // anahtarları da aynı müşteri önekinde (`frameKey`). `uploadId` yanıtta
+  // YOK — parça imzası onu yine DB'den okuyor.
   const items = await Promise.all(
-    drafts.map(async (draft, index) => ({
-      postId: draft.id,
-      videoPutUrl: await signPutUrl(draft.videoKey, parsed.files[index].contentType),
-      framePutUrls: await Promise.all(
+    drafts.map(async (draft, index) => {
+      const framePutUrls = await Promise.all(
         Array.from({ length: FRAME_COUNT }, (_, i) =>
           signPutUrl(frameKey(guard.session.clientId, draft.id, i), "image/jpeg")
         )
-      ),
-    }))
+      );
+      if (multipart.has(draft.id)) {
+        return { postId: draft.id, multipart: true, partSize: MULTIPART_PART_SIZE, framePutUrls };
+      }
+      return {
+        postId: draft.id,
+        multipart: false,
+        videoPutUrl: await signPutUrl(draft.videoKey, parsed.files[index].contentType),
+        framePutUrls,
+      };
+    })
   );
 
   return NextResponse.json({ items }, { status: 201 });
