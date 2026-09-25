@@ -6,6 +6,7 @@ import { notifyAgencyTeam } from "@/lib/agency-notify";
 import { sendApprovalReminderEmail } from "@/lib/email";
 import { REMINDER_AFTER_DAYS, daysPending, reminderDecision } from "@/lib/reminders";
 import { runQueueDigest, type QueueDigestStats } from "@/lib/queue-digest";
+import { cleanupStaleDrafts } from "@/lib/draft-cleanup";
 
 /**
  * Bekleyen postlar için günlük hatırlatma (F3).
@@ -177,6 +178,11 @@ export async function GET(request: Request) {
     queueDigest = { error: true };
   }
 
+  // V7b: 24 saattir `draft` kalmış portal yüklemelerinin temizliği. Aynı
+  // gerekçeyle ayrı cron değil; `cleanupStaleDrafts` hiçbir koşulda throw
+  // etmez, kendi uyarısını kendisi atar.
+  const draftCleanup = await cleanupStaleDrafts(now);
+
   // Yanıt yalnızca SAYI taşır — müşteri adı, e-posta, caption hiçbiri geçmez.
   // Bu çıktı Vercel cron loglarına düşüyor.
   return NextResponse.json({
@@ -188,6 +194,7 @@ export async function GET(request: Request) {
     skipped,
     failed,
     queueDigest,
+    draftCleanup,
   });
   } catch (error) {
     console.error("[cron:reminders] cron çöktü:", error);

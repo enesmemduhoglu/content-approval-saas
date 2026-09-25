@@ -119,6 +119,54 @@ export function getClientScopedDb(session: ClientSession) {
           return out;
         }),
 
+      /**
+       * V7b — yükleme durumu. `PORTAL_VIDEO_SELECT`e `uploadId` EKLENMEDİ:
+       * o seçim istemciye giden yanıtları besliyor, `uploadId` ise hiçbir
+       * yanıtta yer almamalı (kolonun yorumu, schema.prisma).
+       */
+      findUploadState: (
+        id: string
+      ): Promise<{ id: string; status: string; videoKey: string | null; uploadId: string | null } | null> =>
+        db.post.findFirst({
+          where: { id, ...scope },
+          select: { id: true, status: true, videoKey: true, uploadId: true },
+        }),
+
+      /** Taslağa çok parçalı yükleme kimliğini bağlar; yalnızca boş ve `draft` iken. */
+      setUploadId: async (id: string, uploadId: string): Promise<boolean> => {
+        const result = await db.post.updateMany({
+          where: { id, ...scope, status: "draft", uploadId: null },
+          data: { uploadId },
+        });
+        return result.count === 1;
+      },
+
+      /**
+       * Parçalar birleşti: kimlik artık R2'de yok (`NoSuchUpload`). Temizlenir
+       * ki `complete` yeniden denendiğinde tek PUT yolu gibi yalnızca
+       * `headObject`'e baksın ve temizlik cron'u ölü bir kimliği iptal etmeye
+       * uğraşmasın. Koşul eski kimlik: araya giren başka bir yazımı ezmesin.
+       */
+      clearUploadId: async (id: string, uploadId: string): Promise<boolean> => {
+        const result = await db.post.updateMany({
+          where: { id, ...scope, uploadId },
+          data: { uploadId: null },
+        });
+        return result.count === 1;
+      },
+
+      /**
+       * Yükleme başlatılamadıysa (R2 çok parçalı yüklemeyi açamadı) az önce
+       * doğan taslaklar geri alınır — günlük tavanı boşa yemesinler. Yalnızca
+       * `draft`: bu yol tamamlanmış bir videoya asla dokunmamalı.
+       */
+      deleteDrafts: async (ids: string[]): Promise<number> => {
+        const result = await db.post.deleteMany({
+          where: { id: { in: ids }, ...scope, status: "draft" },
+        });
+        return result.count;
+      },
+
       /** Kuyruk: sıradaki videolar, yayınlanana kadar (hata alan da başta kalır — README §5). */
       listQueue: (): Promise<PortalVideo[]> =>
         db.post.findMany({
@@ -169,6 +217,9 @@ export function getClientScopedDb(session: ClientSession) {
               queuePosition: positionAtEnd(agg._max.queuePosition),
               captionStatus: "pending",
               captionError: null,
+              // Route birleştirmeden sonra zaten temizliyor; burada da
+              // sıfırlanıyor ki kuyruktaki bir postta kimlik asla kalmasın.
+              uploadId: null,
             },
           });
           return result.count === 1;

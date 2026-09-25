@@ -1,9 +1,13 @@
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -171,4 +175,106 @@ export async function deleteObject(key: string): Promise<boolean> {
     console.error(`[storage-r2] silinemedi: ${key}`, (error as Error).message);
     return false;
   }
+}
+
+// ─── Çok parçalı yükleme (V7b) ──────────────────────────────────────────
+
+/**
+ * iOS arka plana atılan sayfayı askıya alıyor; 150 MB'lık tek PUT yarıda
+ * kalınca baştan başlıyordu. Çok parçalı yüklemede her parça ayrı bir imzalı
+ * PUT: kopan parça tek başına yeniden denenir, bitmiş parçalar R2'de durur
+ * (bkz. docs/video-kuyrugu/V7-pwa.md §5).
+ *
+ * `uploadId` yalnızca sunucuda (`Post.uploadId`) yaşar; bu fonksiyonlar onu
+ * her zaman DB'den okunmuş hâliyle alır, istemcinin beyanıyla asla.
+ */
+
+/** Yeni çok parçalı yükleme açar ve R2'nin verdiği `uploadId`'yi döner. */
+export async function createMultipartUpload(key: string, contentType: string): Promise<string> {
+  const { client, bucket } = r2();
+  // Nesnenin tipi burada, açılışta sabitleniyor (parça PUT'larında tip yok);
+  // `complete`'teki `headObject` tip kontrolü bu değeri görür.
+  const out = await client.send(
+    new CreateMultipartUploadCommand({ Bucket: bucket, Key: key, ContentType: contentType })
+  );
+  if (!out.UploadId) throw new Error("R2 çok parçalı yükleme kimliği dönmedi");
+  return out.UploadId;
+}
+
+/** Tek bir parça için imzalı PUT URL'i. Parça numarası S3 kuralıyla 1..10000. */
+export async function signUploadPartUrl(
+  key: string,
+  uploadId: string,
+  partNumber: number,
+  ttlSeconds: number = PUT_URL_TTL_SECONDS
+): Promise<string> {
+  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) {
+    throw new Error("Geçersiz parça numarası");
+  }
+  const { client, bucket } = r2();
+  return getSignedUrl(
+    client,
+    new UploadPartCommand({ Bucket: bucket, Key: key, UploadId: uploadId, PartNumber: partNumber }),
+    { expiresIn: ttlSeconds }
+  );
+}
+
+export type CompletedPart = { partNumber: number; etag: string };
+
+/**
+ * Parçaları tek nesnede birleştirir. Hata FIRLATIR — çağıran taraf
+ * `storageErrorCode` ile ayırır: `InvalidPart` / `InvalidPartOrder` /
+ * `EntityTooSmall` istemcinin yanlış listesi (400), `NoSuchUpload` yüklemenin
+ * artık olmadığı (ör. önceki bir `complete` birleştirmiş ya da iptal edilmiş).
+ */
+export async function completeMultipartUpload(
+  key: string,
+  uploadId: string,
+  parts: CompletedPart[]
+): Promise<void> {
+  const { client, bucket } = r2();
+  await client.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: bucket,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: {
+        // S3 artan sıra ister; doğrulama zaten sıralıyor, burada yine de
+        // garanti altına alınıyor ki çağıranın sırasına bağlı kalınmasın.
+        Parts: [...parts]
+          .sort((a, b) => a.partNumber - b.partNumber)
+          .map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })),
+      },
+    })
+  );
+}
+
+/**
+ * Yarıda kalan yüklemenin parçalarını siler. Tamamlanmamış parçalar R2'de yer
+ * kaplar ama nesne olarak listelenmez — iptal edilmezse görünmez bir çöp olur.
+ * Yükleme zaten yoksa (`NoSuchUpload`) iş yapılmış sayılır; diğer hatalar
+ * fırlatılır ki temizlik taslağı silip kimliği kaybetmesin.
+ */
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+  const { client, bucket } = r2();
+  try {
+    await client.send(
+      new AbortMultipartUploadCommand({ Bucket: bucket, Key: key, UploadId: uploadId })
+    );
+  } catch (error) {
+    if (storageErrorCode(error) === "NoSuchUpload") return;
+    throw error;
+  }
+}
+
+/**
+ * SDK hatasının S3 kodu (`NoSuchUpload`, `InvalidPart`…). SDK v3 modellenmiş
+ * hatalarda kodu `name`e, modellenmemişlerde `Code`a koyuyor; ikisine de bakılır.
+ */
+export function storageErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const { Code, name } = error as { Code?: unknown; name?: unknown };
+  if (typeof Code === "string") return Code;
+  if (typeof name === "string") return name;
+  return undefined;
 }

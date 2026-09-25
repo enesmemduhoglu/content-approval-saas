@@ -431,6 +431,14 @@ model Post {
   frameKeys     String[]       @default([])
   /** Hangi slotta yayınlandığı (UTC). */
   slotAt        DateTime?
+  /**
+   * V7b — R2 çok parçalı yüklemenin kimliği; yalnızca büyük dosyanın taslağı
+   * `draft` iken dolu. İstemciye HİÇ gönderilmez: parça imzası ve tamamlama
+   * bu kolondan okunur, yani istemci başka bir yüklemenin kimliğini öne
+   * sürüp onun parçalarını imzalatamaz. Nullable — mevcut satırlar ve küçük
+   * dosyanın tek PUT yolu etkilenmez.
+   */
+  uploadId      String?
 
   @@index([agencyId])
   @@index([clientId])

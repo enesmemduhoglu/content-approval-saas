@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { getClientScopedDb } from "@/lib/client-scoped-db";
-import { notFound, portalMutationGuard } from "@/lib/portal-route";
-import { FRAME_COUNT, MAX_FRAME_BYTES } from "@/lib/portal-validation";
+import { notFound, portalMutationGuard, readJson } from "@/lib/portal-route";
+import { FRAME_COUNT, MAX_FRAME_BYTES, validateCompleteParts } from "@/lib/portal-validation";
 import { enqueueCaption } from "@/lib/qstash";
 import {
+  completeMultipartUpload,
   deleteObject,
   frameKey,
   headObject,
   keyBelongsToClient,
   r2Configured,
+  storageErrorCode,
 } from "@/lib/storage-r2";
 import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/validation";
 
@@ -22,7 +24,15 @@ import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/validation";
  *
  * Kareler isteğe bağlı: tarayıcı kare çıkaramadıysa (codec, eski cihaz) video
  * yine kuyruğa girer, caption yalnızca transkriptle üretilir.
+ *
+ * V7b — çok parçalı yüklemede (taslakta `uploadId` dolu) önce parçalar
+ * birleştirilir: gövdedeki `parts: [{ partNumber, etag }]` listesiyle
+ * `CompleteMultipartUpload`. Kimlik gövdeden değil DB'den; birleşmeden sonra
+ * aşağıdaki `headObject` / boyut / tip kontrolleri tek PUT yoluyla AYNI.
  */
+
+/** R2'nin "gönderdiğin parça listesi tutmuyor" hataları — istemcinin hatası, 400. */
+const CLIENT_PART_ERRORS = new Set(["InvalidPart", "InvalidPartOrder", "EntityTooSmall"]);
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -44,11 +54,53 @@ export async function POST(
     );
   }
 
+  // Gövde isteğe bağlı (tek PUT yolu gövdesiz geliyor); `parts` VARSA DB'ye
+  // gitmeden doğrulanır. Gerekip gerekmediği ancak taslağa bakınca belli.
+  const body = ((await readJson(request)) ?? {}) as { parts?: unknown };
+  const parts = body.parts === undefined ? null : validateCompleteParts(body.parts);
+  if (parts && !parts.ok) {
+    return NextResponse.json({ error: parts.error, field: parts.field }, { status: 400 });
+  }
+
   const scoped = getClientScopedDb(guard.session);
-  const post = await scoped.posts.findById(id);
+  const post = await scoped.posts.findUploadState(id);
   if (!post || !post.videoKey || !keyBelongsToClient(post.videoKey, clientId)) return notFound();
   if (post.status !== "draft") {
     return NextResponse.json({ error: "Bu yükleme zaten tamamlandı" }, { status: 409 });
+  }
+
+  if (post.uploadId) {
+    if (!parts) {
+      return NextResponse.json(
+        { error: "Yüklenen parçaların listesi gerekli", field: "parts" },
+        { status: 400 }
+      );
+    }
+    try {
+      await completeMultipartUpload(post.videoKey, post.uploadId, parts.parts);
+    } catch (error) {
+      const code = storageErrorCode(error);
+      if (code && CLIENT_PART_ERRORS.has(code)) {
+        // Parçalar R2'de duruyor; istemci eksik parçayı yükleyip yeniden deneyebilir.
+        return NextResponse.json(
+          { error: "Parça listesi depolamadakiyle uyuşmuyor — eksik parça olabilir", field: "parts" },
+          { status: 400 }
+        );
+      }
+      // `NoSuchUpload`: yükleme R2'de yok. En olası sebep, önceki bir
+      // `complete` parçaları birleştirdi ama yanıt istemciye ulaşmadı (gerçek
+      // R2'de denendi: ikinci birleştirme `NoSuchUpload` döner). Nesne varsa
+      // aşağıdaki kontroller onu tek PUT'ta olduğu gibi kabul eder; yoksa
+      // `headObject` 400'ü "dosya bulunamadı" der.
+      if (code !== "NoSuchUpload") {
+        console.error(`[portal-complete] birleştirme başarısız (post=${id}): ${code ?? "bilinmiyor"}`);
+        return NextResponse.json(
+          { error: "Depolama şu an yanıt vermiyor, biraz sonra tekrar dene" },
+          { status: 502 }
+        );
+      }
+    }
+    await scoped.posts.clearUploadId(id, post.uploadId);
   }
 
   const video = await headObject(post.videoKey);
