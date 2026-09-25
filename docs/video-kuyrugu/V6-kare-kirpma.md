@@ -1,6 +1,13 @@
-# V6 — Yüklemede 1:1 (kare) kırpma
+# V6 — Yüklemede 1:1 (kare) kırpma — ❌ İPTAL (2026-09-25)
 
-> **Durum: ⬜ planlandı, uygulanmadı.** Kullanıcı başlatana kadar kod yazılmaz.
+> **İptal edildi, uygulanmayacak.** Gerekçe [K24](KARARLAR.md): kullanıcı
+> videoyu telefonda (ör. iPhone Fotoğraflar → Düzenle → Kırp → en-boy oranı
+> → Kare; renk ayarı dahil) hazırlayıp yükleyecek; videolar her zaman kare
+> olmayabilir, farklı türde videolar da yüklenecek. Portal yüklenen videoyu
+> olduğu gibi yayınlar (K1 aynen geçerli). Belge, neden yapılmadığı
+> anlaşılsın diye tarihsel kayıt olarak duruyor.
+>
+> ~~**Durum: ⬜ planlandı, uygulanmadı.** Kullanıcı başlatana kadar kod yazılmaz.~~
 > Karar: [K22](KARARLAR.md). Faz durumu: [`FAZLAR.md`](FAZLAR.md).
 > Plan yazılırken master: `0ec916f` sonrası (#58 dahil). Aşağıdaki satır
 > numaraları o duruma göre; uygulamadan önce yeniden doğrula.
