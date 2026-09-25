@@ -111,6 +111,16 @@ describe("SettingsForm — onayı kapatırken uyarı", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ paused: true });
   });
+
+  it("saat dilimi seçilmez; eski bir dilimde kayıtlı ayar da İstanbul olarak kaydedilir", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ settings: initial }), { status: 200 }));
+    render(<SettingsForm initial={{ ...initial, timezone: "Europe/London" }} defaultNotifyEmail={null} />);
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByText("Saat dilimi")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ timezone: "Europe/Istanbul" });
+  });
 });
 
 describe("SettingsForm — yayın günleri (V8)", () => {

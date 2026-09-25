@@ -199,17 +199,6 @@ body:has(.portal-root) {
   letter-spacing: -0.5px;
 }
 
-.p-head-action {
-  width: 44px;
-  height: 44px;
-  border-radius: 22px;
-  border: 1.5px solid #e4dcc6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
 .p-titleblock {
   display: flex;
   flex-direction: column;
@@ -1570,22 +1559,6 @@ body:has(.portal-root) {
   font-size: 14px;
 }
 
-.p-tz {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-  color: var(--p-muted);
-}
-
-.p-tz .p-select {
-  width: auto;
-  max-width: 62%;
-  height: 40px;
-  background: var(--p-bg);
-}
-
 /* ─── Yayın günleri (V8) — "Ayarlar-gunler" maketi ─────────────────────── */
 
 .p-set-card--schedule {
@@ -1744,33 +1717,6 @@ body:has(.portal-root) {
 
 .p-switch[aria-checked="true"] .p-switch-knob {
   background: var(--p-bg);
-}
-
-.p-app-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 11px;
-  object-fit: cover;
-  flex-shrink: 0;
-  background: var(--p-sand);
-}
-
-.p-set-card--app {
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-}
-
-.p-mini-btn {
-  height: 40px;
-  padding: 0 14px;
-  border-radius: 12px;
-  border: 0;
-  background: var(--p-ink);
-  color: #faf6e9;
-  font-weight: 700;
-  font-size: 14px;
-  flex-shrink: 0;
 }
 
 /* ─── Giriş ─────────────────────────────────────────────────────────────── */

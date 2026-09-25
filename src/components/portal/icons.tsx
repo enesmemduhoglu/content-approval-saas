@@ -56,12 +56,6 @@ export const IconGear = (p: IconProps) => (
   </Svg>
 );
 
-export const IconSliders = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M4 6h16M4 12h10M4 18h6" />
-  </Svg>
-);
-
 export const IconPlay = ({ size = 22, ...p }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" {...p}>
     <path d="M8 5.5v13l11-6.5z" />

@@ -23,7 +23,11 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
   Asıl sorun sekmeye dokununca yanıt gelene kadar ekranın hiç değişmemesiydi
   (`loading.tsx` yoktu) → `app/portal/loading.tsx` iskeleti eklendi. Yükle
   ekranında "Videoyu yükle" düğmesi kalktı: galeriden seçim yüklemeyi hemen
-  başlatır. Soğuk başlangıç ölçülemedi (Vercel log erişimi yok).
+  başlatır. Soğuk başlangıç ölçülemedi (Vercel log erişimi yok). Aynı PR'da
+  kullanıcı isteğiyle sadeleştirme: Ayarlar'daki "Uygulama" kartı (ana ekrana
+  ekli / sürüm) kalktı, yalnızca "Çıkış yap" kaldı (yeni sürümü `UpdateBand`
+  zaten söylüyor); saat dilimi seçicisi kalktı, kayıt hep `Europe/Istanbul`
+  gönderir; Kuyruk başlığındaki sağ üst Ayarlar düğmesi kalktı (alt çubukta var).
 - **Müşteriye iPhone kurulum rehberi** yazıldı (sohbette kullanıcıya verildi).
   Göndermeden önce: Furkan'ın `ClientUser` kaydı, `Client.app*` alanları ve
   Vercel'de `VAPID_*` env'i doğrulanmalı.

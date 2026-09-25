@@ -1,7 +1,5 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { PortalTabBar } from "@/components/portal/portal-nav";
-import { IconSliders } from "@/components/portal/icons";
 
 /**
  * Sekmeli portal sayfalarının ortak kabuğu: güvenli alan paylı sütun + alt
@@ -37,9 +35,6 @@ export function PortalShell({
               <span className="p-head-name">{brand.name}</span>
               <h1 className="p-title">{title}</h1>
             </div>
-            <Link href="/portal/ayarlar" className="p-head-action" aria-label="Ayarlar">
-              <IconSliders size={20} />
-            </Link>
           </header>
         ) : (
           <header className="p-titleblock">
