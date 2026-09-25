@@ -32,17 +32,12 @@ const UPCOMING_COUNT = 3;
 /** Yalnız bir gün seçiliyken 3 yayın 3 haftaya yayılır; +1 gün DST/bugün payı. */
 const UPCOMING_SPAN_MS = 22 * 24 * 60 * 60 * 1000;
 
-/** Sık kullanılanlar; kayıtlı değer listede yoksa o da eklenir (hiçbir ayar sessizce değişmesin). */
-const TIMEZONES = [
-  "Europe/Istanbul",
-  "Europe/London",
-  "Europe/Berlin",
-  "Europe/Amsterdam",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Asia/Dubai",
-  "UTC",
-];
+/**
+ * Saat dilimi seçilmiyor: portalın müşterileri Türkiye'de, seçici yalnızca
+ * kafa karıştırıyordu. Kaydedilen her ayar bu dilimle gider; başka bir
+ * dilimde kayıtlı eski bir ayar da ilk kayıtta İstanbul'a döner.
+ */
+const PORTAL_TIMEZONE = "Europe/Istanbul";
 
 /** Tasarımın anahtarı: gerçek `<button role="switch">`, adı görünür başlıktan. */
 function Switch({
@@ -92,7 +87,7 @@ export function SettingsForm({
   const [slots, setSlots] = useState<string[]>(initial.slots);
   const [days, setDays] = useState<number[]>(initial.days);
   const [dayGuard, setDayGuard] = useState(false);
-  const [timezone, setTimezone] = useState(initial.timezone);
+  const timezone = PORTAL_TIMEZONE;
   const [requireApproval, setRequireApproval] = useState(initial.requireApproval);
   const [confirmingOff, setConfirmingOff] = useState(false);
   const [paused, setPaused] = useState(initial.paused);
@@ -100,8 +95,6 @@ export function SettingsForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ message: string; field?: string } | null>(null);
   const [saved, setSaved] = useState(false);
-
-  const zones = TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES];
 
   // "Şimdi" yalnızca tarayıcıda, montajdan sonra: sunucuda çizilen metinle
   // istemcidekinin bir slot sınırında ayrışıp hidrasyon uyarısı vermesin.
@@ -282,16 +275,6 @@ export function SettingsForm({
                 {error.message}
               </p>
             )}
-            <label className="p-tz">
-              Saat dilimi
-              <select className="p-select" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                {zones.map((zone) => (
-                  <option key={zone} value={zone}>
-                    {zone}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
 
           <div className="p-summary">

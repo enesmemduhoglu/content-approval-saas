@@ -167,7 +167,6 @@ function useUploadGuards(active: boolean) {
 }
 
 export function useVideoUpload(options: { onFinished?: () => void } = {}) {
-  const [files, setFiles] = useState<File[]>([]);
   const [items, setItems] = useState<ItemState[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,23 +182,29 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
     setItems((prev) => prev.map((item) => (item.key === key ? { ...item, ...next } : item)));
   }
 
+  /**
+   * Seçim = yükleme: galeriden seçilen videolar ayrıca bir "Yükle" düğmesi
+   * beklemeden hemen yüklenmeye başlar. Dosyalar `start`'a state'ten değil
+   * doğrudan argümanla gider — `setItems` bu render'da henüz işlenmemiş olur.
+   */
   function pick(list: FileList | File[] | null) {
+    if (running) return;
     setError(null);
     const picked = Array.from(list ?? []);
+    if (picked.length === 0) return;
     if (picked.length > MAX_FILES) {
       setError(`Tek seferde en fazla ${MAX_FILES} video seçebilirsin`);
       return;
     }
-    setFiles(picked);
-    setItems(
-      picked.map((file, i) => ({
-        key: `${i}-${file.name}`,
-        name: file.name,
-        size: file.size,
-        phase: "bekliyor",
-        progress: 0,
-      }))
-    );
+    const pickedItems: ItemState[] = picked.map((file, i) => ({
+      key: `${i}-${file.name}`,
+      name: file.name,
+      size: file.size,
+      phase: "bekliyor",
+      progress: 0,
+    }));
+    setItems(pickedItems);
+    void start(picked.map((file, i) => ({ file, key: pickedItems[i].key })));
   }
 
   /**
@@ -316,15 +321,13 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
     await uploadMultipart(p, record, undefined, false);
   }
 
-  async function start() {
-    if (running || files.length === 0) return;
+  async function start(picked: { file: File; key: string }[]) {
     setRunning(true);
     setError(null);
     try {
       // 1) Ölç + kare çıkar (sırayla — her biri belleğe bir video açıyor).
       const prepared: Prepared[] = [];
-      for (const [i, file] of files.entries()) {
-        const key = items[i].key;
+      for (const { file, key } of picked) {
         patch(key, { phase: "hazırlanıyor" });
         const { probe, frames } = await extractFrames(file);
         const problem = probeError(probe);
@@ -396,5 +399,5 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
   }
 
   const doneCount = items.filter((i) => i.phase === "bitti").length;
-  return { files, items, running, error, doneCount, pick, start };
+  return { items, running, error, doneCount, pick };
 }
