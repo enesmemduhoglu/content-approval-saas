@@ -69,6 +69,7 @@ Sayfaya özel ad/ikon kararı yüzünden manifest **statik olamaz**
   - Oturum yoksa: nötr varsayılan ad/ikon (giriş ekranından eklenirse).
   - Sabit alanlar: `id: "/portal"`, `start_url: "/portal"`, `scope: "/portal/"`,
     `display: "standalone"`, `orientation: "portrait"`, `lang: "tr"`.
+    **Uygulanan:** `scope: "/portal"` (eğik çizgisiz) — K26.
   - `Content-Type: application/manifest+json`,
     `Cache-Control: private, max-age=0` (kişiye özel; CDN'de paylaşılmasın).
 - **Önemli iOS davranışı:** iOS adı ve ikonu **"Ana Ekrana Ekle" anında**

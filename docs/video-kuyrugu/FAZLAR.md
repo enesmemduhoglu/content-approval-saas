@@ -105,11 +105,20 @@ branch → PR → bu dosyanın güncellenmesi.
 
 ### V7 — PWA (telefonda uygulama olarak) — belge: [`V7-pwa.md`](V7-pwa.md) · K23, K25
 Öncelikli cihaz iPhone; ad/ikon sayfaya özel.
-- **V7a — Kurulum + kodla giriş + mobil arayüz ⬜** — dinamik manifest,
+- **V7a — Kurulum + kodla giriş + mobil arayüz 🟡** — altyapı ✅ (#72: dinamik
+  manifest, iOS meta, SW + çevrimdışı sayfa, 6 haneli kodla giriş, kaydırmalı
+  oturum, 67 yeni test); ikon ✅ (Furkan'ın kendi illüstrasyonu, K27); kalan:
+  mobil arayüzün tasarımdan koda dökülmesi (tasarım:
+  https://claude.ai/artifact/WUckhyutaTLTtwo7V5CpYC), kurulum rehberi bandı,
+  yeni sürüm bandı, Furkan'ın `app*` alanları.
+  Özgün plan: — dinamik manifest,
   ikonlar, viewport/güvenli alan, 6 haneli kodla giriş, kaydırmalı oturum,
   alt sekme çubuğu, iOS kurulum rehberi, en küçük service worker. Şema:
   `Client.app*`, `ClientLoginToken.codeHash/attempts`. Kabul: §4.7.
-- **V7b — Dayanıklı yükleme ⬜** — R2 çok parçalı, kaldığı yerden devam,
+- **V7b — Dayanıklı yükleme ✅ (#71)** — 8 MB parçalı, kaldığı yerden devam,
+  IndexedDB, wakeLock, 24 saatlik taslak temizliği (günlük cron). Gerçek R2'de
+  denendi; gerçek iPhone testi bekliyor. Elle: R2 lifecycle kuralı (tamamlanmamış
+  çok parçalı yüklemeleri 1 gün sonra iptal). Özgün plan: — R2 çok parçalı, kaldığı yerden devam,
   IndexedDB ilerleme, wakeLock, yarım yükleme temizliği. Şema:
   `Post.uploadId`. Kabul: §5.2.
 - **V7c — Bildirimler (Web Push) ⬜** — VAPID, `PushSubscription` tablosu,

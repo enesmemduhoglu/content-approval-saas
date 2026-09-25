@@ -172,6 +172,26 @@ PWA'da her 30 günde bir yeniden giriş istemek (kod beklemek) kötü deneyim.
 düşmez, bırakılan cihaz 30 günde düşer; oturum zaten her istekte DB'den
 doğrulandığı için erişim kaldırma anında etkili kalır.
 
+### K26 · 2026-09-25 · PWA kapsamı `/portal` (eğik çizgisiz) + kod denemelerine günlük tavan (V7a)
+Kapsam eşleşmesi düz önek karşılaştırması: `/portal/` kapsamı açılış sayfası
+`/portal`'ı kapsamaz, `start_url` kapsam dışına düşer ve en çok açılan
+sayfada çevrimdışı yedek çalışmaz. Bu yüzden manifest `scope` ve SW kaydı
+`/portal`. Kod girişinde token başına 5 deneme tek başına yetmiyor (dakikada
+yeni kod istenerek günde ~21 bin tahmin, ~%2 isabet) → kullanıcı başına 24
+saatte 20 hatalı kod tavanı; tavan yalnızca kod yolunu kapatır, link çalışır.
+Manifest `<link>`'i `crossorigin="use-credentials"` ile elle yazılıyor: Next
+15.5 bunu yalnızca preview'da ekliyor; çerezsiz istenen manifest Android'de
+uygulamayı hep varsayılan adla kurardı. Oturum yenileme `POST
+/api/portal/session` + görünmez `SessionKeeper` (middleware yok).
+
+### K27 · 2026-09-25 · Uygulama ikonu Furkan'ın kendi illüstrasyonundan
+İlk ikon (genel çizgi karakter) ve referanslı üretilen adaylar kullanıcı
+tarafından beğenilmedi (renkler; saç uçlarının sarıya kaçması). Kullanıcı
+sayfanın mevcut illüstrasyonunu verdi: yeşil halka ve beyaz köşeler görselin
+kendi krem zeminiyle (`#F2E4D3`) dolduruldu, yüze odaklı kare kesit alındı,
+set `scripts/pwa-ikon-uret.mjs` ile üretildi (`public/icons/furkan-teacher/`).
+Yeni model çağrısı yok.
+
 ---
 
 ## Açık sorular
