@@ -164,6 +164,21 @@ model Client {
   users           ClientUser[]
   slotRuns        SlotRun[]
 
+  // V7a — portal telefonda uygulama (PWA). Uygulama adı ve ikonu SAYFAYA
+  // ÖZEL (K23): manifest ve iOS meta etiketleri bu alanlardan üretilir. Hepsi
+  // boş olabilir; boşsa ad `name`'den, ikon nötr varsayılan setten gelir.
+  appName       String?
+  /** Ana ekrandaki kısa ad; boşsa `appName ?? name`'in ilk 12 karakteri. */
+  appShortName  String?
+  /** "#rrggbb"; biçimi bozuksa manifest varsayılan renge düşer. */
+  appThemeColor String?
+  /**
+   * İkon setinin kök yolu (ör. "/icons/furkan-teacher"); altında
+   * icon-180/192/512 ve maskable-512 PNG'leri beklenir. Yalnızca "/icons/"
+   * altı kabul edilir — bkz. `portal-app.ts`.
+   */
+  appIconBase   String?
+
   @@index([agencyId])
 }
 
@@ -258,6 +273,14 @@ model ClientLoginToken {
   clientUserId String
   clientUser   ClientUser @relation(fields: [clientUserId], references: [id])
   tokenHash    String     @unique
+  /**
+   * V7a — aynı e-postadaki 6 haneli kodun HMAC'i (bkz. `hashLoginCode`). Link
+   * ve kod AYNI satıra bağlı: biri kullanılınca (`usedAt`) ikisi de ölür.
+   * Eski satırlarda boş — o token'larla yalnızca link çalışır.
+   */
+  codeHash     String?
+  /** Hatalı kod denemesi sayısı; `LOGIN_CODE_MAX_ATTEMPTS`'e ulaşınca token ölür. */
+  attempts     Int        @default(0)
   expiresAt    DateTime
   usedAt       DateTime?
   createdAt    DateTime   @default(now())
