@@ -4,6 +4,8 @@ import {
   SLOT_WINDOW_MS,
   dueSlots,
   isEligible,
+  isoWeekday,
+  localWeekday,
   needsRenumber,
   parseSlot,
   pickNext,
@@ -393,5 +395,138 @@ describe("projectSchedule", () => {
         3
       )
     ).toEqual([]);
+  });
+});
+
+// ─── Yayın günleri (V8, K28) ───────────────────────────────────────────────
+// Takvim: 25 Eylül 2026 Cuma, 28 Eylül Pazartesi, 1 Ekim Perşembe.
+
+describe("yayın günleri — hafta günü", () => {
+  it("isoWeekday: 1 = Pazartesi … 7 = Pazar", () => {
+    expect(isoWeekday({ year: 2026, month: 9, day: 28 })).toBe(1);
+    expect(isoWeekday({ year: 2026, month: 9, day: 25 })).toBe(5);
+    expect(isoWeekday({ year: 2026, month: 9, day: 27 })).toBe(7);
+  });
+
+  it("localWeekday müşterinin saat dilimine göre: UTC Pazar 21:30 = İstanbul Pazartesi", () => {
+    const at = utc("2026-09-27T21:30:00Z");
+    expect(localWeekday(at, "UTC")).toBe(7);
+    expect(localWeekday(at, "Europe/Istanbul")).toBe(1);
+    // Batıda ters yön: UTC Pazartesi 01:00 = New York Pazar 21:00.
+    expect(localWeekday(utc("2026-09-28T01:00:00Z"), "America/New_York")).toBe(7);
+  });
+});
+
+describe("yayın günleri — slotInstants", () => {
+  const twoWeeks = { from: utc("2026-09-25T00:00:00Z"), to: utc("2026-10-09T00:00:00Z") };
+
+  it("yalnız Pazartesi: iki haftada iki slot, ikisi de Pazartesi", () => {
+    expect(slotInstants({ ...IST, days: [1] }, twoWeeks)).toEqual([
+      utc("2026-09-28T16:00:00Z"),
+      utc("2026-10-05T16:00:00Z"),
+    ]);
+  });
+
+  it("Pzt/Per/Cum: arada kalan günlerde slot yok", () => {
+    const out = slotInstants(
+      { ...IST, days: [5, 1, 4] }, // sırasız gelse de fark etmez
+      { from: utc("2026-09-25T17:00:00Z"), to: utc("2026-10-03T00:00:00Z") }
+    );
+    expect(out).toEqual([
+      utc("2026-09-28T16:00:00Z"), // Pzt
+      utc("2026-10-01T16:00:00Z"), // Per
+      utc("2026-10-02T16:00:00Z"), // Cum
+    ]);
+  });
+
+  it("gece yarısı sınırı: yerel Pazartesi 00:30 UTC'de hâlâ Pazar — gün YEREL takvimden okunur", () => {
+    const range = { from: utc("2026-09-26T00:00:00Z"), to: utc("2026-09-29T00:00:00Z") };
+    const early = { slots: ["00:30"], timezone: "Europe/Istanbul" };
+    // Yalnız Pazartesi: slot UTC Pazar 21:30'da.
+    expect(slotInstants({ ...early, days: [1] }, range)).toEqual([utc("2026-09-27T21:30:00Z")]);
+    // Yalnız Pazar: yerel Pazar 00:30 = UTC Cumartesi 21:30.
+    expect(slotInstants({ ...early, days: [7] }, range)).toEqual([utc("2026-09-26T21:30:00Z")]);
+    // Negatif ofset: New York Pazar 21:00 = UTC Pazartesi 01:00, yine "Pazar" slotu.
+    expect(
+      slotInstants({ slots: ["21:00"], timezone: "America/New_York", days: [7] }, range)
+    ).toEqual([utc("2026-09-28T01:00:00Z")]);
+  });
+
+  it("DST: Berlin'de saatin geri alındığı Pazar (25 Eki) tek gün sayılır, ofset doğru", () => {
+    const out = slotInstants(
+      { slots: ["19:00"], timezone: BERLIN, days: [7] },
+      { from: utc("2026-10-17T00:00:00Z"), to: utc("2026-10-27T00:00:00Z") }
+    );
+    // 18 Eki CEST (+2) → 17:00Z; 25 Eki CET (+1) → 18:00Z.
+    expect(out).toEqual([utc("2026-10-18T17:00:00Z"), utc("2026-10-25T18:00:00Z")]);
+  });
+
+  it("DST: ileri alma Pazarı (29 Mart) 02:30 boşluğu yine o Pazar'a düşer, Pazartesi'ye kaymaz", () => {
+    const range = { from: utc("2026-03-28T00:00:00Z"), to: utc("2026-03-31T00:00:00Z") };
+    const gap = { slots: ["02:30"], timezone: BERLIN };
+    expect(slotInstants({ ...gap, days: [7] }, range)).toEqual([utc("2026-03-29T01:30:00Z")]);
+    expect(slotInstants({ ...gap, days: [1] }, range)).toEqual([utc("2026-03-30T00:30:00Z")]);
+  });
+
+  it("days eksik, null ya da boş → tüm günler (V8 öncesi çağıranlar)", () => {
+    const range = { from: utc("2026-09-25T00:00:00Z"), to: utc("2026-10-02T00:00:00Z") };
+    const all = slotInstants(IST, range);
+    expect(all).toHaveLength(7);
+    expect(slotInstants({ ...IST, days: null }, range)).toEqual(all);
+    expect(slotInstants({ ...IST, days: [] }, range)).toEqual(all);
+    expect(slotInstants({ ...IST, days: [1, 2, 3, 4, 5, 6, 7] }, range)).toEqual(all);
+    // Geçersiz değerler atılır; geçerli olan kalır.
+    expect(slotInstants({ ...IST, days: [0, 8, 1.5, 1] }, range)).toEqual([utc("2026-09-28T16:00:00Z")]);
+  });
+});
+
+describe("yayın günleri — dueSlots", () => {
+  it("UTC Pazar gecesi = yerel Pazartesi: yalnız Pazartesi seçiliyse slot vadesi gelir", () => {
+    const now = utc("2026-09-27T21:35:00Z"); // İstanbul Pazartesi 00:35
+    const settings = { slots: ["00:30"], timezone: "Europe/Istanbul" };
+    expect(dueSlots({ ...settings, days: [1] }, now, [])).toEqual([
+      { slotAt: utc("2026-09-27T21:30:00Z"), action: "publish" },
+    ]);
+    // Yalnız Pazar: dünkü (Pazar 00:30) slot 24 saatten eski, bugün Pazartesi seçili değil.
+    expect(dueSlots({ ...settings, days: [7] }, now, [])).toEqual([]);
+  });
+
+  it("seçili olmayan günde vadesi gelen slot yok — ne publish ne skip", () => {
+    const now = utc("2026-09-29T16:05:00Z"); // Salı 19:05
+    expect(dueSlots({ ...IST, days: [1, 4] }, now, [])).toEqual([]);
+    // Aynı an, Salı seçiliyken yayın.
+    expect(dueSlots({ ...IST, days: [2] }, now, [])).toEqual([
+      { slotAt: utc("2026-09-29T16:00:00Z"), action: "publish" },
+    ]);
+  });
+});
+
+describe("yayın günleri — projectSchedule", () => {
+  const settings = { slots: ["19:00"], timezone: "Europe/Istanbul", requireApproval: true, paused: false };
+  const queue = ["a", "b", "c"].map((id, i) => item({ id, queuePosition: i + 1 }));
+
+  it("Pzt/Per seçiliyken Salı'dan bakınca ilk video Perşembe'ye kayar", () => {
+    const now = utc("2026-09-29T09:00:00Z"); // Salı
+    expect(projectSchedule(queue, { ...settings, days: [1, 4] }, now, 3)).toEqual([
+      { postId: "a", slotAt: utc("2026-10-01T16:00:00Z") }, // Per
+      { postId: "b", slotAt: utc("2026-10-05T16:00:00Z") }, // Pzt
+      { postId: "c", slotAt: utc("2026-10-08T16:00:00Z") }, // Per
+    ]);
+  });
+
+  it("yalnız Pazartesi: 3 video 3 haftaya yayılır (aralık hafta katı kadar genişler)", () => {
+    const now = utc("2026-09-25T09:00:00Z"); // Cuma
+    expect(projectSchedule(queue, { ...settings, days: [1] }, now, 3)).toEqual([
+      { postId: "a", slotAt: utc("2026-09-28T16:00:00Z") },
+      { postId: "b", slotAt: utc("2026-10-05T16:00:00Z") },
+      { postId: "c", slotAt: utc("2026-10-12T16:00:00Z") },
+    ]);
+  });
+
+  it("bugün seçili günse ve slotu geçtiyse bir sonraki haftaya", () => {
+    const now = utc("2026-09-28T17:00:00Z"); // Pazartesi 20:00
+    expect(projectSchedule(queue, { ...settings, days: [1] }, now, 1)).toEqual([
+      { postId: "a", slotAt: utc("2026-10-05T16:00:00Z") },
+    ]);
   });
 });

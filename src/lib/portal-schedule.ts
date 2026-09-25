@@ -14,7 +14,7 @@ import { projectSchedule, type QueueItem } from "@/lib/queue";
  */
 export function estimatePublishTimes(
   queue: QueueItem[],
-  settings: Pick<PublishSettings, "slots" | "timezone" | "requireApproval" | "paused"> | null,
+  settings: Pick<PublishSettings, "slots" | "timezone" | "days" | "requireApproval" | "paused"> | null,
   now: Date = new Date()
 ): Map<string, Date> {
   if (!settings) return new Map();

@@ -5,7 +5,7 @@ import { toCard } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
 import { getPortalContext } from "@/lib/portal-app";
 import { estimatePublishTimes } from "@/lib/portal-schedule";
-import { formatTime, slotDayLabel, slotLabel } from "@/lib/portal-format";
+import { formatTime, slotDayLabel, slotWeekdayLabel } from "@/lib/portal-format";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { QueueBoard, type QueueCard } from "@/components/portal/queue-board";
 import { PortalBadges } from "@/components/portal/portal-badges";
@@ -125,7 +125,9 @@ export default async function PortalQueuePage() {
     nextView = (
       <NextCard
         href={`/portal/video/${next[0]}`}
-        when={slotLabel(next[1], timezone, now)}
+        // Gün adıyla ("Perşembe · 19:00"): yayın günleri seçiliyken sıradaki
+        // yayın birkaç gün sonra olabilir; kart ritmi tek bakışta söylesin.
+        when={`${slotWeekdayLabel(next[1], timezone, now)} · ${formatTime(next[1], timezone)}`}
         sub={
           requireApproval
             ? "Onaylı ilk video yayınlanır · Onay açık"

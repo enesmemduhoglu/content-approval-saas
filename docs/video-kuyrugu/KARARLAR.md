@@ -192,6 +192,18 @@ kendi krem zeminiyle (`#F2E4D3`) dolduruldu, yüze odaklı kare kesit alındı,
 set `scripts/pwa-ikon-uret.mjs` ile üretildi (`public/icons/furkan-teacher/`).
 Yeni model çağrısı yok.
 
+### K28 · 2026-09-26 · Yayın günleri: tek gün kümesi × tek saat listesi (V8)
+Kullanıcı her gün yayın istemeyebilir ("yalnız Pzt/Per/Cum", "yalnız
+Pazartesi 19:00"). Model: `PublishSettings.days Int[]` (ISO 1 = Pazartesi … 7
+= Pazar, müşterinin `timezone`'una göre YEREL gün); `slots` her seçili günde
+geçerli. **En az bir gün zorunlu** — hiç yayın istemeyenin yolu "Yayını
+duraklat", iki ayrı "kapalı" hâli olmasın. **Güne göre farklı saat YOK**
+("Pzt 09:30, Cum 19:00"): ekranda iki satırlık ayar ve tek filtre yeterli;
+istenirse `schedule: {day, time}[]` modeline geçilir (açık soru). Varsayılan
+tüm günler: göç mevcut ayarları değiştirmez. K8 (kaçan slot telafi edilmez)
+aynen geçerli; seçili olmayan günde slot hiç doğmaz, `SlotRun` de yazılmaz.
+Belge: [`V8-yayin-gunleri.md`](V8-yayin-gunleri.md).
+
 ### K29 · 2026-09-25 · Giriş ekranı kimliği: imzalı iz çerezi (V7)
 K23'ün "oturum yokken nötr kimlik" kuralı, oturumu düşen Furkan'ın kendi
 uygulamasını ana ekrandan açıp "VİDEO KUYRUĞU" görmesine yol açıyordu. Başarılı

@@ -18,6 +18,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type PublishSettingsInput = {
   slots: string[];
+  /**
+   * V8 — yayın günleri (ISO, 1 = Pazartesi … 7 = Pazar), sıralı ve tekrarsız.
+   * `undefined`: istek alanı hiç taşımadı (V8 öncesi istemci) — kayıtta
+   * mevcut değer korunur, yeni satırda şema varsayılanı (tüm günler) gelir.
+   */
+  days?: number[];
   timezone: string;
   requireApproval: boolean;
   paused: boolean;
@@ -61,6 +67,30 @@ export function validatePublishSettings(
   // "saklanan dizi sıralı" — tick ve e-postalar buna güvenebilsin.
   const sorted = [...(slots as string[])].sort();
 
+  // Yayın günleri (K28). Alan hiç gelmediyse dokunulmaz: açık bir sekmede
+  // kalmış eski form "Kaydet"e basınca kullanıcının gün seçimini sessizce
+  // "her gün"e çevirmesin. `null` ise "gönderildi ama geçersiz" sayılır.
+  let days: number[] | undefined;
+  if (input.days !== undefined) {
+    const raw = input.days;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      // Boş dizi "hiç yayın yok" demek olurdu; onun yolu `paused` — iki ayrı
+      // "kapalı" hâli olmasın.
+      return {
+        ok: false,
+        field: "days",
+        error: "En az bir yayın günü seç — hiç yayın istemiyorsan Yayını duraklat",
+      };
+    }
+    if (!raw.every((d) => typeof d === "number" && Number.isInteger(d) && d >= 1 && d <= 7)) {
+      return { ok: false, field: "days", error: "Geçersiz gün (1 = Pazartesi … 7 = Pazar olmalı)" };
+    }
+    if (new Set(raw).size !== raw.length) {
+      return { ok: false, field: "days", error: "Aynı gün iki kez seçilemez" };
+    }
+    days = [...(raw as number[])].sort((a, b) => a - b);
+  }
+
   const { timezone } = input;
   if (typeof timezone !== "string" || !isValidTimezone(timezone)) {
     return { ok: false, field: "timezone", error: "Geçersiz saat dilimi" };
@@ -87,6 +117,7 @@ export function validatePublishSettings(
     ok: true,
     value: {
       slots: sorted,
+      ...(days ? { days } : {}),
       timezone,
       requireApproval: input.requireApproval,
       paused: input.paused,

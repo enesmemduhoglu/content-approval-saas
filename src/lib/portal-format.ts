@@ -46,6 +46,76 @@ export function slotLabel(at: Date, timezone: string, now: Date = new Date()): s
   return `${slotDayLabel(at, timezone, now)} · ${formatTime(at, timezone)}`;
 }
 
+/**
+ * "Sıradaki yayın" kartının gün kısmı (V8): "Bugün", "Yarın", bir hafta
+ * içindeyse tam gün adı ("Perşembe"), daha uzaksa gün adı + tarih
+ * ("Pazartesi 12 Eki"). Yayın günleri seçilince sıradaki yayın birkaç gün
+ * uzakta olabiliyor; "Per 1 Eki" yerine gün adı ritmi tek bakışta söylüyor.
+ * Tarih yalnızca gün adının belirsiz kaldığı yerde (7+ gün) eklenir.
+ */
+export function slotWeekdayLabel(at: Date, timezone: string, now: Date = new Date()): string {
+  const diff = dayDiff(dayKey(now, timezone), dayKey(at, timezone));
+  if (diff === 0) return "Bugün";
+  if (diff === 1) return "Yarın";
+  const weekday = at.toLocaleDateString("tr-TR", { timeZone: timezone, weekday: "long" });
+  if (diff > 1 && diff < 7) return weekday;
+  const date = at.toLocaleDateString("tr-TR", { timeZone: timezone, day: "numeric", month: "short" });
+  return `${weekday} ${date}`;
+}
+
+/** Ayarlar özetindeki satır: "Perşembe · 2 Eki · 19:00" — her zaman takvim tarihiyle. */
+export function weekdayDateTime(at: Date, timezone: string): string {
+  const weekday = at.toLocaleDateString("tr-TR", { timeZone: timezone, weekday: "long" });
+  const date = at.toLocaleDateString("tr-TR", { timeZone: timezone, day: "numeric", month: "short" });
+  return `${weekday} · ${date} · ${formatTime(at, timezone)}`;
+}
+
+// ─── Yayın günleri (V8) ────────────────────────────────────────────────────
+
+/** ISO sırasıyla (1 = Pazartesi … 7 = Pazar) gün adları. */
+export const WEEKDAYS: readonly { iso: number; short: string; long: string }[] = [
+  { iso: 1, short: "Pzt", long: "Pazartesi" },
+  { iso: 2, short: "Sal", long: "Salı" },
+  { iso: 3, short: "Çar", long: "Çarşamba" },
+  { iso: 4, short: "Per", long: "Perşembe" },
+  { iso: 5, short: "Cum", long: "Cuma" },
+  { iso: 6, short: "Cmt", long: "Cumartesi" },
+  { iso: 7, short: "Paz", long: "Pazar" },
+];
+
+/** Hazır seçimler — sıra ekrandaki sıra. */
+export const DAY_PRESETS: readonly { label: string; days: readonly number[] }[] = [
+  { label: "Her gün", days: [1, 2, 3, 4, 5, 6, 7] },
+  { label: "Hafta içi", days: [1, 2, 3, 4, 5] },
+  { label: "Hafta sonu", days: [6, 7] },
+];
+
+const sameDays = (a: readonly number[], b: readonly number[]) =>
+  a.length === b.length && a.every((d, i) => d === b[i]);
+
+/** Sıralı gün listesi bir hazır seçime denk geliyorsa onun adı. */
+export function presetFor(days: readonly number[]): string | null {
+  return DAY_PRESETS.find((p) => sameDays(p.days, days))?.label ?? null;
+}
+
+/** "Her gün" · "Haftada 3 gün" — gün başlığının sağındaki sayaç. */
+export function dayCountLabel(days: readonly number[]): string {
+  return days.length === 7 ? "Her gün" : `Haftada ${days.length} gün`;
+}
+
+/**
+ * Özet kutusunun başlığı: "Haftada 3 video · Pzt, Per, Cum · 19:00".
+ * Her gün seçiliyse "Her gün 2 video · 09:30, 19:00" (gün listesini ikinci
+ * kez "Her gün" diye tekrarlamaz). `days` sıralı, `slots` geçerli ve sıralı
+ * saatler olmalı.
+ */
+export function scheduleSummary(days: readonly number[], slots: readonly string[]): string {
+  const times = slots.join(", ");
+  if (days.length === 7) return `Her gün ${slots.length} video · ${times}`;
+  const dayList = presetFor(days) ?? days.map((d) => WEEKDAYS[d - 1].short).join(", ");
+  return `Haftada ${days.length * slots.length} video · ${dayList} · ${times}`;
+}
+
 /** Geçmiş kartındaki tarih: "25 Eyl · 19:00" — geçmişte "Bugün" demek yerine hep takvim tarihi. */
 export function shortDateTime(at: Date, timezone: string): string {
   const date = at.toLocaleDateString("tr-TR", { timeZone: timezone, day: "numeric", month: "short" });

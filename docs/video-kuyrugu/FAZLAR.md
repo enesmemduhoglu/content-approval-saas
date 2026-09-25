@@ -14,6 +14,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 - **Açık durumlar (prod):** portalın tek kullanıcısı test için `eneshan034@gmail.com` (Furkan'ın müşteri kaydında); `PublishSettings.slots = ["03:13"]` hâlâ ayarlı olabilir — her gece boş slot e-postası üretir, kullanıcıya duraklatması söylendi; kuyrukta 2 onaysız test videosu.
 - **Canlıda kurulu:** Vercel env (R2, QStash US, fal, Anthropic — Production + Preview), QStash schedule `scd_4rmi9RPUgv1uQkyzWBRwTagJEQQk` (`*/5 * * * *` → `POST /api/queue/tick`, ilk tick 200), Furkan'ın `captionStyle`'ı (`scripts/caption-stili-yukle.mjs`).
 - **Dikkat:** Furkan'ın Instagram token'ı 2026-10-15'te bitiyor; yenileme cron'u 20 gün kala devreye girer — 2026-09-26 sabahı yenilendiğini kontrol et.
+- **V8 (yayın günleri, K28):** PR #77 açık, merge bekliyor (şema göçü içeriyor;
+  eski veriyle ve boş DB'de sınandı). Merge sonrası Furkan Ayarlar'dan günleri seçer.
 - **Yarım kalan:** —
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
@@ -117,14 +119,27 @@ branch → PR → bu dosyanın güncellenmesi.
   `Client.app*`, `ClientLoginToken.codeHash/attempts`. Kabul: §4.7.
 - **V7b — Dayanıklı yükleme ✅ (#71)** — 8 MB parçalı, kaldığı yerden devam,
   IndexedDB, wakeLock, 24 saatlik taslak temizliği (günlük cron). Gerçek R2'de
-  denendi; gerçek iPhone testi bekliyor. Elle: R2 lifecycle kuralı (tamamlanmamış
-  çok parçalı yüklemeleri 1 gün sonra iptal). Özgün plan: — R2 çok parçalı, kaldığı yerden devam,
+  denendi; gerçek iPhone testi bekliyor. R2 lifecycle kuralı kuruldu
+  (2026-09-25): tamamlanmamış çok parçalı yüklemeler **2 gün** sonra iptal —
+  günlük cron 24 saatte temizliyor, kural ikinci güvenlik ağı. Özgün plan: — R2 çok parçalı, kaldığı yerden devam,
   IndexedDB ilerleme, wakeLock, yarım yükleme temizliği. Şema:
   `Post.uploadId`. Kabul: §5.2.
 - **V7c — Bildirimler (Web Push) ⬜** — VAPID, `PushSubscription` tablosu,
   yayın/hata/boş slot/caption hazır/günlük hatırlatma bildirimleri; e-posta
   yedek. Kabul: §6.2.
-- **V7d — Android paylaşım hedefi ⬜** — `share_target` + SW. Kabul: §7.
+- **V7d — Android paylaşım hedefi ⏸ ERTELENDİ (2026-09-25)** — `share_target` + SW.
+  Kullanıcı kararı: bekletilecek. Furkan iPhone kullanıyor ve iOS PWA paylaşım
+  hedefini desteklemiyor; Android kullanan bir müşteri gelince ele alınır
+  (~yarım gün). Kabul: §7.
+
+### V8 — Yayın günleri ✅ (#77, merge bekliyor) — belge: [`V8-yayin-gunleri.md`](V8-yayin-gunleri.md) · K28
+Haftanın hangi günleri yayın olacağı (tek gün kümesi × tek saat listesi).
+Göç `20260926130000_yayin_gunleri` (`PublishSettings.days`, varsayılan tüm
+günler; eski veriyle sınandı), `slotInstants` yerel gün filtresi, ayar
+doğrulaması (`field: "days"`, alan yoksa korunur), Ayarlar'da "Yayın günleri
+ve saatleri" kartı (gün çipleri, hazır seçimler, canlı özet + sıradaki 3
+yayın), kuyrukta "Perşembe · 19:00". Merge = prod göçü (toplayıcı; Furkan'ın
+ayarı "her gün" kalır, günleri portaldan kendisi seçer).
 
 ## Uçtan uca doğrulama senaryosu (V5)
 

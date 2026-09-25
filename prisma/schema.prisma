@@ -198,6 +198,14 @@ model PublishSettings {
    */
   slots    String[] @default(["19:00"])
   timezone String   @default("Europe/Istanbul")
+  /**
+   * V8 (K28) — yayın günleri: ISO hafta günü, 1 = Pazartesi … 7 = Pazar,
+   * `timezone`'a göre YEREL gün. `slots` her seçili günde geçerli (tek gün
+   * kümesi × tek saat listesi; güne göre farklı saat yok). En az bir gün —
+   * "hiç yayın" hâli `paused`; iki ayrı "kapalı" hâli olmasın. Varsayılan tüm
+   * günler: göçten önceki satırlar aynen her gün yayınlamaya devam eder.
+   */
+  days     Int[]    @default([1, 2, 3, 4, 5, 6, 7])
 
   /**
    * Varsayılan AÇIK — güvenli taraf (K3). Kapalıyken sırası gelen video onay

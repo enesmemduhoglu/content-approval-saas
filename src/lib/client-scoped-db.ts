@@ -522,6 +522,8 @@ export function getClientScopedDb(session: ClientSession) {
       get: (): Promise<PublishSettings | null> =>
         db.publishSettings.findUnique({ where: { clientId } }),
 
+      // `input.days` yoksa (eski istemci) Prisma alanı hiç yazmaz: güncellemede
+      // mevcut gün seçimi korunur, ilk kayıtta şema varsayılanı (tüm günler) gelir.
       upsert: (input: PublishSettingsInput): Promise<PublishSettings> =>
         db.publishSettings.upsert({
           where: { clientId },

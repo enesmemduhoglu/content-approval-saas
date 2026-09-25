@@ -27,6 +27,7 @@ export function createPublishSettings(
   clientId: string,
   overrides: {
     slots?: string[];
+    days?: number[];
     requireApproval?: boolean;
     paused?: boolean;
     notifyEmail?: string | null;
@@ -37,6 +38,8 @@ export function createPublishSettings(
     data: {
       clientId,
       slots: overrides.slots ?? ["19:00"],
+      // Verilmezse şema varsayılanı (tüm günler) — V8 öncesi testler aynen kalsın.
+      ...(overrides.days ? { days: overrides.days } : {}),
       timezone: overrides.timezone ?? "Europe/Istanbul",
       requireApproval: overrides.requireApproval ?? true,
       paused: overrides.paused ?? false,
