@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { goToPortalHome } from "@/lib/portal-hard-nav";
 import { CodeLoginForm, requestLoginEmail } from "@/components/portal/code-login-form";
 
 /**
@@ -82,7 +82,6 @@ export function PortalLoginForm() {
  * (e-posta tarayıcıları linkleri önceden açıyor — bkz. api/portal/login/verify).
  */
 export function PortalVerifyButton({ token }: { token: string }) {
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,8 +100,9 @@ export function PortalVerifyButton({ token }: { token: string }) {
         setError(data.error ?? "Giriş yapılamadı");
         return;
       }
-      router.push("/portal");
-      router.refresh();
+      // Tam yükleme: layout meta etiketleri (iOS ana ekran adı/ikonu) oturumla
+      // yeniden üretilsin — bkz. portal-hard-nav.ts.
+      goToPortalHome();
     } catch {
       setError("Bağlantı hatası, tekrar dene");
     } finally {
