@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { goToPortalHome } from "@/lib/portal-hard-nav";
 import { maskEmail } from "@/lib/portal-format";
 
 /** "Kodu tekrar gönder" bekleme süresi. Sunucu e-posta başına dakikada 3 istek kabul ediyor. */
@@ -50,7 +50,6 @@ function formatCountdown(seconds: number): string {
  *    önerir; tek dokunuşla dolar.
  */
 export function CodeLoginForm({ initialEmail }: { initialEmail?: string }) {
-  const router = useRouter();
   const [email, setEmail] = useState(initialEmail ?? "");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -88,8 +87,9 @@ export function CodeLoginForm({ initialEmail }: { initialEmail?: string }) {
         setCode("");
         return;
       }
-      router.push("/portal");
-      router.refresh();
+      // Tam yükleme: layout meta etiketleri (iOS ana ekran adı/ikonu) oturumla
+      // yeniden üretilsin — bkz. portal-hard-nav.ts.
+      goToPortalHome();
     } catch {
       setError("Bağlantı hatası, tekrar dene");
     } finally {

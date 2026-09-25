@@ -2,10 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-const push = vi.fn();
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, refresh: vi.fn() }),
-}));
+// Girişten sonra tam sayfa yüklemesi (bkz. portal-hard-nav.ts): jsdom
+// `location.assign`'ı uygulamadığı için yardımcı taklit ediliyor.
+const goToPortalHome = vi.fn();
+vi.mock("@/lib/portal-hard-nav", () => ({ goToPortalHome: () => goToPortalHome() }));
 
 import { CodeLoginForm, RESEND_COOLDOWN_SECONDS } from "./code-login-form";
 import { PortalLoginForm } from "./login-form";
@@ -14,7 +14,7 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
   fetchMock.mockReset();
-  push.mockReset();
+  goToPortalHome.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -59,7 +59,7 @@ describe("CodeLoginForm — 6 kutulu kod alanı", () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/portal/login/code");
     expect(JSON.parse(init.body)).toEqual({ email: "furkan@ornek.com", code: "123456" });
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/portal"));
+    await waitFor(() => expect(goToPortalHome).toHaveBeenCalledTimes(1));
   });
 
   it("yanlış kodda hata gösterilir ve alan temizlenir", async () => {
