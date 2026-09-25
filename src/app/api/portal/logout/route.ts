@@ -6,6 +6,11 @@ import { checkOrigin } from "@/lib/origin";
  * Portal çıkışı: çerezi siler. Oturum durumsuz (imzalı çerez), sunucuda
  * silinecek satır yok — bkz. client-auth.ts.
  *
+ * Giriş ekranı izi (`CLIENT_TRACE_COOKIE`, K29) BİLİNÇLİ olarak silinmiyor:
+ * işi tam da çıkıştan sonra giriş ekranında bu cihazın müşterisinin adını ve
+ * ikonunu göstermek. İz hiçbir yetki vermediği için kalması oturumu açık
+ * bırakmak anlamına gelmez.
+ *
  * `checkOrigin` burada da var: cross-site bir form kullanıcıyı sessizce
  * çıkış yaptıramasın (zararı küçük ama bedeli sıfır).
  */

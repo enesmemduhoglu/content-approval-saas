@@ -1,6 +1,10 @@
 import { cache } from "react";
-import { getClientSessionWithExpiry, type ClientSession } from "@/lib/client-auth";
-import { getClientScopedDb } from "@/lib/client-scoped-db";
+import {
+  getClientSessionWithExpiry,
+  readPortalTraceClientId,
+  type ClientSession,
+} from "@/lib/client-auth";
+import { findClientAppForLoginScreen, getClientScopedDb } from "@/lib/client-scoped-db";
 
 /**
  * V7a — portalın "uygulama kimliği": ad, kısa ad, tema rengi, ikon seti.
@@ -8,9 +12,11 @@ import { getClientScopedDb } from "@/lib/client-scoped-db";
  * etiketleri AYNI çözümlemeyi kullanır; ikisi ayrı hesaplasaydı iPhone'da ve
  * Android'de aynı müşteri farklı adla kurulabilirdi.
  *
- * Uygulama adı ve ikonu SAYFAYA ÖZEL (K23): oturum varsa müşterinin `app*`
- * alanları, yoksa nötr varsayılan. iOS adı ve ikonu "Ana Ekrana Ekle" anında
- * kopyalayıp bir daha güncellemediği için kullanıcıya uygulamayı GİRİŞ
+ * Uygulama adı ve ikonu SAYFAYA ÖZEL (K23). Çözüm sırası: oturum varsa
+ * oturumun müşterisi; yoksa bu cihazda en son giriş yapılan müşterinin imzalı
+ * izi (K29 — oturumu düşmüş kullanıcı kendi uygulamasını nötr bir markayla
+ * açmasın); o da yoksa nötr varsayılan. iOS adı ve ikonu "Ana Ekrana Ekle"
+ * anında kopyalayıp bir daha güncellemediği için kullanıcıya uygulamayı GİRİŞ
  * YAPTIKTAN SONRA eklemesi söylenir (V7-pwa §4.1).
  */
 
@@ -75,11 +81,25 @@ export function resolvePortalApp(client: ClientAppFields | null): PortalApp {
   return { name, shortName, themeColor, backgroundColor: DEFAULT_BG, iconBase };
 }
 
-/** Oturumdaki müşterinin uygulama kimliği; kapsam `client-scoped-db`'den (IDOR). */
-export async function loadPortalApp(session: ClientSession | null): Promise<PortalApp> {
-  if (!session) return DEFAULT_PORTAL_APP;
-  const client = await getClientScopedDb(session).client.getApp();
-  return resolvePortalApp(client);
+/**
+ * Uygulama kimliği: oturum kazanır; oturum yoksa iz çerezi (K29), o da
+ * çözülmezse (imza tutmuyor, süresi dolmuş, müşteri silinmiş) varsayılan.
+ *
+ * İz yalnızca BURADA okunuyor ve yalnızca ad/ikon/renk üretiyor; oturum ve
+ * veri erişimi kararları ona hiç bakmıyor. `request`: route handler çerezi
+ * başlıktan okur, server component `next/headers`'tan.
+ */
+export async function loadPortalApp(
+  session: ClientSession | null,
+  request?: Request
+): Promise<PortalApp> {
+  if (session) {
+    const client = await getClientScopedDb(session).client.getApp();
+    return resolvePortalApp(client);
+  }
+  const tracedClientId = await readPortalTraceClientId(request);
+  if (!tracedClientId) return DEFAULT_PORTAL_APP;
+  return resolvePortalApp(await findClientAppForLoginScreen(tracedClientId));
 }
 
 /**
