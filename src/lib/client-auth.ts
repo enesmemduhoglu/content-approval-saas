@@ -73,8 +73,49 @@ function loginCodeKey(): Buffer | null {
   return createHmac("sha256", secret).update("cas-portal-login-code-v1").digest();
 }
 
+/**
+ * Giriş ekranı iz çerezinin anahtarı (K29) — yine AYRI etiket: iz çerezi
+ * oturum çerezinin anahtarıyla imzalansaydı, iki biçimden birinde yapılacak
+ * bir hata (ör. yükün yanlış ayrıştırılması) izi oturum yerine geçirebilirdi.
+ * Ayrı anahtarla iz, oturum doğrulamasından hiçbir koşulda geçemez.
+ */
+function traceKey(): Buffer | null {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return null;
+  return createHmac("sha256", secret).update("cas-portal-kimlik-v1").digest();
+}
+
 function b64url(value: Buffer | string): string {
   return Buffer.from(value).toString("base64url");
+}
+
+/**
+ * `<önek>.<yük>.<imza>` biçimindeki imzalı değerin yükünü açar; imza, biçim ya
+ * da JSON bozuksa `null`. Oturum ve iz çerezi aynı doğrulamadan geçsin diye
+ * tek yerde: sabit zamanlı karşılaştırmanın biri için unutulması sessiz olurdu.
+ */
+function openSigned(value: string, prefix: string, key: Buffer): unknown {
+  const parts = value.split(".");
+  if (parts.length !== 3 || parts[0] !== prefix) return null;
+  const [, payload, sig] = parts;
+  const expected = createHmac("sha256", key).update(`${prefix}.${payload}`).digest();
+  const presented = Buffer.from(sig, "base64url");
+  // Sabit zamanlı karşılaştırma: imzayı bayt bayt tahmin etmeye yarayan
+  // zamanlama farkı bırakma.
+  if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+    return null;
+  }
+  try {
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function sealSigned(payload: object, prefix: string, key: Buffer): string {
+  const body = b64url(JSON.stringify(payload));
+  const sig = createHmac("sha256", key).update(`${prefix}.${body}`).digest("base64url");
+  return `${prefix}.${body}.${sig}`;
 }
 
 // ─── Çerez ──────────────────────────────────────────────────────────────────
@@ -90,11 +131,12 @@ export function signClientSession(
   // devam etmek yerine yüksek sesle patla.
   if (!key) throw new Error("AUTH_SECRET tanımlı değil — portal oturumu imzalanamaz");
   const exp = Math.floor(now.getTime() / 1000) + CLIENT_SESSION_TTL_SECONDS;
-  const payload = b64url(
-    JSON.stringify({ u: session.clientUserId, c: session.clientId, exp } satisfies SessionPayload)
+  const value = sealSigned(
+    { u: session.clientUserId, c: session.clientId, exp } satisfies SessionPayload,
+    "v1",
+    key
   );
-  const sig = createHmac("sha256", key).update(`v1.${payload}`).digest("base64url");
-  return { value: `v1.${payload}.${sig}`, expiresAt: new Date(exp * 1000) };
+  return { value, expiresAt: new Date(exp * 1000) };
 }
 
 /** İmza + süre kontrolü. DB'ye bakmaz — kullanıcının hâlâ var olduğunu `getClientSession` doğrular. */
@@ -117,22 +159,7 @@ function parseClientSession(
   if (!value) return null;
   const key = sessionKey();
   if (!key) return null;
-  const parts = value.split(".");
-  if (parts.length !== 3 || parts[0] !== "v1") return null;
-  const [, payload, sig] = parts;
-  const expected = createHmac("sha256", key).update(`v1.${payload}`).digest();
-  const presented = Buffer.from(sig, "base64url");
-  // Sabit zamanlı karşılaştırma: imzayı bayt bayt tahmin etmeye yarayan
-  // zamanlama farkı bırakma.
-  if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
-    return null;
-  }
-  let parsed: SessionPayload;
-  try {
-    parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-  } catch {
-    return null;
-  }
+  const parsed = openSigned(value, "v1", key) as SessionPayload | null;
   if (
     typeof parsed?.u !== "string" ||
     typeof parsed?.c !== "string" ||
@@ -230,7 +257,101 @@ export function setClientSessionCookie(
 ): { expiresAt: Date } {
   const { value, expiresAt } = signClientSession(session, now);
   response.cookies.set(CLIENT_SESSION_COOKIE, value, sessionCookieOptions(expiresAt));
+  // Giriş ekranı kimliği (K29): oturum her kurulduğunda ya da uzadığında iz
+  // de tazelenir; böylece "son giriş yapılan sayfa" her zaman güncel oturumun
+  // müşterisidir (aynı cihazda başka müşteriye girilirse iz de ona geçer).
+  const trace = signPortalTrace(session.clientId, now);
+  response.cookies.set(CLIENT_TRACE_COOKIE, trace.value, traceCookieOptions(trace.expiresAt));
   return { expiresAt };
+}
+
+// ─── Giriş ekranı kimliği: iz çerezi (K29) ──────────────────────────────────
+
+/**
+ * Oturum düştüğünde (30 gün kullanılmadı, çıkış yapıldı, erişim kaldırılıp
+ * yeniden verildi) ana ekrandan açılan uygulama giriş ekranına düşer. Oturum
+ * yokken hangi müşterinin geldiği bilinmediği için (K23) o ekran nötr
+ * "Video Kuyruğu" kimliğini gösteriyordu — kullanıcı kendi uygulamasını açıp
+ * başka bir marka görüyordu. İz çerezi bu cihazda en son giriş yapılan
+ * müşteriyi hatırlar; giriş ekranı, iOS meta'sı ve manifest onun ADINI ve
+ * İKONUNU gösterir.
+ *
+ * ─── Neden bir yetki DEĞİL ─────────────────────────────────────────────────
+ * İz yalnızca `clientId` taşır ve yalnızca `portal-app.ts`'in kimlik
+ * çözümünde okunur. Hiçbir portal route'u, `getClientSession` ya da
+ * `client-scoped-db` ona bakmaz; izle gelen oturumsuz istek her API'de 401
+ * alır. Ayrı anahtar + ayrı önek ("k1") oturum doğrulamasından hiçbir
+ * koşulda geçmemesini garanti ediyor.
+ *
+ * ─── Neden imzalı ──────────────────────────────────────────────────────────
+ * Sır değil ama düz `clientId` olsaydı herkes çerezi elle yazıp başka bir
+ * müşterinin adını ve ikonunu sunucudan okuyabilirdi. İmza, izi yalnızca
+ * başarılı bir girişin üretebileceği bir değere çeviriyor.
+ *
+ * ─── Neden çıkışta silinmiyor ──────────────────────────────────────────────
+ * Amaç tam olarak oturum GİTTİKTEN sonra markayı göstermek. Bu cihaz o
+ * müşterinin uygulamasını zaten ana ekranında o ad ve ikonla taşıyor; iz yeni
+ * bir bilgi açığa çıkarmıyor. Müşteri silinirse iz çözülemez → varsayılan.
+ */
+export const CLIENT_TRACE_COOKIE = "cas_portal_kimlik";
+/** Bir yıl: telefon uzun süre kullanılmasa da uygulama kendi adıyla açılsın. */
+export const CLIENT_TRACE_TTL_SECONDS = 365 * 24 * 60 * 60;
+
+type TracePayload = { c: string; exp: number };
+
+export function signPortalTrace(
+  clientId: string,
+  now: Date = new Date()
+): { value: string; expiresAt: Date } {
+  const key = traceKey();
+  if (!key) throw new Error("AUTH_SECRET tanımlı değil — portal izi imzalanamaz");
+  // `exp` yükte de var: tarayıcının `expires`'ı yalnızca bir rica; kopyalanan
+  // bir değerin sunucu tarafında da bir sonu olsun.
+  const exp = Math.floor(now.getTime() / 1000) + CLIENT_TRACE_TTL_SECONDS;
+  return {
+    value: sealSigned({ c: clientId, exp } satisfies TracePayload, "k1", key),
+    expiresAt: new Date(exp * 1000),
+  };
+}
+
+/** İmza + süre kontrolü; DB'ye bakmaz — müşterinin hâlâ var olduğunu çözümleyen doğrular. */
+export function verifyPortalTrace(
+  value: string | undefined | null,
+  now: Date = new Date()
+): string | null {
+  if (!value) return null;
+  const key = traceKey();
+  if (!key) return null;
+  const parsed = openSigned(value, "k1", key) as TracePayload | null;
+  if (typeof parsed?.c !== "string" || !parsed.c || typeof parsed?.exp !== "number") return null;
+  if (parsed.exp * 1000 <= now.getTime()) return null;
+  return parsed.c;
+}
+
+export function traceCookieOptions(expiresAt: Date) {
+  return {
+    // İstemci kodu izi okumuyor; httpOnly bir XSS'in onu dışarı taşımasını da kapatıyor.
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    // Yalnızca portal sayfaları ve manifest (`/portal...`) okuyor. `/api`
+    // altına hiç gitmiyor: iz API isteklerinde görünmesin ki bir gün
+    // yanlışlıkla bir yetki kararına karışamasın.
+    path: "/portal",
+    expires: expiresAt,
+  };
+}
+
+/** Oturum okuma yoluyla aynı: route handler `request` verir, server component vermez. */
+export async function readPortalTraceClientId(request?: Request): Promise<string | null> {
+  let raw: string | null | undefined;
+  if (request) {
+    raw = readCookie(request.headers.get("cookie"), CLIENT_TRACE_COOKIE);
+  } else {
+    const { cookies } = await import("next/headers");
+    raw = (await cookies()).get(CLIENT_TRACE_COOKIE)?.value;
+  }
+  return verifyPortalTrace(raw);
 }
 
 // ─── Magic link ─────────────────────────────────────────────────────────────

@@ -60,6 +60,32 @@ export type MoveResult =
   | { ok: true }
   | { ok: false; reason: "not_found" | "anchor_not_found" | "stale" | "self" };
 
+/** Uygulama kimliği için okunabilecek TEK alan kümesi: ad ve görünüş; e-posta, token vb. asla. */
+function findClientApp(clientId: string) {
+  return db.client.findUnique({
+    where: { id: clientId },
+    select: {
+      name: true,
+      appName: true,
+      appShortName: true,
+      appThemeColor: true,
+      appIconBase: true,
+    },
+  });
+}
+
+/**
+ * K29 — oturum YOKKEN giriş ekranının kimliği. `clientId` oturumdan değil
+ * imzalı iz çerezinden (`verifyPortalTrace`) geliyor; bu yüzden oturum nesnesi
+ * istemeyen, `getClientScopedDb`'nin DIŞINDA duran ayrı bir kapı. Dönen
+ * alanlar `getApp` ile birebir aynı (ad/ikon/renk): izle hiçbir veri ya da
+ * kuyruk sorgusu yapılamasın diye kapsamlı veri katmanına bağlanmıyor.
+ * Müşteri silinmişse `null` → çağıran varsayılana düşer.
+ */
+export function findClientAppForLoginScreen(clientId: string) {
+  return findClientApp(clientId);
+}
+
 export function getClientScopedDb(session: ClientSession) {
   const { clientId } = session;
   const scope = { clientId, source: "portal" as const };
@@ -80,17 +106,7 @@ export function getClientScopedDb(session: ClientSession) {
        * sayfasının `<head>`'i bunu istiyor; `get`'in e-posta alanına orada
        * ihtiyaç yok.
        */
-      getApp: () =>
-        db.client.findUnique({
-          where: { id: clientId },
-          select: {
-            name: true,
-            appName: true,
-            appShortName: true,
-            appThemeColor: true,
-            appIconBase: true,
-          },
-        }),
+      getApp: () => findClientApp(clientId),
     },
 
     posts: {

@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { db } from "@/lib/db";
-import { CLIENT_SESSION_COOKIE, signClientSession } from "@/lib/client-auth";
+import {
+  CLIENT_SESSION_COOKIE,
+  CLIENT_TRACE_COOKIE,
+  signClientSession,
+  signPortalTrace,
+} from "@/lib/client-auth";
 
 /**
  * Video kuyruğu (V3) — portal testlerinin ortak kurulumları.
@@ -20,6 +25,26 @@ export function createClientUser(clientId: string, email?: string) {
 export function portalCookie(user: { id: string; clientId: string }): string {
   const { value } = signClientSession({ clientUserId: user.id, clientId: user.clientId });
   return `${CLIENT_SESSION_COOKIE}=${value}`;
+}
+
+/** K29 — giriş ekranı iz çerezi (oturum DEĞİL): yalnızca ad/ikon çözer. */
+export function portalTraceCookie(clientId: string): string {
+  return `${CLIENT_TRACE_COOKIE}=${signPortalTrace(clientId).value}`;
+}
+
+/** Yanıttaki `Set-Cookie`'lerden adı verilenin değeri; yazılmadıysa `null`. */
+export function setCookieValue(res: Response, name: string): string | null {
+  for (const line of res.headers.getSetCookie()) {
+    const [pair] = line.split(";");
+    const eq = pair.indexOf("=");
+    if (pair.slice(0, eq) === name) return pair.slice(eq + 1);
+  }
+  return null;
+}
+
+/** Yanıttaki adı verilen çerezin tam `Set-Cookie` satırı (öznitelikler dahil). */
+export function setCookieLine(res: Response, name: string): string | null {
+  return res.headers.getSetCookie().find((line) => line.startsWith(`${name}=`)) ?? null;
 }
 
 export function portalRequest(

@@ -67,6 +67,9 @@ Sayfaya özel ad/ikon kararı yüzünden manifest **statik olamaz**
     `short_name` = `Client.appShortName ?? ilk 12 karakter`,
     `icons` = müşterinin ikon seti, `theme_color` = `Client.appThemeColor`.
   - Oturum yoksa: nötr varsayılan ad/ikon (giriş ekranından eklenirse).
+    **Uygulanan (K29):** oturum yoksa önce bu cihazda son giriş yapılan
+    müşterinin imzalı iz çerezine (`cas_portal_kimlik`) bakılır; yalnızca
+    o da yoksa varsayılan. Giriş ekranı ve iOS meta'sı da aynı sırayla.
   - Sabit alanlar: `id: "/portal"`, `start_url: "/portal"`, `scope: "/portal/"`,
     `display: "standalone"`, `orientation: "portrait"`, `lang: "tr"`.
     **Uygulanan:** `scope: "/portal"` (eğik çizgisiz) — K26.
