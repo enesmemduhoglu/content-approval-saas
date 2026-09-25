@@ -6,6 +6,8 @@ import {
 } from "@/lib/email-queue";
 import { isEligible, localParts, projectSchedule } from "@/lib/queue";
 import { findQueueClients, loadQueue } from "@/lib/queue-db";
+import { notifyClientUsers } from "@/lib/push";
+import { digestPush } from "@/lib/push-messages";
 import { MAX_GET_URL_TTL_SECONDS, keyBelongsToClient, signGetUrl } from "@/lib/storage-r2";
 
 /**
@@ -125,6 +127,14 @@ export async function runQueueDigest(now: Date = new Date()): Promise<QueueDiges
         upcoming,
         portalUrl: portalUrl(),
       });
+
+      // V7c: aynı özet telefona da (K4: e-posta kalır, bildirim ek kanal).
+      // E-postanın sonucundan bağımsız; throw etmez. Tekrar koruması e-postayla
+      // aynı `sentKeys` — e-posta gitmezse ve cron aynı gün yeniden tetiklenirse
+      // bildirim ikinci kez gidebilir (bilinen, kabul edilmiş: K17).
+      const push = digestPush({ timezone: settings.timezone, pendingCount, upcoming });
+      if (push) await notifyClientUsers(client.id, push);
+
       if (result.sent) {
         sentKeys.add(guardKey);
         stats.sent += 1;

@@ -24,7 +24,12 @@ vi.mock("@/lib/email", async (importOriginal) => {
   return { ...actual, sendRawEmail: vi.fn(), sendAgencyNoticeEmail: vi.fn() };
 });
 
+vi.mock("@/lib/push", () => ({
+  notifyClientUsers: vi.fn(async () => ({ sent: 1, removed: 0, failed: 0 })),
+}));
+
 import { NOT_APPROVED_ERROR, publishApprovedPost, resumePublish } from "./publish-post";
+import { notifyClientUsers } from "@/lib/push";
 import { db } from "@/lib/db";
 import { sendAgencyNoticeEmail, sendRawEmail } from "@/lib/email";
 import {
@@ -48,6 +53,7 @@ const mockPublish = vi.mocked(publishToInstagram);
 const mockSign = vi.mocked(signGetUrl);
 const mockRaw = vi.mocked(sendRawEmail);
 const mockAgency = vi.mocked(sendAgencyNoticeEmail);
+const mockPush = vi.mocked(notifyClientUsers);
 
 beforeEach(async () => {
   await resetDb();
@@ -270,5 +276,65 @@ describe("yayın sonucu e-postaları", () => {
     );
     expect(mockRaw).not.toHaveBeenCalled();
     expect(mockAgency).not.toHaveBeenCalled();
+  });
+});
+
+describe("yayın sonucu telefon bildirimi (V7c — e-postaya EK kanal)", () => {
+  it("yayınlandı → TEK bildirim, dokununca Instagram linki; e-posta da gider", async () => {
+    const { agency, client } = await seed();
+    const post = await createQueuePost(agency.id, client.id, { caption: "Deyim dersi\n#ingilizce" });
+
+    await publishApprovedPost(post.id);
+
+    expect(mockRaw).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith(client.id, {
+      title: "Videon yayınlandı",
+      body: "Deyim dersi",
+      url: "https://instagram.com/reel/Q/",
+      tag: "yayin-sonucu",
+    });
+  });
+
+  it("çok turlu videoda bildirim de TEK kez (sonucu kazanan çağrıda)", async () => {
+    const { agency, client } = await seed();
+    const post = await createQueuePost(agency.id, client.id);
+    mockFinalize.mockResolvedValueOnce({ state: "processing", lastStatus: "IN_PROGRESS" });
+
+    await publishApprovedPost(post.id);
+    expect(mockPush).not.toHaveBeenCalled();
+    await resumePublish(post.id);
+    await resumePublish(post.id);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it("yayınlanamadı → video detayına gider; neden sırsız", async () => {
+    const { agency, client } = await seed();
+    const post = await createQueuePost(agency.id, client.id);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockCreateReel.mockRejectedValue(
+      new IGError("Video indirilemedi https://graph.instagram.com/v23.0/x?access_token=IGAAgizli", {
+        error: { code: 9004 },
+      })
+    );
+
+    await publishApprovedPost(post.id);
+
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    const [clientId, payload] = mockPush.mock.calls[0];
+    expect(clientId).toBe(client.id);
+    expect(payload).toMatchObject({ title: "Video yayınlanamadı", url: `/portal/video/${post.id}` });
+    expect(payload.body).toContain("Video indirilemedi");
+    expect(JSON.stringify(payload)).not.toContain("IGAAgizli");
+  });
+
+  it("AJANS postunda bildirim yok", async () => {
+    const { agency, client } = await seed();
+    const { post } = await createPendingPostWithLink(agency.id, client.id, {
+      status: "approved",
+      videoUrl: "https://blob.example/v.mp4",
+    });
+    await publishApprovedPost(post.id);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });

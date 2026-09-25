@@ -47,6 +47,27 @@ describe("DELETE /api/clients/[id]", () => {
     expect(await db.client.findUnique({ where: { id: client.id } })).toBeNull();
   });
 
+  it("portal kullanıcısı ve bildirim aboneliği olan müşteriyi siler (V7c, RESTRICT FK)", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const user = await db.clientUser.create({
+      data: { clientId: client.id, email: "portal-sil@test.local" },
+    });
+    await db.pushSubscription.create({
+      data: {
+        clientUserId: user.id,
+        endpoint: "https://web.push.apple.com/musteri-sil",
+        p256dh: "k",
+        auth: "a",
+      },
+    });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    expect((await DELETE(request(), params(client.id))).status).toBe(200);
+    expect(await db.client.findUnique({ where: { id: client.id } })).toBeNull();
+    expect(await db.pushSubscription.count()).toBe(0);
+  });
+
   it("Instagram bağlı müşteriyi silince kimlik bilgileri de gider", async () => {
     const agency = await createAgency();
     const client = await createInstagramClient(agency.id);
