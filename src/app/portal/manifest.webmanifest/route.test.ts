@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { resolvePortalApp, DEFAULT_PORTAL_APP } from "@/lib/portal-app";
-import { CLIENT_SESSION_COOKIE, signClientSession } from "@/lib/client-auth";
+import {
+  CLIENT_SESSION_COOKIE,
+  CLIENT_TRACE_COOKIE,
+  signClientSession,
+  signPortalTrace,
+} from "@/lib/client-auth";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
-import { createClientUser, portalCookie, portalRequest } from "@tests/helpers/portal";
+import {
+  createClientUser,
+  portalCookie,
+  portalRequest,
+  portalTraceCookie,
+} from "@tests/helpers/portal";
 import { GET } from "./route";
 
 /** V7a — sayfaya özel web app manifest'i. */
@@ -140,6 +150,58 @@ describe("GET /portal/manifest.webmanifest", () => {
     const { body } = await fetchManifest(`${CLIENT_SESSION_COOKIE}=${value}`);
     expect(body.name).toBe("Video Kuyruğu");
     expect(JSON.stringify(body)).not.toContain("musteri-b");
+  });
+});
+
+describe("GET /portal/manifest.webmanifest — oturumsuz, iz çerezli (K29)", () => {
+  it("izli istek: son giriş yapılan müşterinin adı ve ikonu", async () => {
+    const { body } = await fetchManifest(portalTraceCookie(clientA.id));
+    expect(body.name).toBe("Furkan Teacher");
+    expect(body.short_name).toBe("Furkan");
+    expect(body.theme_color).toBe("#1e3a34");
+    expect(body.icons[0].src).toBe("/icons/furkan-teacher/icon-192.png");
+  });
+
+  it("izsiz istek: varsayılan", async () => {
+    const { body } = await fetchManifest();
+    expect(body).toMatchObject({ name: "Video Kuyruğu", short_name: "Kuyruk" });
+  });
+
+  it("oturum varsa oturum kazanır (iz başka müşteriyi gösterse bile)", async () => {
+    const { body } = await fetchManifest(
+      `${portalCookie(userA)}; ${portalTraceCookie(clientB.id)}`
+    );
+    expect(body.name).toBe("Furkan Teacher");
+    expect(JSON.stringify(body)).not.toContain("musteri-b");
+  });
+
+  it("silinmiş müşterinin izi varsayılana düşer", async () => {
+    const cookie = portalTraceCookie(clientB.id);
+    await db.client.delete({ where: { id: clientB.id } });
+    const { res, body } = await fetchManifest(cookie);
+    expect(res.status).toBe(200);
+    expect(body.name).toBe("Video Kuyruğu");
+  });
+
+  it("imzası bozuk iz (clientId elle değiştirilmiş) varsayılana düşer", async () => {
+    const [prefix, , sig] = signPortalTrace(clientA.id).value.split(".");
+    const forged = Buffer.from(
+      JSON.stringify({ c: clientB.id, exp: Math.floor(Date.now() / 1000) + 3600 })
+    ).toString("base64url");
+    const { body } = await fetchManifest(`${CLIENT_TRACE_COOKIE}=${prefix}.${forged}.${sig}`);
+    expect(body.name).toBe("Video Kuyruğu");
+    expect(JSON.stringify(body)).not.toContain("musteri-b");
+  });
+
+  it("düz clientId (imzasız) iz varsayılana düşer", async () => {
+    const { body } = await fetchManifest(`${CLIENT_TRACE_COOKIE}=${clientA.id}`);
+    expect(body.name).toBe("Video Kuyruğu");
+  });
+
+  it("iz yalnızca ad/ikon/renk verir — müşteri e-postası manifest'e çıkmaz", async () => {
+    const client = await db.client.findUniqueOrThrow({ where: { id: clientA.id } });
+    const { body } = await fetchManifest(portalTraceCookie(clientA.id));
+    expect(JSON.stringify(body)).not.toContain(client.email);
   });
 });
 

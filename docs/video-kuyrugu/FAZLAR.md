@@ -119,14 +119,18 @@ branch → PR → bu dosyanın güncellenmesi.
   `Client.app*`, `ClientLoginToken.codeHash/attempts`. Kabul: §4.7.
 - **V7b — Dayanıklı yükleme ✅ (#71)** — 8 MB parçalı, kaldığı yerden devam,
   IndexedDB, wakeLock, 24 saatlik taslak temizliği (günlük cron). Gerçek R2'de
-  denendi; gerçek iPhone testi bekliyor. Elle: R2 lifecycle kuralı (tamamlanmamış
-  çok parçalı yüklemeleri 1 gün sonra iptal). Özgün plan: — R2 çok parçalı, kaldığı yerden devam,
+  denendi; gerçek iPhone testi bekliyor. R2 lifecycle kuralı kuruldu
+  (2026-09-25): tamamlanmamış çok parçalı yüklemeler **2 gün** sonra iptal —
+  günlük cron 24 saatte temizliyor, kural ikinci güvenlik ağı. Özgün plan: — R2 çok parçalı, kaldığı yerden devam,
   IndexedDB ilerleme, wakeLock, yarım yükleme temizliği. Şema:
   `Post.uploadId`. Kabul: §5.2.
 - **V7c — Bildirimler (Web Push) ⬜** — VAPID, `PushSubscription` tablosu,
   yayın/hata/boş slot/caption hazır/günlük hatırlatma bildirimleri; e-posta
   yedek. Kabul: §6.2.
-- **V7d — Android paylaşım hedefi ⬜** — `share_target` + SW. Kabul: §7.
+- **V7d — Android paylaşım hedefi ⏸ ERTELENDİ (2026-09-25)** — `share_target` + SW.
+  Kullanıcı kararı: bekletilecek. Furkan iPhone kullanıyor ve iOS PWA paylaşım
+  hedefini desteklemiyor; Android kullanan bir müşteri gelince ele alınır
+  (~yarım gün). Kabul: §7.
 
 ### V8 — Yayın günleri ✅ (#77, merge bekliyor) — belge: [`V8-yayin-gunleri.md`](V8-yayin-gunleri.md) · K28
 Haftanın hangi günleri yayın olacağı (tek gün kümesi × tek saat listesi).

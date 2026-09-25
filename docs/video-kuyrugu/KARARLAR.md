@@ -204,6 +204,24 @@ tüm günler: göç mevcut ayarları değiştirmez. K8 (kaçan slot telafi edilm
 aynen geçerli; seçili olmayan günde slot hiç doğmaz, `SlotRun` de yazılmaz.
 Belge: [`V8-yayin-gunleri.md`](V8-yayin-gunleri.md).
 
+### K29 · 2026-09-25 · Giriş ekranı kimliği: imzalı iz çerezi (V7)
+K23'ün "oturum yokken nötr kimlik" kuralı, oturumu düşen Furkan'ın kendi
+uygulamasını ana ekrandan açıp "VİDEO KUYRUĞU" görmesine yol açıyordu. Başarılı
+girişte (link ve kod — ortak `setClientSessionCookie`) ve kaydırmalı yenilemede
+`cas_portal_kimlik` çerezi yazılır: yükü yalnızca `clientId` + bitiş, AUTH_SECRET'ten
+ayrı etiketle (`cas-portal-kimlik-v1`) türetilmiş anahtarla HMAC-imzalı, `k1`
+önekli; `httpOnly`, `secure` (prod), `sameSite=lax`, `path=/portal` (API'lere hiç
+gitmez), **1 yıl**. Oturum yokken giriş ekranı, iOS meta'sı ve manifest bu izden
+yalnızca **ad, ikon ve tema rengini** çözer; oturum varsa oturum kazanır; imza
+tutmuyor, süresi dolmuş ya da müşteri silinmişse varsayılan. İz hiçbir yetki
+vermez (oturum kontrolleri ona bakmaz; izli-oturumsuz istek 401). **Çıkışta
+silinmez** — amacı tam da oturum gittikten sonra markayı göstermek; cihaz o
+uygulamayı zaten o ad ve ikonla taşıyor. Aynı cihazda başka müşteriye girilirse
+iz ona geçer (son giriş kazanır). Portal kullanıcısı silinse de iz müşteri
+durdukça markayı göstermeye devam eder — bilinen, kabul edilmiş sınır.
+Bu değişiklikten önce giriş yapmış cihaz izi ilk yeniden girişte ya da oturum
+yenilemesinde alır.
+
 ---
 
 ## Açık sorular

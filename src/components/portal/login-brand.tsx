@@ -4,9 +4,11 @@ import type { PortalApp } from "@/lib/portal-app";
 /**
  * Giriş ekranlarının üst bloğu: uygulama ikonu, ad, büyük başlık.
  *
- * Oturum yokken ad ve ikon VARSAYILAN kimlik (K23): hangi müşterinin giriş
- * yapacağını bilmiyoruz; müşteri adını oturumsuz sayfaya basmak kimin
- * portalda olduğunu dışarıya söylemek olurdu.
+ * Oturum yokken ad ve ikon, bu cihazda en son giriş yapılan müşterinin
+ * (imzalı iz çerezi, K29); iz yoksa VARSAYILAN kimlik (K23). Müşteri adı
+ * yalnızca o müşteriye daha önce giriş yapılmış cihaza gösteriliyor — iz
+ * olmayan bir ziyaretçi kimin portalda olduğunu buradan öğrenemez. E-posta
+ * ya da başka kişisel bilgi bu blokta hiçbir zaman yer almaz.
  */
 export function LoginBrand({ app, title }: { app: PortalApp; title: ReactNode }) {
   return (

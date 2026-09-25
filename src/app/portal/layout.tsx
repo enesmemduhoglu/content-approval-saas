@@ -16,7 +16,9 @@ import "./portal.css";
 /**
  * V7a — iOS "Ana Ekrana Ekle" manifest'i OKUMAZ; adı `apple-mobile-web-app-title`
  * meta'sından, ikonu `apple-touch-icon`'dan alır ve EKLEME ANINDA kopyalar.
- * Bu yüzden ikisi de oturuma göre (müşterinin adı/ikonu) sunucuda üretiliyor.
+ * Bu yüzden ikisi de oturuma göre (müşterinin adı/ikonu) sunucuda üretiliyor;
+ * oturum düşmüşse bu cihazda son giriş yapılan müşterinin izine göre (K29) —
+ * giriş ekranında açılan uygulama da kendi adı ve ikonuyla görünsün.
  *
  * `manifest` BURADA YOK, bilinçli: Next metadata'sı `<link rel="manifest">`'i
  * `crossorigin` olmadan basıyor (yalnızca Vercel preview'da `use-credentials`
