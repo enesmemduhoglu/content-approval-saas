@@ -1,4 +1,5 @@
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import type { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { normalizeEmail } from "@/lib/membership";
 import { sendPortalLoginEmail } from "@/lib/email-portal";
@@ -26,6 +27,24 @@ export const CLIENT_SESSION_COOKIE = "cas_portal";
 /** Magic link ömrü. Kısa: link e-posta kutusunda durduğu sürece bir anahtar. */
 export const LOGIN_TOKEN_TTL_MINUTES = 15;
 export const CLIENT_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+/**
+ * Kaydırmalı oturum (K25): kalan süre bunun altına düşünce çerez yeniden 30
+ * güne uzatılır. Her istekte değil yarı ömürde yenileniyor: her yanıta
+ * `Set-Cookie` eklemek hiçbir şey kazandırmadan her portal isteğini çerez
+ * yazan bir isteğe çevirirdi. "Bırakılan cihaz 30 günde düşer" güvencesi
+ * ikisinde de aynı.
+ */
+export const CLIENT_SESSION_RENEW_BELOW_SECONDS = 15 * 24 * 60 * 60;
+/** Kodla girişte token başına hatalı deneme tavanı; dolunca token (link dahil) ölür. */
+export const LOGIN_CODE_MAX_ATTEMPTS = 5;
+/**
+ * Kullanıcı başına son 24 saatteki toplam hatalı kod tavanı. Token başına 5
+ * deneme tek başına yetmiyor: saldırgan kurbanın adresine dakikada 3 yeni kod
+ * isteyip (login route'unun e-posta sınırı) her birinde 5 deneme yapabilir —
+ * günde ~21 bin tahmin, 10⁶ uzayda ~%2 isabet. Bu tavanla günde en fazla 20.
+ * Tavan yalnızca KODU kapatır; yeni istenen e-postadaki link çalışmaya devam eder.
+ */
+export const LOGIN_CODE_DAILY_FAILURE_CAP = 20;
 
 export type ClientSession = { clientUserId: string; clientId: string };
 
@@ -42,6 +61,16 @@ function sessionKey(): Buffer | null {
   const secret = process.env.AUTH_SECRET;
   if (!secret) return null;
   return createHmac("sha256", secret).update("cas-portal-session-v1").digest();
+}
+
+/**
+ * Kod hash'inin anahtarı — oturum imzasıyla aynı sırdan ama AYRI etiketle
+ * türetilir (aynı gerekçe: iki kullanım birbirinin çıktısını geçerli saymasın).
+ */
+function loginCodeKey(): Buffer | null {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return null;
+  return createHmac("sha256", secret).update("cas-portal-login-code-v1").digest();
 }
 
 function b64url(value: Buffer | string): string {
@@ -73,6 +102,18 @@ export function verifyClientSession(
   value: string | undefined | null,
   now: Date = new Date()
 ): ClientSession | null {
+  return parseClientSession(value, now)?.session ?? null;
+}
+
+/**
+ * `verifyClientSession`'ın bitiş zamanını da döndüren hâli. Ayrı fonksiyon
+ * çünkü `ClientSession` tipi onlarca çağrı yerinde dolaşıyor; ona `exp`
+ * eklemek kaydırmalı oturumla ilgisi olmayan her yeri etkilerdi.
+ */
+function parseClientSession(
+  value: string | undefined | null,
+  now: Date
+): { session: ClientSession; expiresAt: Date } | null {
   if (!value) return null;
   const key = sessionKey();
   if (!key) return null;
@@ -100,7 +141,10 @@ export function verifyClientSession(
     return null;
   }
   if (parsed.exp * 1000 <= now.getTime()) return null;
-  return { clientUserId: parsed.u, clientId: parsed.c };
+  return {
+    session: { clientUserId: parsed.u, clientId: parsed.c },
+    expiresAt: new Date(parsed.exp * 1000),
+  };
 }
 
 export function sessionCookieOptions(expiresAt: Date) {
@@ -135,6 +179,17 @@ function readCookie(header: string | null, name: string): string | null {
  * başka müşteriye taşındığında (clientId değişti) çerez anında geçersizleşmeli.
  */
 export async function getClientSession(request?: Request): Promise<ClientSession | null> {
+  return (await getClientSessionWithExpiry(request))?.session ?? null;
+}
+
+/**
+ * `getClientSession` + çerezin bitiş zamanı — kaydırmalı yenilemenin
+ * (`/api/portal/session`) ve portal layout'unun "yenileme vakti geldi mi"
+ * sorusu için. Doğrulama birebir aynı yoldan geçer.
+ */
+export async function getClientSessionWithExpiry(
+  request?: Request
+): Promise<{ session: ClientSession; expiresAt: Date } | null> {
   let raw: string | null | undefined;
   if (request) {
     raw = readCookie(request.headers.get("cookie"), CLIENT_SESSION_COOKIE);
@@ -142,14 +197,40 @@ export async function getClientSession(request?: Request): Promise<ClientSession
     const { cookies } = await import("next/headers");
     raw = (await cookies()).get(CLIENT_SESSION_COOKIE)?.value;
   }
-  const session = verifyClientSession(raw);
-  if (!session) return null;
+  const parsed = parseClientSession(raw, new Date());
+  if (!parsed) return null;
   const user = await db.clientUser.findUnique({
-    where: { id: session.clientUserId },
+    where: { id: parsed.session.clientUserId },
     select: { clientId: true },
   });
-  if (!user || user.clientId !== session.clientId) return null;
-  return session;
+  if (!user || user.clientId !== parsed.session.clientId) return null;
+  return parsed;
+}
+
+/** Kalan süre yenileme eşiğinin altında mı (K25)? */
+export function shouldRenewClientSession(expiresAt: Date, now: Date = new Date()): boolean {
+  return expiresAt.getTime() - now.getTime() < CLIENT_SESSION_RENEW_BELOW_SECONDS * 1000;
+}
+
+/** Yenilemenin vakti: istemciye bu an verilir, eşik sabiti istemci koduna taşınmaz. */
+export function clientSessionRenewAt(expiresAt: Date): Date {
+  return new Date(expiresAt.getTime() - CLIENT_SESSION_RENEW_BELOW_SECONDS * 1000);
+}
+
+/**
+ * Oturum çerezini yanıta yazar. Link, kod ve kaydırmalı yenileme bu TEK
+ * fonksiyondan geçer: çerez seçenekleri (httpOnly, lax, süre) üç yerde ayrı
+ * ayrı yazılsaydı biri bir gün ötekilerden ayrışırdı — ve fark ancak bir
+ * cihaz beklenmedik biçimde düştüğünde görülürdü.
+ */
+export function setClientSessionCookie(
+  response: NextResponse,
+  session: ClientSession,
+  now: Date = new Date()
+): { expiresAt: Date } {
+  const { value, expiresAt } = signClientSession(session, now);
+  response.cookies.set(CLIENT_SESSION_COOKIE, value, sessionCookieOptions(expiresAt));
+  return { expiresAt };
 }
 
 // ─── Magic link ─────────────────────────────────────────────────────────────
@@ -159,23 +240,46 @@ export function hashLoginToken(token: string): string {
 }
 
 /**
- * Yeni giriş token'ı üretir. DB'ye yalnızca SHA-256 hash'i yazılır: tablo
- * sızsa bile içindeki satırlar giriş linkine çevrilemez. Token 122 bit
- * (`randomUUID`) — hash'e tuz gerekmez, sözlük saldırısının konusu değil.
+ * 6 haneli kodun hash'i. Düz SHA-256 YETMEZ: 10⁶ olasılık, sızan bir tablo
+ * satırından kodu milisaniyeler içinde geri çıkarırdı. HMAC anahtarı sunucu
+ * sırrından geldiği için tablo tek başına işe yaramaz. Satırın `tokenHash`'i
+ * girdiye katılıyor ki aynı kod iki satırda farklı hash üretsin.
+ */
+export function hashLoginCode(tokenHash: string, code: string): string {
+  const key = loginCodeKey();
+  // Anahtarsız hash herkesin hesaplayabileceği bir değer olurdu — patla.
+  if (!key) throw new Error("AUTH_SECRET tanımlı değil — giriş kodu üretilemez");
+  return createHmac("sha256", key).update(`${tokenHash}.${code}`).digest("hex");
+}
+
+/** `crypto.randomInt` — `Math.random` tahmin edilebilir, kod bir kimlik bilgisi. */
+export function generateLoginCode(): string {
+  return randomInt(0, 1_000_000).toString().padStart(6, "0");
+}
+
+/**
+ * Yeni giriş token'ı üretir: link token'ı + aynı satıra bağlı 6 haneli kod
+ * (V7a — iOS'ta ana ekran uygulamasının çerezleri Safari'den ayrı, e-postadaki
+ * link orada oturum açamıyor; kod açabiliyor). DB'ye yalnızca hash'ler yazılır:
+ * tablo sızsa bile satırlar giriş linkine ya da koda çevrilemez. Link token'ı
+ * 122 bit (`randomUUID`) — onun hash'ine tuz gerekmez.
  */
 export async function createLoginToken(
   clientUserId: string,
   now: Date = new Date()
-): Promise<string> {
+): Promise<{ token: string; code: string }> {
   const token = randomUUID().replace(/-/g, "");
+  const code = generateLoginCode();
+  const tokenHash = hashLoginToken(token);
   await db.clientLoginToken.create({
     data: {
       clientUserId,
-      tokenHash: hashLoginToken(token),
+      tokenHash,
+      codeHash: hashLoginCode(tokenHash, code),
       expiresAt: new Date(now.getTime() + LOGIN_TOKEN_TTL_MINUTES * 60 * 1000),
     },
   });
-  return token;
+  return { token, code };
 }
 
 export function loginUrl(baseUrl: string, token: string): string {
@@ -202,11 +306,12 @@ export async function issueLoginLink(
   baseUrl: string,
   invited: boolean
 ): Promise<{ sent: boolean }> {
-  const token = await createLoginToken(user.id);
+  const { token, code } = await createLoginToken(user.id);
   const mail = await sendPortalLoginEmail({
     to: user.email,
     clientName: user.client.name,
     loginUrl: loginUrl(baseUrl, token),
+    code,
     ttlMinutes: LOGIN_TOKEN_TTL_MINUTES,
     invited,
   });
@@ -227,8 +332,16 @@ export async function consumeLoginToken(
 ): Promise<ClientSession | null> {
   if (!token || token.length > 200) return null;
   const tokenHash = hashLoginToken(token);
+  // `attempts` koşulu: kodu kaba kuvvetle deneyen biri token'ı kilitlediyse
+  // link de ölür (V7-pwa §4.3 "token geçersiz"). Birisi bu hesabın kodunu
+  // tahmin etmeye çalışıyor; sahibi yeni link istemekle bir şey kaybetmez.
   const result = await db.clientLoginToken.updateMany({
-    where: { tokenHash, usedAt: null, expiresAt: { gt: now } },
+    where: {
+      tokenHash,
+      usedAt: null,
+      expiresAt: { gt: now },
+      attempts: { lt: LOGIN_CODE_MAX_ATTEMPTS },
+    },
     data: { usedAt: now },
   });
   if (result.count !== 1) return null;
@@ -237,9 +350,106 @@ export async function consumeLoginToken(
     select: { clientUser: { select: { id: true, clientId: true } } },
   });
   if (!row) return null;
-  await db.clientUser.update({
-    where: { id: row.clientUser.id },
-    data: { lastLoginAt: now },
+  return completeLogin(row.clientUser, now);
+}
+
+/** Link ve kod yolunun ortak son adımı: tüketilen token'ın kullanıcısıyla oturum. */
+async function completeLogin(
+  user: { id: string; clientId: string },
+  now: Date
+): Promise<ClientSession> {
+  await db.clientUser.update({ where: { id: user.id }, data: { lastLoginAt: now } });
+  return { clientUserId: user.id, clientId: user.clientId };
+}
+
+// ─── Kodla giriş (V7a) ──────────────────────────────────────────────────────
+
+const CODE_PATTERN = /^\d{6}$/;
+
+/**
+ * E-postadaki 6 haneli kodu doğrular ve token'ı tüketir. Başarıda oturum,
+ * her başarısızlıkta (adres yok, token yok/dolmuş/kilitli, kod yanlış, günlük
+ * tavan) AYNI `null` — çağıran nedeni bilmez ki yanıtına da sızdıramasın.
+ *
+ * Yalnızca kullanıcının EN SON, kullanılmamış, süresi geçmemiş token'ı
+ * denenir: eski maillerdeki kodlar ayrı ayrı denenebilseydi her istenen yeni
+ * mail tahmin bütçesini katlardı.
+ *
+ * Kayıtlı/kayıtsız adres ayrımı zamanlamadan da okunmasın diye iki yol aynı
+ * sayıda sorgu yapar (bkz. aşağıdaki boş `updateMany`).
+ */
+export async function consumeLoginCode(
+  email: string,
+  code: string,
+  now: Date = new Date()
+): Promise<ClientSession | null> {
+  if (!CODE_PATTERN.test(code)) return null;
+  const normalized = normalizeEmail(email);
+  const [token, failures] = await Promise.all([
+    db.clientLoginToken.findFirst({
+      where: {
+        clientUser: { email: normalized },
+        usedAt: null,
+        expiresAt: { gt: now },
+        attempts: { lt: LOGIN_CODE_MAX_ATTEMPTS },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        tokenHash: true,
+        codeHash: true,
+        clientUser: { select: { id: true, clientId: true } },
+      },
+    }),
+    db.clientLoginToken.aggregate({
+      where: {
+        clientUser: { email: normalized },
+        createdAt: { gt: new Date(now.getTime() - 24 * 60 * 60 * 1000) },
+      },
+      _sum: { attempts: true },
+    }),
+  ]);
+
+  if (
+    !token ||
+    !token.codeHash ||
+    (failures._sum.attempts ?? 0) >= LOGIN_CODE_DAILY_FAILURE_CAP
+  ) {
+    // Hiçbir satıra dokunmayan yazma: kayıtsız adres de kayıtlı adres kadar
+    // DB gidiş-dönüşü yapsın; zamanlama tek başına "bu adres müşteri" demesin.
+    await db.clientLoginToken.updateMany({
+      where: { id: "" },
+      data: { attempts: { increment: 0 } },
+    });
+    return null;
+  }
+
+  // Sabit zamanlı karşılaştırma: iki hash de 32 bayt, uzunluk da sızmaz.
+  const expected = Buffer.from(token.codeHash, "hex");
+  const presented = Buffer.from(hashLoginCode(token.tokenHash, code), "hex");
+  const match = expected.length === presented.length && timingSafeEqual(expected, presented);
+
+  if (!match) {
+    // Koşullu artış: tavanı geçmiş satır bir daha artmaz. Önce-oku-sonra-yaz
+    // yapılsaydı paralel denemeler aynı sayacı okuyup tavanı delebilirdi.
+    await db.clientLoginToken.updateMany({
+      where: { id: token.id, usedAt: null, attempts: { lt: LOGIN_CODE_MAX_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    return null;
+  }
+
+  // Doğru kod: link akışıyla aynı koşullu tüketim. Arada link kullanıldıysa,
+  // süre dolduysa ya da paralel yanlış denemeler kilitlediyse count 0.
+  const consumed = await db.clientLoginToken.updateMany({
+    where: {
+      id: token.id,
+      usedAt: null,
+      expiresAt: { gt: now },
+      attempts: { lt: LOGIN_CODE_MAX_ATTEMPTS },
+    },
+    data: { usedAt: now },
   });
-  return { clientUserId: row.clientUser.id, clientId: row.clientUser.clientId };
+  if (consumed.count !== 1) return null;
+  return completeLogin(token.clientUser, now);
 }

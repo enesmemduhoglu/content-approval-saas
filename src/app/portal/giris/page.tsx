@@ -14,7 +14,7 @@ export default async function PortalLoginPage() {
       </header>
       <h1>Giriş</h1>
       <p className="settings-hint">
-        Şifre yok: adresine tek kullanımlık bir giriş linki gönderiyoruz. Link 15 dakika geçerli.
+        Şifre yok: adresine tek kullanımlık bir giriş linki ve 6 haneli kod gönderiyoruz. İkisi de 15 dakika geçerli; ana ekrana eklediğin uygulamadan giriyorsan kodu kullan.
       </p>
       <PortalLoginForm />
     </main>

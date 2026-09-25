@@ -74,6 +74,23 @@ export function getClientScopedDb(session: ClientSession) {
           where: { id: clientId },
           select: { id: true, name: true, email: true },
         }),
+
+      /**
+       * V7a — PWA kimliği (manifest, iOS meta). Ayrı metot çünkü her portal
+       * sayfasının `<head>`'i bunu istiyor; `get`'in e-posta alanına orada
+       * ihtiyaç yok.
+       */
+      getApp: () =>
+        db.client.findUnique({
+          where: { id: clientId },
+          select: {
+            name: true,
+            appName: true,
+            appShortName: true,
+            appThemeColor: true,
+            appIconBase: true,
+          },
+        }),
     },
 
     posts: {
