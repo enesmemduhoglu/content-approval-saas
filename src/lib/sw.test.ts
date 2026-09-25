@@ -62,13 +62,22 @@ function loadWorker(opts: { online: boolean }) {
     return res;
   });
 
+  // V7c: bildirim testleri için pencere listesi dışarıdan doldurulur.
+  const windows: FakeWindow[] = [];
   const self = {
     location: new URL(`${ORIGIN}/sw.js`),
     addEventListener: (type: string, fn: Handler) => {
       handlers[type] = fn;
     },
     skipWaiting: vi.fn(),
-    clients: { claim: vi.fn(async () => undefined) },
+    registration: {
+      showNotification: vi.fn(async (_title: string, _options: Record<string, unknown>) => undefined),
+    },
+    clients: {
+      claim: vi.fn(async () => undefined),
+      matchAll: vi.fn(async () => windows),
+      openWindow: vi.fn(async (_url: string) => null),
+    },
   };
 
   // `Request`'i kendi origin'imize göre çözecek şekilde sar (vm'de göreli URL).
@@ -109,7 +118,32 @@ function loadWorker(opts: { online: boolean }) {
     await pending;
   }
 
-  return { handlers, self, fetchMock, puts, dispatchFetch, install };
+  /** `waitUntil`'e verilen işi bekler — bildirim dinleyicileri async. */
+  async function dispatch(type: string, event: Record<string, unknown>) {
+    let pending: Promise<unknown> = Promise.resolve();
+    handlers[type]({ ...event, waitUntil: (p: Promise<unknown>) => (pending = p) });
+    await pending;
+  }
+
+  return { handlers, self, fetchMock, puts, dispatchFetch, install, dispatch, windows };
+}
+
+type FakeWindow = {
+  url: string;
+  focus: ReturnType<typeof vi.fn>;
+  navigate: ReturnType<typeof vi.fn>;
+};
+
+function fakeWindow(url: string): FakeWindow {
+  const win: FakeWindow = {
+    url: new URL(url, ORIGIN).href,
+    focus: vi.fn(async () => win),
+    navigate: vi.fn(async (to: string) => {
+      win.url = to;
+      return win;
+    }),
+  };
+  return win;
 }
 
 describe("public/sw.js — önbellek kuralı", () => {
@@ -188,5 +222,113 @@ describe("public/sw.js — çevrimdışı", () => {
     const w = loadWorker({ online: false });
     const res = await w.dispatchFetch("/portal", { mode: "navigate" });
     expect(res?.status).toBe(503);
+  });
+});
+
+describe("public/sw.js — bildirimler (V7c)", () => {
+  const pushEvent = (payload: unknown) => ({
+    data:
+      typeof payload === "string"
+        ? { json: () => JSON.parse(payload), text: () => payload }
+        : { json: () => payload, text: () => JSON.stringify(payload) },
+  });
+
+  it("push → başlık, gövde, ikon, etiket ve data.url ile bildirim gösterir", async () => {
+    const w = loadWorker({ online: true });
+    await w.dispatch(
+      "push",
+      pushEvent({
+        title: "Videon yayınlandı",
+        body: "İlk satır",
+        url: "https://www.instagram.com/reel/abc/",
+        tag: "yayin-sonucu",
+        icon: "/icons/furkan-teacher/icon-192.png",
+      })
+    );
+    expect(w.self.registration.showNotification).toHaveBeenCalledTimes(1);
+    const [title, options] = w.self.registration.showNotification.mock.calls[0];
+    expect(title).toBe("Videon yayınlandı");
+    expect(options).toMatchObject({
+      body: "İlk satır",
+      icon: "/icons/furkan-teacher/icon-192.png",
+      tag: "yayin-sonucu",
+      data: { url: "https://www.instagram.com/reel/abc/" },
+    });
+    // Rozet payload'da yoksa hiç konmaz (renkli ikon Android'de beyaz kare olurdu).
+    expect(options).not.toHaveProperty("badge");
+    // Bildirim önbelleğe hiçbir şey yazmaz.
+    expect(w.puts).toEqual([]);
+  });
+
+  it.each([
+    ["dış site", "https://evil.example/portal"],
+    ["javascript:", "javascript:alert(1)"],
+    ["protokolsüz dış adres", "//evil.example/portal"],
+    ["portal dışı yol", "/dashboard"],
+    ["http Instagram", "http://www.instagram.com/reel/x/"],
+    ["benzer alan adı", "https://instagram.com.evil.example/"],
+  ])("push → güvensiz URL (%s) portala düşer", async (_label, url) => {
+    const w = loadWorker({ online: true });
+    await w.dispatch("push", pushEvent({ title: "x", body: "y", url, icon: "https://evil.example/i.png" }));
+    const [, options] = w.self.registration.showNotification.mock.calls[0];
+    expect((options.data as { url: string }).url).toBe(`${ORIGIN}/portal`);
+    expect(options.icon).toBe("/icons/varsayilan/icon-192.png");
+  });
+
+  it("push → JSON olmayan veri de bildirim olarak gösterilir (iOS sessiz push'u cezalandırır)", async () => {
+    const w = loadWorker({ online: true });
+    await w.dispatch("push", {
+      data: {
+        json: () => {
+          throw new SyntaxError("JSON değil");
+        },
+        text: () => "düz metin",
+      },
+    });
+    const [title, options] = w.self.registration.showNotification.mock.calls[0];
+    expect(title).toBe("Yeni bildirim");
+    expect(options.body).toBe("düz metin");
+  });
+
+  const clickEvent = (url: unknown) => {
+    const close = vi.fn();
+    return { event: { notification: { close, data: { url } } }, close };
+  };
+
+  it("notificationclick → açık portal penceresi odaklanır ve hedefe gider; yeni pencere AÇILMAZ", async () => {
+    const w = loadWorker({ online: true });
+    const win = fakeWindow("/portal/gecmis");
+    w.windows.push(win);
+    const { event, close } = clickEvent(`${ORIGIN}/portal/video/abc`);
+    await w.dispatch("notificationclick", event);
+    expect(close).toHaveBeenCalled();
+    expect(win.focus).toHaveBeenCalled();
+    expect(win.navigate).toHaveBeenCalledWith(`${ORIGIN}/portal/video/abc`);
+    expect(w.self.clients.openWindow).not.toHaveBeenCalled();
+  });
+
+  it("notificationclick → portal penceresi yoksa yeni pencere açar", async () => {
+    const w = loadWorker({ online: true });
+    w.windows.push(fakeWindow("/dashboard")); // ajans paneli portal değil
+    const { event } = clickEvent(`${ORIGIN}/portal`);
+    await w.dispatch("notificationclick", event);
+    expect(w.self.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/portal`);
+  });
+
+  it("notificationclick → Instagram linki yeni pencerede; portal penceresi yerinde kalır", async () => {
+    const w = loadWorker({ online: true });
+    const win = fakeWindow("/portal");
+    w.windows.push(win);
+    const { event } = clickEvent("https://www.instagram.com/reel/abc/");
+    await w.dispatch("notificationclick", event);
+    expect(w.self.clients.openWindow).toHaveBeenCalledWith("https://www.instagram.com/reel/abc/");
+    expect(win.navigate).not.toHaveBeenCalled();
+  });
+
+  it("notificationclick → data'daki güvensiz URL açılmaz, portala düşer", async () => {
+    const w = loadWorker({ online: true });
+    const { event } = clickEvent("https://evil.example/");
+    await w.dispatch("notificationclick", event);
+    expect(w.self.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/portal`);
   });
 });
