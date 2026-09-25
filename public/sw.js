@@ -24,10 +24,15 @@
  * altından worker'ı değiştirirdi. Önbellek içeriği değiştiğinde SURUM artırılır;
  * eski önbellekler `activate`te silinir.
  *
+ * ─── Bildirimler (V7c) ─────────────────────────────────────────────────────
+ * `push` → showNotification; `notificationclick` → açık portal penceresini
+ * odaklayıp yönlendirir, yoksa yeni pencere. Açılacak adres YALNIZCA aynı
+ * origin'de "/portal…" yolu ya da https Instagram linki (`guvenliUrl`):
+ * payload sunucudan gelse de SW bunu tekrar süzer — bildirim bir açık
+ * yönlendirme (open redirect) aracına dönüşmesin. Bildirim dinleyicileri
+ * önbelleğe HİÇBİR ŞEY yazmaz; yukarıdaki kural aynen geçerli.
+ *
  * ─── İLERİDE EKLENECEK (şimdi YOK) ─────────────────────────────────────────
- *   • V7c: `push` → showNotification, `notificationclick` → ilgili portal
- *     sayfasını aç/odakla. Aşağıdaki "Olay dinleyicileri" bölümüne ayrı
- *     dinleyiciler olarak.
  *   • V7d: manifest `share_target` POST'u (/portal/paylas). `fetch`
  *     dinleyicisinde GET dışı istekler bugün hiç ele alınmıyor; paylaşım
  *     POST'u oraya, `handleShareTarget(event)` gibi ayrı bir dala girecek.
@@ -154,4 +159,93 @@ async function ikonYaniti(request) {
     caches.open(ONBELLEK).then((cache) => cache.put(request, copy));
   }
   return res;
+}
+
+// ─── Bildirimler (V7c) ──────────────────────────────────────────────────────
+
+const VARSAYILAN_BILDIRIM_URL = "/portal";
+const INSTAGRAM_HOSTLARI = ["www.instagram.com", "instagram.com"];
+
+/**
+ * Bildirimden açılacak adres: aynı origin'de "/portal" altı ya da https
+ * Instagram. Başka her şey (dış site, `javascript:`, "//evil.com") portala
+ * düşer. Dönüş mutlak URL.
+ */
+function guvenliUrl(ham) {
+  if (typeof ham !== "string" || !ham) return new URL(VARSAYILAN_BILDIRIM_URL, self.location.origin).href;
+  let url;
+  try {
+    url = new URL(ham, self.location.origin);
+  } catch {
+    return new URL(VARSAYILAN_BILDIRIM_URL, self.location.origin).href;
+  }
+  if (url.origin === self.location.origin && /^\/portal(?:\/|$)/.test(url.pathname)) {
+    return url.href;
+  }
+  if (url.protocol === "https:" && INSTAGRAM_HOSTLARI.includes(url.hostname)) {
+    return url.href;
+  }
+  return new URL(VARSAYILAN_BILDIRIM_URL, self.location.origin).href;
+}
+
+/** İkon yalnızca aynı origin'in /icons/ altından (payload'daki değer süzülür). */
+function guvenliIkon(ham) {
+  if (typeof ham === "string" && /^\/icons\/[a-z0-9][a-z0-9-]*\/[a-z0-9-]+\.png$/.test(ham)) return ham;
+  return "/icons/varsayilan/icon-192.png";
+}
+
+self.addEventListener("push", (event) => {
+  let veri = {};
+  try {
+    veri = event.data ? event.data.json() : {};
+  } catch {
+    // JSON değilse düz metni gövde say; bildirim yine görünsün. iOS, push
+    // alıp bildirim GÖSTERMEYEN worker'ın aboneliğini bir süre sonra iptal ediyor.
+    veri = { body: event.data ? event.data.text() : "" };
+  }
+  const baslik = typeof veri.title === "string" && veri.title ? veri.title : "Yeni bildirim";
+  const secenekler = {
+    body: typeof veri.body === "string" ? veri.body : "",
+    icon: guvenliIkon(veri.icon),
+    data: { url: guvenliUrl(veri.url) },
+  };
+  // Rozet yalnızca payload verirse: Android tek renkli (saydam zeminli) ikon
+  // ister; renkli uygulama ikonu orada beyaz bir kare olarak görünürdü.
+  if (typeof veri.badge === "string") secenekler.badge = guvenliIkon(veri.badge);
+  if (typeof veri.tag === "string" && veri.tag) secenekler.tag = veri.tag;
+  event.waitUntil(self.registration.showNotification(baslik, secenekler));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const hedef = guvenliUrl(event.notification.data && event.notification.data.url);
+  event.waitUntil(bildirimAc(hedef));
+});
+
+/**
+ * Portal hedefi: açık bir portal penceresi varsa onu odakla ve hedefe götür
+ * (ikinci pencere açma — PWA'da bu ikinci bir uygulama örneği demek).
+ * Instagram hedefi: yeni pencere (iOS Instagram uygulamasına ya da Safari'ye
+ * devreder); portal penceresi yerinde kalır.
+ */
+async function bildirimAc(hedef) {
+  const portalHedefi = new URL(hedef).origin === self.location.origin;
+  if (portalHedefi) {
+    const pencereler = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const pencere of pencereler) {
+      if (new URL(pencere.url).origin !== self.location.origin) continue;
+      if (!new URL(pencere.url).pathname.startsWith("/portal")) continue;
+      const odak = await pencere.focus();
+      const hedefPencere = odak || pencere;
+      if (hedefPencere.url !== hedef && "navigate" in hedefPencere) {
+        try {
+          await hedefPencere.navigate(hedef);
+        } catch {
+          // Kontrol dışı pencere navigate edilemez; en azından odaklandı.
+        }
+      }
+      return;
+    }
+  }
+  if (self.clients.openWindow) await self.clients.openWindow(hedef);
 }

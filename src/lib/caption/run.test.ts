@@ -15,10 +15,13 @@ vi.mock("@anthropic-ai/sdk", async (importOriginal) => {
   return { ...actual, default: FakeAnthropic };
 });
 vi.mock("@/lib/alerts", () => ({ sendAlert: vi.fn() }));
+// V7c: "onayına hazır" kancası; toplama/kısma mantığı `push.test.ts`te.
+vi.mock("@/lib/push", () => ({ notifyCaptionsReady: vi.fn(async () => undefined) }));
 
 import { ApiError } from "@fal-ai/client";
 import { db } from "@/lib/db";
 import { sendAlert } from "@/lib/alerts";
+import { notifyCaptionsReady } from "@/lib/push";
 import { frameKey, resetStorageClientForTests, videoKey } from "@/lib/storage-r2";
 import { runCaption, STALE_AFTER_MS } from "./run";
 import { resetFalClientForTests } from "./transcribe";
@@ -26,6 +29,7 @@ import { resetAnthropicClientForTests } from "./generate";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
 
 const mockAlert = vi.mocked(sendAlert);
+const mockReady = vi.mocked(notifyCaptionsReady);
 
 const tags = Array.from({ length: 12 }, (_, i) => `#etiket${i}`);
 const VALID = {
@@ -100,6 +104,7 @@ beforeEach(async () => {
   subscribe.mockReset();
   create.mockReset();
   mockAlert.mockReset();
+  mockReady.mockClear();
   subscribe.mockResolvedValue({ data: { text: "Bugün present perfect öğreniyoruz.", chunks: [] } });
   create.mockResolvedValue(reply(VALID));
 });
@@ -289,5 +294,24 @@ describe("runCaption — doğrulama ve hatalar", () => {
       throw new TypeError("senkron patlama");
     });
     await expect(runCaption(post.id)).resolves.toMatchObject({ status: "failed" });
+  });
+});
+
+describe("runCaption — 'onayına hazır' bildirimi (V7c)", () => {
+  it("ready yazılınca müşteri için toplu bildirim kancası çağrılır", async () => {
+    const { client, post } = await seedPortalPost({ transcript: "x" });
+    expect((await runCaption(post.id)).status).toBe("ready");
+    expect(mockReady).toHaveBeenCalledTimes(1);
+    expect(mockReady).toHaveBeenCalledWith(client.id);
+  });
+
+  it("başarısız üretimde ve atlanan işte çağrılmaz", async () => {
+    const { post } = await seedPortalPost({ transcript: "x" });
+    create.mockResolvedValue(reply({ ...VALID, altText: "" }));
+    expect((await runCaption(post.id)).status).toBe("failed");
+
+    const { post: ready } = await seedPortalPost({ captionStatus: "ready", caption: "hazır" });
+    expect((await runCaption(ready.id)).status).toBe("skipped");
+    expect(mockReady).not.toHaveBeenCalled();
   });
 });

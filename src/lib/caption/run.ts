@@ -1,5 +1,6 @@
 import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
+import { notifyCaptionsReady } from "@/lib/push";
 import { keyBelongsToClient, signGetUrl, StorageNotConfiguredError } from "@/lib/storage-r2";
 import { CaptionStepError, InvalidModelOutputError, safeDetail } from "./errors";
 import { generateCaption } from "./generate";
@@ -170,10 +171,14 @@ export async function runCaption(
       }
       // Koşullu yazım: bu arada takılı sayılıp başka bir çağrıya devredildiysek
       // ve o çağrı çoktan bitirdiyse onun sonucunu ezmeyelim.
-      await db.post.updateMany({
+      const written = await db.post.updateMany({
         where: { id: postId, captionStatus: "generating" },
         data: { captionStatus: "ready", caption: checked.caption, captionError: null },
       });
+      // V7c: "onayına hazır" bildirimi — toplu ve kısmalı (`push.ts`); throw
+      // etmez. Yazım BU çağrıda olduysa: devredilmiş eski çağrının geç
+      // gelen sonucu ikinci bir bildirim tetiklemesin.
+      if (written.count === 1) await notifyCaptionsReady(post.clientId);
       // altText şimdilik SAKLANMIYOR: şemada portal postu için alan yok
       // (`PostImage.altText` görsel satırına ait, Reels'te satır yok). Dönüşte
       // tutuluyor ki şema kararı verildiğinde tek satırla yazılsın.

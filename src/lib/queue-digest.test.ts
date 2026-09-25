@@ -9,7 +9,12 @@ vi.mock("@/lib/email", async (importOriginal) => {
   return { ...actual, sendRawEmail: vi.fn() };
 });
 
+vi.mock("@/lib/push", () => ({
+  notifyClientUsers: vi.fn(async () => ({ sent: 1, removed: 0, failed: 0 })),
+}));
+
 import { resetQueueDigestForTests, runQueueDigest } from "./queue-digest";
+import { notifyClientUsers } from "@/lib/push";
 import { sendRawEmail } from "@/lib/email";
 import { StorageNotConfiguredError, signGetUrl } from "@/lib/storage-r2";
 import { createAgency, createInstagramClient, resetDb } from "@tests/helpers/db";
@@ -17,6 +22,7 @@ import { createPublishSettings, createQueuePost } from "@tests/helpers/queue";
 
 const mockRaw = vi.mocked(sendRawEmail);
 const mockSign = vi.mocked(signGetUrl);
+const mockPush = vi.mocked(notifyClientUsers);
 
 // Cron'un koştuğu an: 25 Eylül 12:00 İstanbul. "Yarın" = 26 Eylül.
 const NOW = new Date("2026-09-25T09:00:00Z");
@@ -129,5 +135,49 @@ describe("runQueueDigest", () => {
     await createQueuePost(agency.id, client.id, { status: "pending" });
     await runQueueDigest(NOW);
     expect(mockRaw.mock.calls[0][0].to).toBe("n@x.test");
+  });
+});
+
+describe("günlük hatırlatma telefon bildirimi (V7c — e-postaya EK kanal)", () => {
+  it("yarın yayınlanacak → 'Yarın 19:00'da yayınlanacak' + caption başı; imzalı kapak URL'i YOK", async () => {
+    const { agency, client } = await seed({ slots: ["19:00"], requireApproval: false });
+    await createQueuePost(agency.id, client.id, { caption: "Bugünkü video" });
+    await createQueuePost(agency.id, client.id, { status: "pending", caption: "Yarınki video" });
+
+    await runQueueDigest(NOW);
+
+    expect(mockRaw).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    const [clientId, payload] = mockPush.mock.calls[0];
+    expect(clientId).toBe(client.id);
+    expect(payload).toMatchObject({
+      title: "Yarın 19:00'da yayınlanacak",
+      body: "Yarınki video",
+      url: "/portal",
+      tag: "gunluk-ozet",
+    });
+    expect(JSON.stringify(payload)).not.toContain("X-Amz-Signature");
+  });
+
+  it("yarın yayın yok ama onay bekleyen var → bekleyen sayısı", async () => {
+    const { agency, client } = await seed({ requireApproval: true });
+    await createQueuePost(agency.id, client.id, { status: "pending" });
+    await runQueueDigest(NOW);
+    expect(mockPush).toHaveBeenCalledWith(
+      client.id,
+      expect.objectContaining({ title: "1 video onayını bekliyor" })
+    );
+  });
+
+  it("anlatacak bir şey yoksa bildirim de yok; aynı gün ikinci koşuda tekrar yok", async () => {
+    await seed({ requireApproval: true });
+    await runQueueDigest(NOW);
+    expect(mockPush).not.toHaveBeenCalled();
+
+    const { agency, client } = await seed({ requireApproval: true });
+    await createQueuePost(agency.id, client.id, { status: "pending" });
+    await runQueueDigest(NOW);
+    await runQueueDigest(NOW);
+    expect(mockPush).toHaveBeenCalledTimes(1);
   });
 });

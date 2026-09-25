@@ -35,7 +35,9 @@ export function resetRateLimiter(): void {
 
 // Vercel Marketplace'in Upstash KV entegrasyonu KV_REST_API_* adlarını kullanır;
 // doğrudan Upstash kurulumu UPSTASH_REDIS_REST_* verir. İkisi de desteklenir.
-function upstashConfig(): { baseUrl: string; token: string } | null {
+// Dışa açık: V7c'nin bildirim kısması (`push.ts`) aynı bağlantıyı kullanıyor —
+// env adlarının ikinci bir kopyası bir gün birinden ayrışırdı.
+export function upstashConfig(): { baseUrl: string; token: string } | null {
   const baseUrl =
     process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
   const token =
