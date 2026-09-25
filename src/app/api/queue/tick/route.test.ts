@@ -26,7 +26,12 @@ vi.mock("@/lib/email", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/push", () => ({
+  notifyClientUsers: vi.fn(async () => ({ sent: 1, removed: 0, failed: 0 })),
+}));
+
 import { GET, POST } from "./route";
+import { notifyClientUsers } from "@/lib/push";
 import { db } from "@/lib/db";
 import { sendAgencyNoticeEmail, sendRawEmail } from "@/lib/email";
 import { IGError, createReelContainer, finalizeContainer } from "@/lib/instagram";
@@ -45,6 +50,7 @@ const mockFinalize = vi.mocked(finalizeContainer);
 const mockSign = vi.mocked(signGetUrl);
 const mockRaw = vi.mocked(sendRawEmail);
 const mockAgency = vi.mocked(sendAgencyNoticeEmail);
+const mockPush = vi.mocked(notifyClientUsers);
 
 const CRON_SECRET = "q".repeat(40);
 const SIGNED = "https://r2.example/clients/x/videos/v.mp4?X-Amz-Signature=gizli";
@@ -374,5 +380,56 @@ describe("çok turlu video yayını", () => {
     // Üçüncü tick: yapılacak iş yok, e-posta tekrar gitmez.
     await POST(tickRequest());
     expect(subjects()).toEqual(["Videon Instagram'da yayınlandı"]);
+  });
+});
+
+describe("slot boş telefon bildirimi (V7c — e-postaya EK kanal)", () => {
+  it("onaylı video yok → 'Bu saatte onaylı video yoktu' + bekleyen sayısı, kuyruğa gider", async () => {
+    const { agency, client } = await seed({ requireApproval: true });
+    await createQueuePost(agency.id, client.id, { status: "pending" });
+
+    await POST(tickRequest());
+
+    expect(subjects()).toEqual(["Bu saatte yayınlanacak onaylı video yoktu"]);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    const [clientId, payload] = mockPush.mock.calls[0];
+    expect(clientId).toBe(client.id);
+    expect(payload).toMatchObject({ title: "Bu saatte onaylı video yoktu", url: "/portal", tag: "slot-bos" });
+    expect(payload.body).toContain("1 video onayını bekliyor");
+  });
+
+  it("kuyruk boş ve Instagram bağlı değil de bildirilir", async () => {
+    await seed();
+    await POST(tickRequest());
+    expect(mockPush.mock.calls.map(([, p]) => p.title)).toEqual(["Kuyrukta video kalmadı"]);
+
+    mockPush.mockClear();
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    await createPublishSettings(client.id, { slots: [slotMinutesAgo(5).slot] });
+    await createQueuePost(agency.id, client.id);
+    await POST(tickRequest());
+    expect(mockPush).toHaveBeenCalledWith(
+      client.id,
+      expect.objectContaining({ title: "Yayın yapılamadı: Instagram bağlantısı" })
+    );
+  });
+
+  it("e-posta patlasa da bildirim gider; tick düşmez", async () => {
+    const { agency, client } = await seed({ requireApproval: true });
+    await createQueuePost(agency.id, client.id, { status: "pending" });
+    mockRaw.mockRejectedValue(new Error("resend çöktü"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect((await POST(tickRequest())).status).toBe(200);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+
+  it("yayın olan slotta 'slot boş' bildirimi yok", async () => {
+    const { agency, client } = await seed({ requireApproval: true });
+    await createQueuePost(agency.id, client.id, { status: "approved" });
+    await POST(tickRequest());
+    // Tek bildirim yayın sonucu (publish-post kancası); slot boş değil.
+    expect(mockPush.mock.calls.map(([, p]) => p.title)).toEqual(["Videon yayınlandı"]);
   });
 });

@@ -4,6 +4,8 @@ import { notifyAgencyTeam } from "@/lib/agency-notify";
 import { portalUrl, queueRecipient, sendSlotEmptyEmail, type SlotEmptyReason } from "@/lib/email-queue";
 import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
 import { publishApprovedPost, resumePublish } from "@/lib/publish-post";
+import { notifyClientUsers } from "@/lib/push";
+import { slotEmptyPush } from "@/lib/push-messages";
 import { authorizeQueueRequest } from "@/lib/qstash";
 import { SLOT_LOOKBACK_MS, SLOT_WINDOW_MS, dueSlots, isEligible, pickNext } from "@/lib/queue";
 import {
@@ -302,7 +304,7 @@ async function runSlot(
   stats.empty += 1;
 }
 
-/** "Slot boş kaldı" e-postası — akışı asla düşürmez. */
+/** "Slot boş kaldı" e-postası + telefon bildirimi (V7c) — akışı asla düşürmez. */
 async function notifySlotEmpty(
   settings: QueueClient,
   to: string,
@@ -327,4 +329,15 @@ async function notifySlotEmpty(
   } catch (error) {
     console.error("[queue:tick] slot e-postası patladı:", error);
   }
+  // E-postanın try'ının DIŞINDA: e-posta patlasa da bildirim gitsin.
+  // `notifyClientUsers` throw etmez.
+  await notifyClientUsers(
+    settings.clientId,
+    slotEmptyPush({
+      slotAt,
+      timezone: settings.timezone,
+      reason,
+      pendingCount: extra.pendingCount,
+    })
+  );
 }

@@ -275,3 +275,71 @@ export function validateMoveTarget(
     afterId: (afterId as string | undefined) || undefined,
   };
 }
+
+// ─── Bildirim aboneliği (V7c) ──────────────────────────────────────────────
+
+/** Gerçek endpoint'ler ~150–250 karakter (Apple, FCM); pay bırakılmış tavan. */
+export const MAX_PUSH_ENDPOINT_LENGTH = 1000;
+
+/**
+ * İzinli push servisleri. Neden liste: sunucu bildirim gönderirken bu adrese
+ * kendisi POST atıyor. Serbest bir `https://` adresi kabul etmek, oturum açmış
+ * herhangi bir kullanıcıya sunucudan istediği adrese istek attırma (SSRF)
+ * imkânı verirdi. Tarayıcıların kullandığı servisler az ve sabit:
+ * Apple (Safari/iOS), Google FCM (Chrome, Android), Mozilla (Firefox),
+ * Microsoft WNS (Edge). Eşleşme alan adı sınırında: "evilfcm.googleapis.com"
+ * gibi bir önek geçmez, "fcm.googleapis.com.evil.com" hiç geçmez.
+ */
+const PUSH_HOST_SUFFIXES = [
+  "push.apple.com",
+  "fcm.googleapis.com",
+  "android.googleapis.com",
+  "push.services.mozilla.com",
+  "notify.windows.com",
+];
+
+export function isAllowedPushEndpoint(value: string): boolean {
+  if (value.length > MAX_PUSH_ENDPOINT_LENGTH) return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.port) return false;
+  const host = url.hostname.toLowerCase();
+  return PUSH_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+}
+
+/** base64url (dolgulu ya da dolgusuz) — `PushSubscription.toJSON().keys` biçimi. */
+const B64URL_RE = /^[A-Za-z0-9_-]+={0,2}$/;
+
+export type PushSubscriptionInput = { endpoint: string; p256dh: string; auth: string };
+
+/**
+ * `pushManager.subscribe()` sonucunun `toJSON()`u: `{ endpoint, keys: { p256dh, auth } }`.
+ * p256dh 65 baytlık P-256 açık anahtarı (base64url ~87 karakter), auth 16 bayt
+ * (~22 karakter); uzunluk aralıkları dolgulu/dolgusuz iki biçimi de kapsıyor.
+ */
+export function validatePushSubscription(
+  body: unknown
+): { ok: true; value: PushSubscriptionInput } | ({ ok: false } & FieldError) {
+  if (!body || typeof body !== "object") {
+    return { ok: false, error: "Geçersiz istek", field: "body" };
+  }
+  const { endpoint, keys } = body as { endpoint?: unknown; keys?: unknown };
+  if (typeof endpoint !== "string" || !isAllowedPushEndpoint(endpoint)) {
+    return { ok: false, error: "Geçersiz bildirim adresi", field: "endpoint" };
+  }
+  const { p256dh, auth } = (keys && typeof keys === "object" ? keys : {}) as {
+    p256dh?: unknown;
+    auth?: unknown;
+  };
+  if (typeof p256dh !== "string" || !B64URL_RE.test(p256dh) || p256dh.length < 80 || p256dh.length > 100) {
+    return { ok: false, error: "Geçersiz anahtar", field: "keys.p256dh" };
+  }
+  if (typeof auth !== "string" || !B64URL_RE.test(auth) || auth.length < 16 || auth.length > 32) {
+    return { ok: false, error: "Geçersiz anahtar", field: "keys.auth" };
+  }
+  return { ok: true, value: { endpoint, p256dh, auth } };
+}

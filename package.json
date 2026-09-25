@@ -27,7 +27,8 @@
     "next-auth": "^5.0.0-beta.25",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "resend": "^4.1.0"
+    "resend": "^4.1.0",
+    "web-push": "^3.6.7"
   },
   "overrides": {
     "deepmerge-ts": "^8.0.2"
@@ -38,6 +39,7 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^26.0.0",
     "prisma": "^6.5.0",

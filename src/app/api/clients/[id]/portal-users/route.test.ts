@@ -126,6 +126,10 @@ describe("DELETE /api/clients/[id]/portal-users/[userId]", () => {
     await db.clientLoginToken.create({
       data: { clientUserId: user.id, tokenHash: "h", expiresAt: new Date(Date.now() + 60_000) },
     });
+    // V7c: erişimi kaldırılan kişinin telefonuna bildirim gitmeye devam etmesin.
+    await db.pushSubscription.create({
+      data: { clientUserId: user.id, endpoint: "https://web.push.apple.com/u", p256dh: "k", auth: "a" },
+    });
     const cookie = portalCookie(user);
     mockAuth.mockResolvedValue(session(agency.id));
 
@@ -133,6 +137,7 @@ describe("DELETE /api/clients/[id]/portal-users/[userId]", () => {
     expect(res.status).toBe(200);
     expect(await db.clientUser.count()).toBe(0);
     expect(await db.clientLoginToken.count()).toBe(0);
+    expect(await db.pushSubscription.count()).toBe(0);
     expect((await listVideos(portalRequest("/api/portal/videos", { cookie }))).status).toBe(401);
   });
 

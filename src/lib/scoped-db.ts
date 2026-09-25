@@ -150,6 +150,8 @@ export function getScopedDb(session: ScopedSession) {
           const owned = await tx.client.count({ where: { id, agencyId } });
           if (owned !== 1) return 0;
           await tx.clientLoginToken.deleteMany({ where: { clientUser: { clientId: id } } });
+          // V7c: bildirim abonelikleri de ClientUser'a RESTRICT FK ile bağlı.
+          await tx.pushSubscription.deleteMany({ where: { clientUser: { clientId: id } } });
           await tx.clientUser.deleteMany({ where: { clientId: id } });
           await tx.slotRun.deleteMany({ where: { clientId: id } });
           await tx.publishSettings.deleteMany({ where: { clientId: id } });

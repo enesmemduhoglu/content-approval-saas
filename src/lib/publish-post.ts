@@ -20,6 +20,8 @@ import {
   sendQueuePublishedEmail,
 } from "@/lib/email-queue";
 import { recordSlotOutcomeForPost } from "@/lib/queue-db";
+import { notifyClientUsers } from "@/lib/push";
+import { failedPush, publishedPush } from "@/lib/push-messages";
 import { MAX_GET_URL_TTL_SECONDS, keyBelongsToClient, signGetUrl } from "@/lib/storage-r2";
 
 /**
@@ -443,6 +445,7 @@ async function notifyPortalOutcome(
         caption: true,
         igPermalink: true,
         agencyId: true,
+        clientId: true,
         client: {
           select: {
             name: true,
@@ -477,6 +480,16 @@ async function notifyPortalOutcome(
     if (!result.sent) {
       console.error(`[publish] kuyruk sonuç e-postası gitmedi: post=${postId} (${result.reason})`);
     }
+
+    // V7c: telefon bildirimi e-postaya EK kanal (K4 — e-posta kalır). Throw
+    // etmez; e-postanın sonucundan bağımsız gider (spam'e düşen e-posta tam
+    // da bildirimin var olma sebebi).
+    await notifyClientUsers(
+      post.clientId,
+      outcome === "published"
+        ? publishedPush({ caption: post.caption, igPermalink: post.igPermalink })
+        : failedPush({ postId, reason })
+    );
 
     if (outcome === "failed") {
       // Ekibin tamamına (gerekçe `agency-notify.ts` başında).

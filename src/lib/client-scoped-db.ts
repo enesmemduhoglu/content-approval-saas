@@ -437,6 +437,71 @@ export function getClientScopedDb(session: ClientSession) {
       },
     },
 
+    /**
+     * V7c — bu KULLANICININ (müşterinin değil) bildirim abonelikleri. Kapsam
+     * iki katlı: `clientUserId` oturumdan, `clientUser.clientId` de oturumdan
+     * — kullanıcı başka müşteriye taşındıysa satırlara dokunulmaz.
+     * `p256dh`/`auth` hiçbir dönüşte yer almaz.
+     */
+    push: {
+      /** Bu cihaz (endpoint) bu kullanıcıya mı kayıtlı? */
+      isSubscribed: async (endpoint: string): Promise<boolean> =>
+        (await db.pushSubscription.count({
+          where: { endpoint, clientUserId: session.clientUserId, clientUser: { clientId } },
+        })) === 1,
+
+      /**
+       * Upsert by endpoint. Endpoint başka bir kullanıcıya kayıtlıysa satır bu
+       * kullanıcıya GEÇER: aynı telefonda artık bu kişi oturum açıp bildirimi
+       * açtı; önceki kişinin bildirimleri bu cihaza düşmeye devam etmemeli.
+       * Anahtarlar da yenilenir (tarayıcı aboneliği yenilemiş olabilir) ve hata
+       * sayacı sıfırlanır.
+       *
+       * Kullanıcı başına en fazla `maxPerUser` cihaz: fazlası en eskiden
+       * silinir. Sahte endpoint'lerle tablo şişirilemesin ve her bildirimde
+       * push servisine giden istek sayısı sınırlı kalsın.
+       */
+      subscribe: (
+        input: { endpoint: string; p256dh: string; auth: string; userAgent: string | null },
+        maxPerUser: number
+      ): Promise<void> =>
+        db.$transaction(async (tx) => {
+          const data = {
+            clientUserId: session.clientUserId,
+            p256dh: input.p256dh,
+            auth: input.auth,
+            userAgent: input.userAgent,
+          };
+          await tx.pushSubscription.upsert({
+            where: { endpoint: input.endpoint },
+            create: { ...data, endpoint: input.endpoint },
+            update: { ...data, failCount: 0 },
+          });
+          const surplus = await tx.pushSubscription.findMany({
+            where: { clientUserId: session.clientUserId, clientUser: { clientId } },
+            orderBy: { createdAt: "desc" },
+            skip: maxPerUser,
+            select: { id: true },
+          });
+          if (surplus.length > 0) {
+            await tx.pushSubscription.deleteMany({
+              where: {
+                id: { in: surplus.map((row) => row.id) },
+                clientUserId: session.clientUserId,
+              },
+            });
+          }
+        }),
+
+      /** Yalnızca KENDİ aboneliği; başkasının endpoint'i verilirse `false` (route 404). */
+      unsubscribe: async (endpoint: string): Promise<boolean> => {
+        const result = await db.pushSubscription.deleteMany({
+          where: { endpoint, clientUserId: session.clientUserId, clientUser: { clientId } },
+        });
+        return result.count === 1;
+      },
+    },
+
     settings: {
       get: (): Promise<PublishSettings | null> =>
         db.publishSettings.findUnique({ where: { clientId } }),

@@ -63,9 +63,11 @@ export function getAgencyPortalUsers(session: ScopedSession) {
     },
 
     /**
-     * Erişimi kaldırır. Giriş token'ları da silinir (FK RESTRICT); açık portal
-     * oturumları bir sonraki istekte ölür çünkü `getClientSession` kullanıcı
-     * satırını her istekte doğruluyor.
+     * Erişimi kaldırır. Giriş token'ları ve bildirim abonelikleri de silinir
+     * (FK RESTRICT); açık portal oturumları bir sonraki istekte ölür çünkü
+     * `getClientSession` kullanıcı satırını her istekte doğruluyor. Abonelik
+     * ayrıca silinmeseydi erişimi kaldırılan kişinin telefonuna bildirim
+     * gitmeye devam ederdi.
      */
     remove: (clientId: string, userId: string): Promise<boolean> =>
       db.$transaction(async (tx) => {
@@ -73,6 +75,7 @@ export function getAgencyPortalUsers(session: ScopedSession) {
         const count = await tx.clientUser.count({ where: owned });
         if (count !== 1) return false;
         await tx.clientLoginToken.deleteMany({ where: { clientUser: owned } });
+        await tx.pushSubscription.deleteMany({ where: { clientUser: owned } });
         const result = await tx.clientUser.deleteMany({ where: owned });
         return result.count === 1;
       }),
