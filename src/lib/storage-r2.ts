@@ -146,6 +146,37 @@ export async function signGetUrl(
   });
 }
 
+/**
+ * Portalda GÖSTERİLEN kapak/video için imza penceresi. İmza zamanı pencerenin
+ * başına sabitlenir: aynı pencere içinde üretilen her adres BİREBİR aynı olur
+ * ve tarayıcı önbelleği çalışır. Eskiden imza saniyelik değiştiği için (analizde
+ * aynı sayfa 2 sn arayla çekildi, 5 kapağın 5'i farklı adres) kuyruk her
+ * açılışta bütün kapakları mobil veriyle yeniden indiriyordu.
+ */
+export const DISPLAY_URL_WINDOW_SECONDS = 60 * 60;
+
+/**
+ * Gösterim adresi: pencere başında imzalanır, İKİ pencere geçerlidir — üretildiği
+ * andan itibaren en az bir pencere (1 saat) çalışır. Yanıt `Cache-Control`
+ * taşır (R2 `response-cache-control`'ü uyguluyor; 2026-09-28'de denendi) —
+ * nesneler tarayıcıdan tipsiz başlıkla yüklendiği için kendi başlıkları yok.
+ * `private`: adres imzalı ve müşteriye özel, paylaşılan önbelleklere girmesin.
+ */
+export async function signDisplayUrl(key: string, now: Date = new Date()): Promise<string> {
+  const { client, bucket } = r2();
+  const windowMs = DISPLAY_URL_WINDOW_SECONDS * 1000;
+  const signingDate = new Date(Math.floor(now.getTime() / windowMs) * windowMs);
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ResponseCacheControl: `private, max-age=${DISPLAY_URL_WINDOW_SECONDS}`,
+    }),
+    { expiresIn: DISPLAY_URL_WINDOW_SECONDS * 2, signingDate }
+  );
+}
+
 export type ObjectInfo = { size: number; contentType: string | null };
 
 /**

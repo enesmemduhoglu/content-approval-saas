@@ -268,7 +268,15 @@ export function QueueBoard({
           {error}
         </p>
       )}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      {/* Sabit `id`: dnd-kit erişilebilirlik açıklamasının kimliğini sayaçla
+          üretiyor; sunucu ve tarayıcıda farklı çıkıp hidrasyon uyuşmazlığı
+          veriyordu (DndDescribedBy-0 ≠ -1, 2026-09-28 analizi). */}
+      <DndContext
+        id="kuyruk-siralama"
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={onDragEnd}
+      >
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ol className="p-list" aria-label="Yayın kuyruğu">
             {ids.map((id, index) => {
