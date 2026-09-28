@@ -5,6 +5,9 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListMultipartUploadsCommand,
+  ListObjectsV2Command,
+  ListPartsCommand,
   PutObjectCommand,
   S3Client,
   UploadPartCommand,
@@ -103,6 +106,12 @@ export function frameKey(clientId: string, postId: string, index: number): strin
   assertId(postId, "postId");
   if (!Number.isInteger(index) || index < 0 || index > 99) throw new Error("Geçersiz kare");
   return `clients/${clientId}/frames/${postId}/${index}.jpg`;
+}
+
+/** Müşterinin bütün nesnelerinin öneki; depolama göstergesi bunu toplar. */
+export function clientStoragePrefix(clientId: string): string {
+  assertId(clientId, "clientId");
+  return `clients/${clientId}/`;
 }
 
 /** İmzalı URL üretmeden önceki son kapı: anahtar bu müşterinin önekinde mi? */
@@ -329,4 +338,82 @@ export function storageErrorCode(error: unknown): string | undefined {
   if (typeof Code === "string") return Code;
   if (typeof name === "string") return name;
   return undefined;
+}
+
+// ─── Kullanım (portal depolama göstergesi) ──────────────────────────────
+
+export type PrefixUsage = {
+  /** Kotaya sayılan her şey: nesneler + yarım yüklemelerin parçaları. */
+  totalBytes: number;
+  videoBytes: number;
+  videoCount: number;
+  frameBytes: number;
+};
+
+/**
+ * Önek altındaki kullanım, anlık. Boyutlar DB'de tutulmuyor (tutmak her silme
+ * yolunda senkron gerektirirdi); V9 temizliği nesne sayısını ~100–200'de
+ * tuttuğu için liste tek istekte bitiyor.
+ *
+ * Yarım çok parçalı yüklemenin parçaları `ListObjectsV2`'de görünmez ama yer
+ * kaplar — süren büyük bir yükleme göstergede görünsün diye ayrıca toplanır.
+ *
+ * Cloudflare panelindeki "Bucket Size" ile karşılaştırma: o sayı gecikmeli ve
+ * tepe değerde takılı kalabiliyor (29 Eyl: panel 2.14 GB, gerçek 1.4 GB —
+ * Metrics grafiği doğruladı). Doğru olan bu liste.
+ */
+export async function prefixUsage(prefix: string): Promise<PrefixUsage> {
+  const { client, bucket } = r2();
+  const usage: PrefixUsage = { totalBytes: 0, videoBytes: 0, videoCount: 0, frameBytes: 0 };
+
+  let token: string | undefined;
+  do {
+    const out = await client.send(
+      new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token })
+    );
+    for (const object of out.Contents ?? []) {
+      const size = object.Size ?? 0;
+      usage.totalBytes += size;
+      if (object.Key?.includes("/videos/")) {
+        usage.videoBytes += size;
+        usage.videoCount += 1;
+      } else if (object.Key?.includes("/frames/")) {
+        usage.frameBytes += size;
+      }
+    }
+    token = out.IsTruncated ? out.NextContinuationToken : undefined;
+  } while (token);
+
+  let keyMarker: string | undefined;
+  let uploadIdMarker: string | undefined;
+  do {
+    const out = await client.send(
+      new ListMultipartUploadsCommand({
+        Bucket: bucket,
+        Prefix: prefix,
+        KeyMarker: keyMarker,
+        UploadIdMarker: uploadIdMarker,
+      })
+    );
+    for (const upload of out.Uploads ?? []) {
+      if (!upload.Key || !upload.UploadId) continue;
+      let partMarker: string | undefined;
+      do {
+        const parts = await client.send(
+          new ListPartsCommand({
+            Bucket: bucket,
+            Key: upload.Key,
+            UploadId: upload.UploadId,
+            PartNumberMarker: partMarker,
+          })
+        );
+        for (const part of parts.Parts ?? []) usage.totalBytes += part.Size ?? 0;
+        partMarker = parts.IsTruncated ? parts.NextPartNumberMarker : undefined;
+      } while (partMarker);
+    }
+    keyMarker = out.IsTruncated ? out.NextKeyMarker : undefined;
+    uploadIdMarker = out.IsTruncated ? out.NextUploadIdMarker : undefined;
+  } while (keyMarker);
+
+  return usage;
 }

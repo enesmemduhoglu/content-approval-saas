@@ -240,6 +240,24 @@ DB önce, R2 sonra — R2 hatası öksüz nesne bırakır, kırık video değil;
 artıkları `scripts/r2-denetim.mjs` raporlar/siler. Panelden silinen portal
 postunun nesneleri de artık silinir. Tasarım: V7 kanvası "Güncelleme 28 Eyl (4)".
 
+### K31 · 2026-09-29 · Portal depolama göstergesi: anlık R2 listesi, engelleme yok (V10)
+
+Kullanıcı isteği: Furkan Ayarlar'da "kullanılan / 10 GB" ve "yaklaşık N video
+daha sığar" görsün. Sayı her açılışta R2'den **anlık** toplanır
+(`prefixUsage`: müşteri önekindeki nesneler + yarım çok parçalı yüklemelerin
+parçaları); boyut DB'de tutulmaz — tutmak her silme yolunda senkron
+gerektirirdi, V9 temizliği sayesinde liste tek istek. Birimler 1000 tabanlı
+(Cloudflare paneli gibi), ondalık Türkçe virgül (yükleme ekranındaki
+`fileSize` de virgüle geçti). "Kaç video daha" = kalan / (video + kare) ortalaması;
+3 videodan az örnekte sabit 75 MB. %80'de "Yer azalıyor", bir video bile
+sığmıyorsa "Yer doldu". **Yükleme engellenmez** (kullanıcı kararı): R2 10 GB'ı
+aşınca yüklemeyi durdurmaz, aşanı ücretlendirir; gösterge yalnızca haber verir.
+Kota bucket'ın tamamı — ikinci müşteri gelirse bölünmeli.
+Cloudflare panelindeki "Bucket Size" güvenilmez: 29 Eyl'de 2.14 GB derken
+gerçek 1.4 GB'tı (Metrics grafiği: 28 Eyl öğlen anlık tepe, sonra düz); doğru
+sayı `prefixUsage` / `scripts/r2-denetim.mjs`. Tasarım: V7 kanvası
+"Güncelleme 29 Eyl".
+
 ---
 
 ## Açık sorular

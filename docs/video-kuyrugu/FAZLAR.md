@@ -7,7 +7,11 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-09-28 (V9 — R2 depolama temizliği canlıda, #84)
+- **Son güncelleme:** 2026-09-29 (V10 — portal depolama göstergesi, PR açık)
+- **V10 (`feat/portal-depolama`) merge onayı bekliyor** — kullanıcı merge'ü
+  kendisi onaylayacak. Merge sonrası iş (kullanıcı isteği): canlıda
+  `/portal/ayarlar`'ı tarayıcıda test et, sonra V7 kanvasını son hâline göre
+  toparla ("karman çorman olmuş" — eski/iptal artboard'lar, güncelleme satırları).
 - **Canlı durum:** V0–V5, V7a/b/c ve V8 canlıda; #83 (portal analiz iyileştirmeleri +
   bu belge turu, göç `20260928100000_kaynak_dosya`) merge edildi. Furkan portalı
   iPhone'unda PWA olarak kullanıyor, kendi yayın gün/saatlerini seçti, yayın açık.
@@ -167,6 +171,15 @@ daha burada", arşivlenen yayının detayında kapak + "Video artık Instagram'd
 Ajans panelinden silinen portal postunun R2 nesneleri de silinir.
 `scripts/r2-denetim.mjs`: kullanım + sahipsiz nesne raporu (`--sil` ile siler).
 Tasarım: V7 kanvası "Güncelleme 28 Eyl (4)".
+
+### V10 — Portal depolama göstergesi 🟡 (`feat/portal-depolama`) · K31
+Ayarlar'da "DEPOLAMA" kartı: "1,4 GB / 10 GB", ince çubuk, "Yaklaşık N video
+daha sığar"; %80'de turuncu, dolunca kırmızı; okunamazsa "Şu an okunamadı".
+`storage-r2.ts` → `prefixUsage` + `clientStoragePrefix`, `storage-usage.ts`
+(saf kurallar), `client-scoped-db` → `storage.usage()`, `storage-card.tsx`,
+Ayarlar'da `Suspense` içinde. `r2-denetim.mjs` yarım yüklemeleri de raporlar,
+`--sil` terk edilmişleri iptal eder. Şema göçü yok.
+Tasarım: V7 kanvası "Güncelleme 29 Eyl".
 
 ## Uçtan uca doğrulama senaryosu (V5)
 

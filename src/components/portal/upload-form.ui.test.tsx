@@ -86,7 +86,7 @@ describe("videoType / fileProblem / fileSize", () => {
 
   it("fileSize: 1 MB altı KB, küçükte bir ondalık, büyükte tam sayı", () => {
     expect(fileSize(50 * 1024)).toBe("50 KB");
-    expect(fileSize(5.5 * 1024 * 1024)).toBe("5.5 MB");
+    expect(fileSize(5.5 * 1024 * 1024)).toBe("5,5 MB");
     expect(fileSize(70 * 1024 * 1024 + 1)).toBe("70 MB");
   });
 });

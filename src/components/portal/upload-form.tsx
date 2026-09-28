@@ -28,11 +28,14 @@ const ACCEPT = "video/mp4,video/quicktime";
 /** Bağlantı/görünürlük bekleyen yükleme: kart turuncuya döner (maket). */
 const WAITING = new Set<string>(Object.values(STATUS_TEXT));
 
-/** Büyük videoda ondalık gürültü; 1 MB altında "0.0 MB" yanıltıcı — KB. */
+/**
+ * Büyük videoda ondalık gürültü; 1 MB altında "0,0 MB" yanıltıcı — KB.
+ * Ondalık ayırıcı Türkçe virgül (Ayarlar'daki depolama göstergesiyle aynı).
+ */
 export function fileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   const value = bytes / (1024 * 1024);
-  return value >= 10 ? `${Math.round(value)} MB` : `${value.toFixed(1)} MB`;
+  return value >= 10 ? `${Math.round(value)} MB` : `${value.toFixed(1).replace(".", ",")} MB`;
 }
 
 /** Kartın solundaki kutu: kare çıkarıldıysa ilk kare, yoksa düz renk. */

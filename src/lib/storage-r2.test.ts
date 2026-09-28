@@ -1,8 +1,16 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  ListMultipartUploadsCommand,
+  ListObjectsV2Command,
+  ListPartsCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import {
   DISPLAY_URL_WINDOW_SECONDS,
   StorageNotConfiguredError,
+  clientStoragePrefix,
   frameKey,
+  prefixUsage,
   signDisplayUrl,
   keyBelongsToClient,
   r2Configured,
@@ -16,6 +24,7 @@ const ENV_KEYS = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "
 afterEach(() => {
   for (const key of ENV_KEYS) delete process.env[key];
   resetStorageClientForTests();
+  vi.restoreAllMocks();
 });
 
 describe("anahtar düzeni", () => {
@@ -88,5 +97,70 @@ describe("signDisplayUrl — kararlı gösterim adresi", () => {
     expect(url.searchParams.get("response-cache-control")).toBe(
       `private, max-age=${DISPLAY_URL_WINDOW_SECONDS}`
     );
+  });
+});
+
+describe("prefixUsage — depolama göstergesinin toplamı", () => {
+  function withEnv() {
+    process.env.R2_ACCOUNT_ID = "acc";
+    process.env.R2_ACCESS_KEY_ID = "key";
+    process.env.R2_SECRET_ACCESS_KEY = "secret";
+    process.env.R2_BUCKET = "bucket";
+  }
+
+  it("clientStoragePrefix müşteri önekini verir, kaçış içeren kimliği reddeder", () => {
+    expect(clientStoragePrefix("cl1")).toBe("clients/cl1/");
+    expect(() => clientStoragePrefix("cl1/../cl2")).toThrow();
+  });
+
+  it("sayfalı nesne listesini ve yarım yüklemelerin parçalarını toplar", async () => {
+    withEnv();
+    const prefixes: string[] = [];
+    vi.spyOn(S3Client.prototype, "send").mockImplementation((async (command: unknown) => {
+      if (command instanceof ListObjectsV2Command) {
+        prefixes.push(command.input.Prefix ?? "");
+        if (!command.input.ContinuationToken) {
+          return {
+            Contents: [
+              { Key: "clients/cl1/videos/p1.mov", Size: 70_000_000 },
+              { Key: "clients/cl1/frames/p1/0.jpg", Size: 30_000 },
+            ],
+            IsTruncated: true,
+            NextContinuationToken: "t2",
+          };
+        }
+        return { Contents: [{ Key: "clients/cl1/videos/p2.mp4", Size: 20_000_000 }], IsTruncated: false };
+      }
+      if (command instanceof ListMultipartUploadsCommand) {
+        prefixes.push(command.input.Prefix ?? "");
+        return { Uploads: [{ Key: "clients/cl1/videos/p3.mov", UploadId: "u1" }], IsTruncated: false };
+      }
+      if (command instanceof ListPartsCommand) {
+        expect(command.input.UploadId).toBe("u1");
+        return { Parts: [{ Size: 8_000_000 }, { Size: 8_000_000 }], IsTruncated: false };
+      }
+      throw new Error("beklenmeyen komut");
+    }) as never);
+
+    const usage = await prefixUsage("clients/cl1/");
+    expect(usage).toEqual({
+      totalBytes: 70_000_000 + 30_000 + 20_000_000 + 16_000_000,
+      videoBytes: 90_000_000,
+      videoCount: 2,
+      frameBytes: 30_000,
+    });
+    // Başka müşterinin önekine hiç bakılmaz.
+    expect(new Set(prefixes)).toEqual(new Set(["clients/cl1/"]));
+  });
+
+  it("boş önek → sıfır", async () => {
+    withEnv();
+    vi.spyOn(S3Client.prototype, "send").mockImplementation((async () => ({ IsTruncated: false })) as never);
+    expect(await prefixUsage("clients/cl1/")).toEqual({
+      totalBytes: 0,
+      videoBytes: 0,
+      videoCount: 0,
+      frameBytes: 0,
+    });
   });
 });

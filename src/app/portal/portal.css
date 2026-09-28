@@ -2002,6 +2002,87 @@ body:has(.portal-root) {
   color: var(--p-muted);
 }
 
+/* Depolama kartı (29 Eyl): tek satır değer + ince çubuk + "N video daha". */
+.p-set-card--storage {
+  padding: 14px 16px 16px;
+  gap: 8px;
+}
+
+.p-set-card--storage p {
+  margin: 0;
+}
+
+.p-storage-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.p-storage-quota {
+  font-weight: 500;
+  color: var(--p-muted);
+}
+
+.p-storage-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--p-line-soft);
+  overflow: hidden;
+}
+
+.p-storage-fill {
+  display: block;
+  height: 100%;
+  /* 0,1 GB'ta bile çubukta bir iz kalsın. */
+  min-width: 3px;
+  border-radius: 3px;
+  background: var(--p-ink);
+}
+
+.p-storage-bar.p-storage--warn .p-storage-fill {
+  background: var(--p-accent-text);
+}
+
+.p-storage-bar.p-storage--full .p-storage-fill {
+  background: var(--p-danger);
+}
+
+.p-storage-line {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--p-muted);
+}
+
+.p-storage-line.p-storage--warn {
+  font-weight: 600;
+  color: var(--p-accent-deep);
+}
+
+.p-storage-line.p-storage--full {
+  font-weight: 600;
+  color: var(--p-danger);
+}
+
+.p-storage-skel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.p-storage-skel-value {
+  width: 120px;
+  height: 16px;
+}
+
+.p-storage-skel-bar {
+  height: 6px;
+}
+
+.p-storage-skel-line {
+  width: 180px;
+  height: 12px;
+}
+
 .p-chips {
   display: flex;
   flex-wrap: wrap;

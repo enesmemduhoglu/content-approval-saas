@@ -1,7 +1,7 @@
 import type { Prisma, PublishSettings } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { ClientSession } from "@/lib/client-auth";
-import { videoKey } from "@/lib/storage-r2";
+import { clientStoragePrefix, prefixUsage, videoKey, type PrefixUsage } from "@/lib/storage-r2";
 import { planMove, positionAtEnd, type MoveTarget } from "@/lib/portal-order";
 import { renumberPositions } from "@/lib/queue";
 import type { PublishSettingsInput } from "@/lib/portal-validation";
@@ -685,6 +685,11 @@ export function getClientScopedDb(session: ClientSession) {
         });
         return result.count === 1;
       },
+    },
+
+    storage: {
+      /** R2'de YALNIZCA bu müşterinin önekindeki kullanım (Ayarlar göstergesi). */
+      usage: (): Promise<PrefixUsage> => prefixUsage(clientStoragePrefix(clientId)),
     },
 
     settings: {
