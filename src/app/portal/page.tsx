@@ -20,7 +20,10 @@ import { IconPlay } from "@/components/portal/icons";
 
 export const dynamic = "force-dynamic";
 
-async function cardsFor(videos: PortalVideo[], clientId: string): Promise<QueueCard[]> {
+async function cardsFor(
+  videos: PortalVideo[],
+  clientId: string
+): Promise<(QueueCard & { rejectionReason: string | null })[]> {
   const cards = await Promise.all(videos.map((v) => toCard(v, clientId)));
   // İstemci bileşenine yalnızca kartın ihtiyacı olan alanlar geçer.
   return cards.map((c) => ({
@@ -31,6 +34,7 @@ async function cardsFor(videos: PortalVideo[], clientId: string): Promise<QueueC
     publishStatus: c.publishStatus,
     publishError: c.publishError,
     coverUrl: c.coverUrl,
+    rejectionReason: c.rejectionReason,
   }));
 }
 
@@ -220,7 +224,8 @@ export default async function PortalQueuePage() {
             </h2>
           </div>
           <p className="p-hint">
-            Kuyruktan çıkardığın ya da reddettiğin videolar. Bunlar yayınlanmaz; istemediğini silebilirsin.
+            Kuyruktan çıkardığın ya da reddettiğin videolar yayınlanmaz. Kuyruğa geri alabilir ya da
+            silebilirsin.
           </p>
           <OutsideList cards={outsideCards} requireApproval={requireApproval} />
         </section>

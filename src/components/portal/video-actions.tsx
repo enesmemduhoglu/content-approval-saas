@@ -1,11 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { CAPTION_MAX_LENGTH } from "@/lib/validation";
 import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
-import { IconCheck, IconRefresh, IconSparkle, IconTrash } from "@/components/portal/icons";
+import { RestoreSheet, restoreVideo } from "@/components/portal/restore-sheet";
+import { IconCheck, IconRefresh, IconSparkle, IconTrash, IconUndo } from "@/components/portal/icons";
+
+/** Redden sonra "Geri al"ın açık kaldığı süre (sn). */
+export const UNDO_SECONDS = 8;
 
 export type VideoActionsProps = {
   id: string;
@@ -40,6 +44,10 @@ export function VideoActions(props: VideoActionsProps) {
   const [rejecting, setRejecting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  /** Redden hemen sonra: videonun eski sırası ve kalan saniye. */
+  const [undo, setUndo] = useState<{ position: number | null; left: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,8 +59,14 @@ export function VideoActions(props: VideoActionsProps) {
   const captionBusy = props.captionStatus === "pending" || props.captionStatus === "generating";
   const canEditCaption = editable && (captionReady || props.captionStatus === "failed");
 
-  async function call(path: string, body: unknown, done: string, method = "POST") {
-    if (busy) return;
+  /** Başarıda yanıt gövdesini döner (red eski sırayı taşıyor), hatada `null`. */
+  async function call(
+    path: string,
+    body: unknown,
+    done: string,
+    method = "POST"
+  ): Promise<Record<string, unknown> | null> {
+    if (busy) return null;
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -65,17 +79,81 @@ export function VideoActions(props: VideoActionsProps) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Bir hata oluştu, tekrar dene");
-        return;
+        return null;
       }
       setMessage(done);
       setConfirmRegenerate(false);
       setRejecting(false);
       router.refresh();
+      return data;
     } catch {
       setError("Bağlantı hatası, tekrar dene");
+      return null;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function reject() {
+    const data = await call(
+      "/decision",
+      { action: "reject", reason: reason.trim() || undefined },
+      "Video reddedildi ve kuyruktan çıkarıldı"
+    );
+    if (!data) return;
+    // Mesaj yerine "Geri al" bildirimi: yanlışlıkla reddetmenin fark edildiği an bu.
+    setMessage(null);
+    const previous = typeof data.previousPosition === "number" ? data.previousPosition : null;
+    setUndo({ position: previous, left: UNDO_SECONDS });
+  }
+
+  // Geri sayım; süre bitince bildirim kalkar, çubukta "Sil / Kuyruğa geri al" kalır.
+  const undoActive = undo !== null;
+  useEffect(() => {
+    if (!undoActive) return;
+    const timer = setInterval(() => {
+      setUndo((current) => (current && current.left > 1 ? { ...current, left: current.left - 1 } : null));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [undoActive]);
+
+  /**
+   * Reddi geri al. `position` yalnızca redden hemen sonraki "Geri al"da dolu
+   * (video eski yerine döner); detaydan/listeden geri almada video sona eklenir.
+   */
+  async function restore(approve: boolean, position: number | null, done: string) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    setRestoreError(null);
+    const result = await restoreVideo(props.id, approve, position);
+    setBusy(false);
+    if (!result.ok) {
+      if (restoring) setRestoreError(result.error);
+      else setError(result.error);
+      return;
+    }
+    setUndo(null);
+    setRestoring(false);
+    setMessage(done);
+    router.refresh();
+  }
+
+  const closeRestore = useCallback(() => {
+    setRestoring(false);
+    setRestoreError(null);
+  }, []);
+
+  function startRestore() {
+    setMessage(null);
+    setError(null);
+    // Onay kapalıyken "onaylı / onay bekleyen" ayrımı anlamsız: doğrudan geri al.
+    if (!props.requireApproval) {
+      void restore(false, null, "Video kuyruğa geri alındı");
+      return;
+    }
+    setRestoring(true);
   }
 
   const closeDelete = useCallback(() => {
@@ -102,11 +180,15 @@ export function VideoActions(props: VideoActionsProps) {
   // "Kuyruğa geri al": yayınlanmayacak bir videoyu onaylamak anlamsız, önce
   // kuyruğa geri alınır.
   const outside = !props.inQueue && props.canDelete;
-  const pendingDecision = props.status === "pending" && !outside;
+  const rejected = props.status === "rejected";
+  // `undo` açıkken sayfa henüz tazelenmemiş olabilir (status hâlâ `pending`):
+  // karar düğmeleri "Geri al"ın yanında görünmesin.
+  const pendingDecision = props.status === "pending" && !outside && undo === null;
   const canRetry = editable && props.publishStatus === "failed" && props.inQueue;
   const dirty = caption.trim() !== props.caption.trim();
   // Mesajlar da çubukta: sonucu, dokunulan düğmenin hemen üstünde görsün.
-  const showBar = pendingDecision || canRetry || outside || message !== null || error !== null;
+  const showBar =
+    pendingDecision || canRetry || outside || undo !== null || message !== null || error !== null;
 
   return (
     <>
@@ -160,6 +242,9 @@ export function VideoActions(props: VideoActionsProps) {
               >
                 Caption&apos;ı kaydet
               </button>
+            )}
+            {rejected && (
+              <p className="p-hint">Kuyruğa geri alınca caption&apos;ı düzenleyebilirsin.</p>
             )}
           </div>
         </>
@@ -260,6 +345,22 @@ export function VideoActions(props: VideoActionsProps) {
         <DeleteSheet busy={busy} error={deleteError} onCancel={closeDelete} onConfirm={confirmDelete} />
       )}
 
+      {restoring && (
+        <RestoreSheet
+          captionReady={captionReady}
+          busy={busy}
+          error={restoreError}
+          onCancel={closeRestore}
+          onChoose={(approve) =>
+            restore(
+              approve,
+              null,
+              approve ? "Onaylandı ve kuyruğa alındı" : "Kuyruğa alındı · onayını bekliyor"
+            )
+          }
+        />
+      )}
+
       {showBar && (
         <div className="p-actionbar">
           <div className="p-actionbar-inner">
@@ -309,13 +410,7 @@ export function VideoActions(props: VideoActionsProps) {
                     type="button"
                     className="p-btn p-btn--solid-danger p-btn--grow"
                     disabled={busy}
-                    onClick={() =>
-                      call(
-                        "/decision",
-                        { action: "reject", reason: reason.trim() || undefined },
-                        "Video reddedildi ve kuyruktan çıkarıldı"
-                      )
-                    }
+                    onClick={() => void reject()}
                   >
                     Reddet
                   </button>
@@ -349,7 +444,26 @@ export function VideoActions(props: VideoActionsProps) {
                 </button>
               </div>
             )}
-            {outside && (
+            {undo && (
+              <div className="p-undo" role="status">
+                <span className="p-undo-text">
+                  <strong>Video reddedildi</strong>
+                  <span>Kuyruktan çıkarıldı · {undo.left} sn içinde geri alabilirsin</span>
+                </span>
+                <button
+                  type="button"
+                  className="p-undo-btn"
+                  disabled={busy}
+                  onClick={() =>
+                    restore(false, undo.position, "Red geri alındı · video eski yerine döndü")
+                  }
+                >
+                  <IconUndo size={16} />
+                  Geri al
+                </button>
+              </div>
+            )}
+            {outside && !undo && (
               <div className="p-actionbar-row">
                 <button
                   type="button"
@@ -364,15 +478,16 @@ export function VideoActions(props: VideoActionsProps) {
                   <IconTrash size={18} />
                   Sil
                 </button>
-                {/* Reddedilen video kuyruğa geri alınamaz (`moveToEnd`); yalnızca silinir. */}
-                {editable && (
+                {(editable || rejected) && (
                   <button
                     type="button"
                     className="p-btn p-btn--primary p-btn--grow"
                     disabled={busy}
-                    onClick={() => call("/to-end", {}, "Video kuyruğa geri alındı")}
+                    onClick={() =>
+                      rejected ? startRestore() : call("/to-end", {}, "Video kuyruğa geri alındı")
+                    }
                   >
-                    <IconRefresh size={18} />
+                    <IconUndo size={18} />
                     Kuyruğa geri al
                   </button>
                 )}

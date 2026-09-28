@@ -22,6 +22,8 @@ const ACTION_LABELS: Record<string, string> = {
   // Revizyon talebi de müşterinin verdiği bir karardır (F10) — anlaşmazlıkta
   // "ben sadece düzeltme istemiştim" cümlesinin dayanağı bu satır.
   revision_requested: "Müşteri revizyon istedi",
+  // Portal: yanlışlıkla reddedilen video kuyruğa geri alındı.
+  restored: "Müşteri reddi geri aldı",
 };
 
 export type AuditEntry = {

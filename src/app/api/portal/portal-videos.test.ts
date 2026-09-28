@@ -47,6 +47,7 @@ import { POST as decideVideo } from "./videos/[id]/decision/route";
 import { POST as removeVideo } from "./videos/[id]/remove/route";
 import { POST as retryVideo } from "./videos/[id]/retry/route";
 import { POST as toEndVideo } from "./videos/[id]/to-end/route";
+import { POST as restoreVideo } from "./videos/[id]/restore/route";
 import { POST as regenerateVideo } from "./videos/[id]/regenerate/route";
 
 let agencyId: string;
@@ -533,6 +534,90 @@ describe("POST decision — onay yayın tetiklemez", () => {
     const v = await createPortalPost(agencyId, clientId);
     const res = await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "publish" }), idParams(v.id));
     expect(res.status).toBe(400);
+  });
+
+  it("red yanıtı videonun eski sırasını döner (portaldaki 'Geri al' için)", async () => {
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: 7 });
+    const res = await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "reject" }), idParams(v.id));
+    expect(await res.json()).toEqual({ status: "rejected", previousPosition: 7 });
+  });
+});
+
+// ─── Reddi geri al ────────────────────────────────────────────────────────
+
+describe("POST restore — reddedilen videoyu kuyruğa geri alır", () => {
+  const restore = (id: string, body: unknown, extra: { origin?: string } = {}) =>
+    restoreVideo(post(`/api/portal/videos/${id}/restore`, body, extra), idParams(id));
+
+  async function rejectedAt(position: number) {
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: position });
+    await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "reject", reason: "Ses kötü" }), idParams(v.id));
+    return v;
+  }
+
+  it("'Geri al' (position ile): onay bekler hâlde ESKİ yerine döner, red nedeni temizlenir", async () => {
+    const a = await createPortalPost(agencyId, clientId, { queuePosition: 1 });
+    const b = await rejectedAt(2);
+    const c = await createPortalPost(agencyId, clientId, { queuePosition: 3 });
+
+    const res = await restore(b.id, { approve: false, position: 2 });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "pending" });
+    expect(await queueOrder()).toEqual([a.id, b.id, c.id]);
+    const row = await db.post.findUniqueOrThrow({ where: { id: b.id } });
+    expect(row).toMatchObject({ status: "pending", rejectionReason: null });
+    const actions = (await db.approvalAudit.findMany({ where: { postId: b.id } })).map((r) => r.action);
+    expect(actions.sort()).toEqual(["rejected", "restored"]);
+  });
+
+  it("position yoksa sona eklenir; approve: true onaylı döner ve defterde 'approved' da var", async () => {
+    const v = await rejectedAt(1);
+    const other = await createPortalPost(agencyId, clientId, { queuePosition: 2 });
+
+    expect((await restore(v.id, { approve: true })).status).toBe(200);
+    expect(await queueOrder()).toEqual([other.id, v.id]);
+    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("approved");
+    const actions = (await db.approvalAudit.findMany({ where: { postId: v.id } })).map((r) => r.action);
+    expect(actions.sort()).toEqual(["approved", "rejected", "restored"]);
+  });
+
+  it("caption hazır değilken onaylı dönüş 409, video reddedilmiş kalır", async () => {
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: null, status: "rejected", captionStatus: "failed" });
+    const res = await restore(v.id, { approve: true });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("Caption hazır olmadan video onaylanamaz");
+    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("rejected");
+    // Onay bekleyen olarak alınabilir.
+    expect((await restore(v.id, { approve: false })).status).toBe(200);
+  });
+
+  it("reddedilmemiş video 409 (kuyruktaki de, çıkarılmış olan da — onun yolu 'sona at')", async () => {
+    const queued = await createPortalPost(agencyId, clientId, { queuePosition: 1 });
+    const removed = await createPortalPost(agencyId, clientId, { queuePosition: null });
+    expect((await restore(queued.id, { approve: false })).status).toBe(409);
+    expect((await restore(removed.id, { approve: false })).status).toBe(409);
+    expect(await db.approvalAudit.count()).toBe(0);
+  });
+
+  it("ikinci geri alma 409 (koşullu UPDATE), defterde tek 'restored'", async () => {
+    const v = await rejectedAt(1);
+    expect((await restore(v.id, { approve: false })).status).toBe(200);
+    expect((await restore(v.id, { approve: false })).status).toBe(409);
+    expect(await db.approvalAudit.count({ where: { postId: v.id, action: "restored" } })).toBe(1);
+  });
+
+  it("gövde doğrulaması: approve boolean, position sonlu sayı", async () => {
+    const v = await rejectedAt(1);
+    expect((await restore(v.id, {})).status).toBe(400);
+    expect((await restore(v.id, { approve: "evet" })).status).toBe(400);
+    expect((await restore(v.id, { approve: false, position: "2" })).status).toBe(400);
+    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("rejected");
+  });
+
+  it("başka origin'den 403 (CSRF), video yerinde", async () => {
+    const v = await rejectedAt(1);
+    expect((await restore(v.id, { approve: false }, { origin: "https://evil.example" })).status).toBe(403);
+    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("rejected");
   });
 });
 

@@ -5,33 +5,49 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { PortalBadges, type BadgeInput } from "@/components/portal/portal-badges";
 import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
-import { IconCheck, IconTrash, IconVideo } from "@/components/portal/icons";
+import { RestoreSheet, requeueVideo, restoreVideo } from "@/components/portal/restore-sheet";
+import { IconCheck, IconTrash, IconUndo, IconVideo } from "@/components/portal/icons";
 
 export type OutsideCard = BadgeInput & {
   id: string;
   caption: string;
   coverUrl: string | null;
+  rejectionReason: string | null;
 };
 
 /**
- * Kuyruk dışı: çıkarılan ve reddedilen videolar. Kart detaya gider, sağdaki
- * çöp kutusu kalıcı silmeyi açar (onay sayfasıyla). Silinen kart onaydan
- * hemen sonra listeden düşer; sayfa arkadan tazelenir.
+ * Kuyruk dışı: çıkarılan ve reddedilen videolar. Kart detaya gider; sağda iki
+ * düğme (V7 tasarımı, "Kuyruk dışı · geri al + sil"):
+ *   • geri al — çıkarılan video doğrudan sona döner; reddedilen video için
+ *     "onaylayıp al / onay bekleyen olarak al" sorulur (onay kapalıysa sorulmaz),
+ *   • sil — kalıcı silme, onay sayfasıyla.
+ * İşlem biten kart hemen listeden düşer; sayfa arkadan tazelenir.
  */
 export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; requireApproval: boolean }) {
   const router = useRouter();
   const [removed, setRemoved] = useState<string[]>([]);
   const [asking, setAsking] = useState<OutsideCard | null>(null);
+  const [restoring, setRestoring] = useState<OutsideCard | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const cancel = useCallback(() => {
     setAsking(null);
+    setRestoring(null);
     setError(null);
   }, []);
 
-  async function confirm() {
+  function finish(id: string, text: string) {
+    setRemoved((prev) => [...prev, id]);
+    setAsking(null);
+    setRestoring(null);
+    setError(null);
+    setToast(text);
+    router.refresh();
+  }
+
+  async function confirmDelete() {
     if (!asking || busy) return;
     setBusy(true);
     setError(null);
@@ -41,20 +57,59 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
       setError(result.error);
       return;
     }
-    setRemoved((prev) => [...prev, asking.id]);
-    setAsking(null);
-    setDone(true);
-    router.refresh();
+    finish(asking.id, "Video silindi");
+  }
+
+  async function restoreRejected(card: OutsideCard, approve: boolean) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const result = await restoreVideo(card.id, approve);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    finish(
+      card.id,
+      approve ? "Onaylandı ve kuyruğa alındı" : requireApproval ? "Kuyruğa alındı · onayını bekliyor" : "Kuyruğa geri alındı"
+    );
+  }
+
+  async function startRestore(card: OutsideCard) {
+    setToast(null);
+    setError(null);
+    if (card.status === "rejected") {
+      if (requireApproval) setRestoring(card);
+      else await restoreRejected(card, false);
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    const result = await requeueVideo(card.id);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    finish(card.id, "Kuyruğa geri alındı");
   }
 
   const visible = cards.filter((card) => !removed.includes(card.id));
+  // Sayfa hatası yalnızca bir sayfa (sheet) açık DEĞİLKEN listede; açıksa orada.
+  const listError = !asking && !restoring ? error : null;
 
   return (
     <>
-      {done && (
+      {toast && (
         <p className="p-toast" role="status">
           <IconCheck size={18} />
-          Video silindi
+          {toast}
+        </p>
+      )}
+      {listError && (
+        <p className="p-error" role="alert">
+          {listError}
         </p>
       )}
       {visible.length === 0 ? (
@@ -77,19 +132,35 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
                     <PortalBadges video={card} requireApproval={requireApproval} />
                   </span>
                   <span className="p-hcard-caption">{card.caption || "Caption yok"}</span>
+                  {card.status === "rejected" && card.rejectionReason && (
+                    <span className="p-hcard-reason">Neden: {card.rejectionReason}</span>
+                  )}
                 </span>
               </Link>
-              <button
-                type="button"
-                className="p-trash"
-                aria-label="Videoyu sil"
-                onClick={() => {
-                  setDone(false);
-                  setAsking(card);
-                }}
-              >
-                <IconTrash size={20} />
-              </button>
+              <span className="p-hcard-tools">
+                <button
+                  type="button"
+                  className="p-restore"
+                  aria-label="Kuyruğa geri al"
+                  disabled={busy}
+                  onClick={() => void startRestore(card)}
+                >
+                  <IconUndo size={20} />
+                </button>
+                <button
+                  type="button"
+                  className="p-trash"
+                  aria-label="Videoyu sil"
+                  disabled={busy}
+                  onClick={() => {
+                    setToast(null);
+                    setError(null);
+                    setAsking(card);
+                  }}
+                >
+                  <IconTrash size={20} />
+                </button>
+              </span>
             </li>
           ))}
         </ul>
@@ -101,7 +172,18 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
           busy={busy}
           error={error}
           onCancel={cancel}
-          onConfirm={confirm}
+          onConfirm={confirmDelete}
+        />
+      )}
+      {restoring && (
+        <RestoreSheet
+          caption={restoring.caption}
+          coverUrl={restoring.coverUrl}
+          captionReady={restoring.captionStatus === "ready"}
+          busy={busy}
+          error={error}
+          onCancel={cancel}
+          onChoose={(approve) => void restoreRejected(restoring, approve)}
         />
       )}
     </>
