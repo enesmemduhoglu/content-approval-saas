@@ -174,9 +174,14 @@ gönderilmesi meşru bir kurtarma yolu. Kod tek soru sorar: *içerik şu an canl
 değil yerele düşer. `scripts/` altındaki betikler bu yüzden bağlandıkları hostu sorgudan
 önce doğrular.
 
-**Merge = prod şema göçü.** `vercel-build` = `prisma migrate deploy && next build`.
-Master'a merge edilen migration elle hiçbir şey yapılmadan prod'a uygulanır; ayrı bir
-"deploy et" adımı yok. Şema göçü içeren PR'ı merge etmeden önce boş DB'de **ve prod'a
+**PR'a push = prod şema göçü (merge beklemez).** `vercel-build` = `prisma migrate
+deploy && next build` ve **Preview deploy'ları prod ile AYNI Neon veritabanına
+bağlı**: migration içeren bir commit PR'a push edildiği anda preview build'i onu
+prod'a uygular (V9, #84: `kuyruk_disi_zamani` merge'den ~10 dk önce preview'da
+uygulandı, prod build "No pending migrations" dedi). Master'a merge de aynı şeyi
+yapar; ayrı bir "deploy et" adımı yok. Sonuç: göç **push'tan önce** sınanır, ve
+eski kod yeni şemayla bir süre birlikte çalışır — göç geriye uyumlu (toplayıcı)
+olmalı. Şema göçü içeren PR'ı merge etmeden önce boş DB'de **ve prod'a
 benzeyen veriyle** sına — veri göçü (backfill) gereken bir migration boş DB'de sorunsuz
 görünüp prod'u kırabilir.
 
