@@ -6,7 +6,20 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 
-- **Son güncelleme:** 2026-09-28
+- **Son güncelleme:** 2026-09-28 (analiz geliştirme oturumu)
+- **Portal analiz iyileştirmeleri (`feat/portal-analiz-iyilestirmeleri`, taslak PR #83, MERGE EDİLMEDİ):**
+  2026-09-28 analiz raporundaki öncelik sırasıyla:
+  - Yükleme sağlamlığı (octet-stream .mov, uygunsuz dosya tek satırda, seçimde kapak), caption
+    sağlamlığı (sessiz video, kareler base64), hız (kararlı imzalı URL, staleTimes, oturum `cache()`).
+  - Küçük düzeltmeler: yüzen/kendiliğinden kalkan bildirim, "Saat ekle" boş saat, ölü giriş linki.
+  - Tasarım turu (V7 kanvası "Güncelleme 28 Eyl (3)"): Instagram bağlantı uyarısı, okunur yayın
+    hataları, onayla → sıradakine geç, "Onaylarsan: <slot>", not çipleri, aynı video uyarısı.
+  - Günlük özette "kuyruk bugün/yarın bitiyor" (e-posta + bildirim).
+  - **Şema göçü var:** `20260928100000_kaynak_dosya` (Post.sourceSize/sourceName, boş olabilen).
+  - Yerel prod build + test DB ile tarayıcıda doğrulandı; tam paket 1471/1471 yeşil.
+  - Bilinçli olarak YAPILMADI: SW'de /_next/static önbelleği (prod zaten immutable + edge HIT;
+    sw.js "değişmez" kuralını bozardı). Küçük kapak (thumb) ölçülmedi — sıradaki iş.
+  - Merge kararı kullanıcıda.
 - **Portal: reddi geri alma (`feat/portal-red-geri-al`, 2026-09-28):** kullanıcı
   "yanlışlıkla reddedilmiş olabilir, niye sadece sil" dedi; tasarım V7
   kanvasının "Güncelleme 28 Eyl (2)" satırında (3 ekran), kullanıcı onayladı.
