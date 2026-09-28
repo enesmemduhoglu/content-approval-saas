@@ -47,5 +47,9 @@ export async function POST(
         : "Bu video için zaten karar verildi";
     return NextResponse.json({ error, status: current.status }, { status: 409 });
   }
-  return NextResponse.json({ status: action === "approve" ? "approved" : "rejected" });
+  // Redde eski sıra da döner: portaldaki "Geri al" videoyu tam o yere koyar
+  // (`/restore` gövdesindeki `position`).
+  return action === "approve"
+    ? NextResponse.json({ status: "approved" })
+    : NextResponse.json({ status: "rejected", previousPosition: decided.previousPosition });
 }

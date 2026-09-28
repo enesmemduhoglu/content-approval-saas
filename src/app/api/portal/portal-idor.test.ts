@@ -33,6 +33,7 @@ import { DELETE as deleteVideo, GET as getVideo, PATCH as patchVideo } from "./v
 import { POST as completeVideo } from "./videos/[id]/complete/route";
 import { POST as moveVideo } from "./videos/[id]/move/route";
 import { POST as decideVideo } from "./videos/[id]/decision/route";
+import { POST as restoreVideo } from "./videos/[id]/restore/route";
 import { POST as removeVideo } from "./videos/[id]/remove/route";
 import { POST as retryVideo } from "./videos/[id]/retry/route";
 import { POST as toEndVideo } from "./videos/[id]/to-end/route";
@@ -229,6 +230,40 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
     expect(res.status).toBe(404);
     expect((await snapshot(ctx.postB.id)).captionStatus).toBe("ready");
     expect(enqueueCaption).not.toHaveBeenCalled();
+  });
+
+  it("restore: B'nin reddedilen videosu A'nın oturumuyla geri alınamaz — 404, video reddedilmiş kalır", async () => {
+    const rejectedB = await createPortalPost(ctx.agencyB.id, ctx.clientB.id, {
+      queuePosition: null,
+      status: "rejected",
+    });
+    const res = await restoreVideo(
+      portalRequest(`/api/portal/videos/${rejectedB.id}/restore`, {
+        method: "POST",
+        cookie: ctx.cookieA,
+        body: { approve: true },
+      }),
+      idParams(rejectedB.id)
+    );
+    expect(res.status).toBe(404);
+    expect(await snapshot(rejectedB.id)).toMatchObject({ status: "rejected", queuePosition: null });
+    expect(await db.approvalAudit.count({ where: { postId: rejectedB.id } })).toBe(0);
+  });
+
+  it("restore: ajansın (source: agency) reddedilen postu portaldan geri alınamaz", async () => {
+    const agencyPost = await db.post.create({
+      data: { agencyId: ctx.agencyA.id, clientId: ctx.clientA.id, caption: "Ajans postu", status: "rejected" },
+    });
+    const res = await restoreVideo(
+      portalRequest(`/api/portal/videos/${agencyPost.id}/restore`, {
+        method: "POST",
+        cookie: ctx.cookieA,
+        body: { approve: false },
+      }),
+      idParams(agencyPost.id)
+    );
+    expect(res.status).toBe(404);
+    expect(await snapshot(agencyPost.id)).toMatchObject({ status: "rejected" });
   });
 
   it("DELETE: B'nin kuyruk dışı videosu silinemez — 404, satır ve R2 nesnesi yerinde", async () => {

@@ -581,7 +581,7 @@ model ApprovalAudit {
   post      Post     @relation(fields: [postId], references: [id])
   // String olduğu için yeni değer migration istemiyor — "revision_requested"
   // (F10) bu yüzden buraya sorunsuz eklendi.
-  action    String // "approved" | "rejected" | "revision_requested"
+  action    String // "approved" | "rejected" | "revision_requested" | "restored" (portal: reddi geri alma)
   ip        String
   createdAt DateTime @default(now())
 

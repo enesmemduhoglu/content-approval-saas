@@ -7,6 +7,20 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 
 - **Son güncelleme:** 2026-09-28
+- **Portal: reddi geri alma (`feat/portal-red-geri-al`, 2026-09-28):** kullanıcı
+  "yanlışlıkla reddedilmiş olabilir, niye sadece sil" dedi; tasarım V7
+  kanvasının "Güncelleme 28 Eyl (2)" satırında (3 ekran), kullanıcı onayladı.
+  - `POST /api/portal/videos/[id]/restore` + `posts.restoreRejected`:
+    `{ approve, position? }` — onaylı (caption hazır olmalı) ya da onay bekler
+    hâlde kuyruğa döner; `position` yoksa sona. Defterde `restored` (+ onaylı
+    dönüşte `approved`); `audit-trail` etiketi "Müşteri reddi geri aldı".
+  - Red yanıtı artık `previousPosition` döner: detayda redden sonra 8 sn
+    "Geri al" bildirimi videoyu ESKİ yerine, onay bekler hâlde koyar.
+  - Detay: reddedilen videoda Sil + Kuyruğa geri al → "Onaylayıp kuyruğa al /
+    Onay bekleyen olarak al" sayfası (onay kapalıyken sorulmaz, doğrudan alınır).
+  - Kuyruk dışı listesi: her kartta geri al + sil; reddedilende red nedeni.
+    Çıkarılmış (reddedilmemiş) video geri alda doğrudan `to-end`.
+- **#80 ve #81 merge edildi (2026-09-28)**; gereksiz worktree/branch/test DB'leri temizlendi.
 - **Portal: silme + kuyruk süresi + kapak (`feat/portal-sil-kapak-sure`, 2026-09-28):**
   kullanıcı isteği üç iş, tasarım önce V7 kanvasına eklendi
   (https://claude.ai/artifact/WUckhyutaTLTtwo7V5CpYC, "Güncelleme 28 Eyl" satırı;
@@ -68,8 +82,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 - **Merge izni:** #79'dan sonra Claude Code'un otomatik izin denetimi
   "incelemesiz merge" diye uyardı; aşağıdaki yazılı izne rağmen yeni
   oturumlar merge'den önce kullanıcıya sormalı.
-- **Yarım kalan:** `feat/portal-sil-kapak-sure` PR'ı (merge kullanıcı onayıyla;
-  şema göçü yok).
+- **Yarım kalan:** `feat/portal-red-geri-al` PR'ı (merge kullanıcı onayıyla;
+  şema göçü yok — `ApprovalAudit.action` String, `restored` göç istemiyor).
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
   fonksiyonlar beklemeden ilerleyebilir.

@@ -298,15 +298,20 @@ export function getClientScopedDb(session: ClientSession) {
        * bekler (README §8). Onay için caption hazır olmalı — henüz görülmemiş
        * bir metni onaylamak, `requireApproval` güvencesini boşa düşürürdü.
        * Red videoyu kuyruktan da çıkarır: "bunu yayınlama" kararı sırada yer
-       * tutmamalı.
+       * tutmamalı. Redde videonun ESKİ sırası döner: portal birkaç saniyelik
+       * "Geri al" ile videoyu tam o yere koyabilsin (`restoreRejected`).
        */
       decide: (
         id: string,
         action: "approve" | "reject",
         ip: string,
         reason: string | null
-      ): Promise<boolean> =>
+      ): Promise<{ previousPosition: number | null } | null> =>
         db.$transaction(async (tx) => {
+          const before = await tx.post.findFirst({
+            where: { id, ...scope },
+            select: { queuePosition: true },
+          });
           const result = await tx.post.updateMany({
             where:
               action === "approve"
@@ -317,9 +322,54 @@ export function getClientScopedDb(session: ClientSession) {
                 ? { status: "approved" }
                 : { status: "rejected", rejectionReason: reason, queuePosition: null },
           });
-          if (result.count !== 1) return false;
+          if (result.count !== 1) return null;
           await tx.approvalAudit.create({
             data: { postId: id, action: action === "approve" ? "approved" : "rejected", ip },
+          });
+          return { previousPosition: before?.queuePosition ?? null };
+        }),
+
+      /**
+       * Reddi geri alır: video kuyruğa döner, onaylı (`approve`) ya da onay
+       * bekler hâlde. `position` verilirse o sıraya (red hemen ardından "Geri
+       * al" — `decide`ın döndürdüğü eski yer), verilmezse sona. Onaylı dönüş
+       * için caption hazır olmalı (`decide` ile aynı kural). Defterde
+       * `restored` satırı; onaylı dönüşte ayrıca `approved`.
+       */
+      restoreRejected: (
+        id: string,
+        input: { approve: boolean; position: number | null; ip: string }
+      ): Promise<boolean> =>
+        db.$transaction(async (tx) => {
+          let queuePosition = input.position;
+          if (queuePosition === null) {
+            const agg = await tx.post.aggregate({
+              where: { ...scope, queuePosition: { not: null } },
+              _max: { queuePosition: true },
+            });
+            queuePosition = positionAtEnd(agg._max.queuePosition);
+          }
+          const result = await tx.post.updateMany({
+            where: {
+              id,
+              ...scope,
+              status: "rejected",
+              queuePosition: null,
+              publishStatus: EDITABLE_PUBLISH,
+              ...(input.approve ? { captionStatus: "ready" as const } : {}),
+            },
+            data: {
+              status: input.approve ? "approved" : "pending",
+              rejectionReason: null,
+              queuePosition,
+            },
+          });
+          if (result.count !== 1) return false;
+          await tx.approvalAudit.createMany({
+            data: [
+              { postId: id, action: "restored", ip: input.ip },
+              ...(input.approve ? [{ postId: id, action: "approved", ip: input.ip }] : []),
+            ],
           });
           return true;
         }),

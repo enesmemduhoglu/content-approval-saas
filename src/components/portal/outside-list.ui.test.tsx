@@ -17,8 +17,11 @@ const card = (id: string, overrides: Partial<OutsideCard> = {}): OutsideCard => 
   captionStatus: "ready",
   publishStatus: "idle",
   coverUrl: null,
+  rejectionReason: null,
   ...overrides,
 });
+
+const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
 
 const fetchMock = vi.fn();
 
@@ -110,6 +113,78 @@ describe("OutsideList", () => {
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(listed()).toEqual(["a"]);
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("çıkarılan video: geri al doğrudan sona alır (to-end), kart düşer", async () => {
+    fetchMock.mockResolvedValue(ok());
+    render(<OutsideList cards={[card("a"), card("b")]} requireApproval />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Kuyruğa geri al" })[0]);
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Kuyruğa geri alındı"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/portal/videos/a/to-end", expect.objectContaining({ method: "POST" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(listed()).toEqual(["b"]);
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("reddedilen video: red nedeni kartta; geri al iki seçenekli sayfayı açar", async () => {
+    fetchMock.mockResolvedValue(ok());
+    render(
+      <OutsideList cards={[card("r", { status: "rejected", rejectionReason: "Ses kötü" })]} requireApproval />
+    );
+    expect(screen.getByText("Neden: Ses kötü")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Kuyruğa geri al" }));
+    const dialog = screen.getByRole("dialog", { name: "Kuyruğa geri al" });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /Onaylayıp kuyruğa al/ }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Onaylandı ve kuyruğa alındı"));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/portal/videos/r/restore");
+    expect(JSON.parse(init.body)).toEqual({ approve: true });
+    expect(listed()).toEqual([]);
+  });
+
+  it("reddedilen video, caption hazır değil: 'Onaylayıp al' kapalı, onay bekleyen olarak alınabilir", async () => {
+    fetchMock.mockResolvedValue(ok());
+    render(<OutsideList cards={[card("r", { status: "rejected", captionStatus: "failed" })]} requireApproval />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Kuyruğa geri al" }));
+    const dialog = screen.getByRole("dialog");
+    expect(
+      (within(dialog).getByRole("button", { name: /Onaylayıp kuyruğa al/ }) as HTMLButtonElement).disabled
+    ).toBe(true);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /Onay bekleyen olarak al/ }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("onayını bekliyor"));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ approve: false });
+  });
+
+  it("onay kapalıyken reddedilen video seçim sorulmadan geri alınır", async () => {
+    fetchMock.mockResolvedValue(ok());
+    render(<OutsideList cards={[card("r", { status: "rejected" })]} requireApproval={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Kuyruğa geri al" }));
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Kuyruğa geri alındı"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ approve: false });
+  });
+
+  it("geri alma hatası seçim sayfasında görünür, kart kalır", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: "Bu video reddedilmiş değil" }), { status: 409 })
+    );
+    render(<OutsideList cards={[card("r", { status: "rejected" })]} requireApproval />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Kuyruğa geri al" }));
+    fireEvent.click(screen.getByRole("button", { name: /Onay bekleyen olarak al/ }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Bu video reddedilmiş değil"));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(listed()).toEqual(["r"]);
   });
 
   it("kapak yoksa yer tutucu, varsa görsel çizilir", () => {
