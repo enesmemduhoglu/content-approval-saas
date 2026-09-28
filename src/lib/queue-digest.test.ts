@@ -143,6 +143,8 @@ describe("günlük hatırlatma telefon bildirimi (V7c — e-postaya EK kanal)", 
     const { agency, client } = await seed({ slots: ["19:00"], requireApproval: false });
     await createQueuePost(agency.id, client.id, { caption: "Bugünkü video" });
     await createQueuePost(agency.id, client.id, { status: "pending", caption: "Yarınki video" });
+    // Üçüncü gün de dolu: kuyruk azalmıyor, bildirim olağan özet.
+    await createQueuePost(agency.id, client.id, { caption: "Öbür günkü video" });
 
     await runQueueDigest(NOW);
 
@@ -179,5 +181,59 @@ describe("günlük hatırlatma telefon bildirimi (V7c — e-postaya EK kanal)", 
     await runQueueDigest(NOW);
     await runQueueDigest(NOW);
     expect(mockPush).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("kuyruk azalıyor (2026-09-28 analizi)", () => {
+  it("son onaylı video yarın: gövdede uyarı + boş geçecek ilk slot; konu yarının videosu", async () => {
+    const { agency, client } = await seed({ slots: ["19:00"], requireApproval: false });
+    await createQueuePost(agency.id, client.id, { caption: "Bugünkü video" });
+    await createQueuePost(agency.id, client.id, { caption: "Yarınki video" });
+
+    await runQueueDigest(NOW);
+
+    const mail = mockRaw.mock.calls[0][0];
+    expect(mail.subject).toBe("Yarın 1 video yayınlanacak");
+    expect(mail.text).toContain("Kuyruk yarın bitiyor: yeni video yüklemezsen");
+    // Boş geçecek ilk slot: 27 Eylül 19:00 (İstanbul).
+    expect(mail.text).toContain("27 Eylül");
+    expect(mockPush).toHaveBeenCalledWith(
+      client.id,
+      expect.objectContaining({
+        title: "Kuyruk yarın bitiyor",
+        body: "Yeni video yüklemezsen Pazar 19:00 yayını boş geçer.",
+        url: "/portal/yukle",
+      })
+    );
+  });
+
+  it("son video bugün: yarın anlatacak bir şey olmasa da özet gider, konu 'bugün bitiyor'", async () => {
+    const { agency, client } = await seed({ slots: ["19:00"], requireApproval: false });
+    await createQueuePost(agency.id, client.id, { caption: "Bugünkü video" });
+
+    const stats = await runQueueDigest(NOW);
+
+    expect(stats.sent).toBe(1);
+    const mail = mockRaw.mock.calls[0][0];
+    expect(mail.subject).toBe("Kuyruk bugün bitiyor");
+    expect(mail.text).toContain("26 Eylül");
+    expect(mockPush.mock.calls[0][1]).toMatchObject({ title: "Kuyruk bugün bitiyor", url: "/portal/yukle" });
+  });
+
+  it("onay açık, onaylı video yok ama bekleyen var: 'azalıyor' değil, bekleyen sayısı", async () => {
+    const { agency, client } = await seed({ requireApproval: true });
+    await createQueuePost(agency.id, client.id, { status: "pending" });
+    await runQueueDigest(NOW);
+    const mail = mockRaw.mock.calls[0][0];
+    expect(mail.subject).toBe("1 video onayını bekliyor");
+    expect(mail.text).not.toContain("bitiyor");
+  });
+
+  it("3 gün ve üstü yetiyorsa uyarı yok", async () => {
+    const { agency, client } = await seed({ slots: ["19:00"], requireApproval: false });
+    for (let i = 0; i < 3; i++) await createQueuePost(agency.id, client.id);
+    await runQueueDigest(NOW);
+    expect(mockRaw.mock.calls[0][0].text).not.toContain("bitiyor");
+    expect(mockPush.mock.calls[0][1].title).toBe("Yarın 19:00'da yayınlanacak");
   });
 });

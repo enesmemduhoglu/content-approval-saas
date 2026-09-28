@@ -84,6 +84,12 @@ export function PortalLoginForm() {
 export function PortalVerifyButton({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Link kalıcı olarak geçersiz (kullanılmış / süresi dolmuş): aynı düğmeye
+   * yeniden basmak yine başarısız olur. Ana eylem "Yeni kod iste"ye döner
+   * (2026-09-28 analizi). Geçici hatada (ağ, 429, 5xx) düğme yerinde kalır.
+   */
+  const [dead, setDead] = useState(false);
 
   async function verify() {
     if (busy) return;
@@ -98,6 +104,7 @@ export function PortalVerifyButton({ token }: { token: string }) {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? "Giriş yapılamadı");
+        setDead(res.status !== 429 && res.status < 500);
         return;
       }
       // Tam yükleme: layout meta etiketleri (iOS ana ekran adı/ikonu) oturumla
@@ -114,17 +121,29 @@ export function PortalVerifyButton({ token }: { token: string }) {
     <div className="p-login-foot">
       {error && (
         <p className="p-error" role="alert">
-          {error} <a href="/portal/giris">Yeni kod iste</a>
+          {error}
+          {!dead && (
+            <>
+              {" "}
+              <a href="/portal/giris">Yeni kod iste</a>
+            </>
+          )}
         </p>
       )}
-      <button
-        type="button"
-        className="p-btn p-btn--primary p-btn--lg p-btn--block"
-        disabled={busy}
-        onClick={verify}
-      >
-        {busy ? "Giriş yapılıyor…" : "Portala giriş yap"}
-      </button>
+      {dead ? (
+        <a href="/portal/giris" className="p-btn p-btn--primary p-btn--lg p-btn--block">
+          Yeni kod iste
+        </a>
+      ) : (
+        <button
+          type="button"
+          className="p-btn p-btn--primary p-btn--lg p-btn--block"
+          disabled={busy}
+          onClick={verify}
+        >
+          {busy ? "Giriş yapılıyor…" : "Portala giriş yap"}
+        </button>
+      )}
     </div>
   );
 }

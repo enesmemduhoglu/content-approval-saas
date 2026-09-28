@@ -2,8 +2,11 @@ import {
   queueRecipient,
   portalUrl,
   sendQueueDigestEmail,
+  type DigestRunway,
   type DigestUpcoming,
 } from "@/lib/email-queue";
+import { queueRunway } from "@/lib/portal-schedule";
+import { RUNWAY_LOW_DAYS } from "@/lib/portal-format";
 import { isEligible, localParts, projectSchedule } from "@/lib/queue";
 import { findQueueClients, loadQueue } from "@/lib/queue-db";
 import { notifyClientUsers } from "@/lib/push";
@@ -17,7 +20,11 @@ import { MAX_GET_URL_TTL_SECONDS, keyBelongsToClient, signGetUrl } from "@/lib/s
  *  (a) onay AÇIK müşteride "N video onayını bekliyor" — her video için ayrı
  *      mail yerine günde bir özet;
  *  (b) her iki modda "yarın HH:MM'de şu yayınlanacak" + kapak karesi — onay
- *      kapalıyken kullanıcının son görme ve sırayı değiştirme şansı bu.
+ *      kapalıyken kullanıcının son görme ve sırayı değiştirme şansı bu;
+ *  (c) onaylı videolar en fazla `RUNWAY_LOW_DAYS` gün yetiyorsa "kuyruk
+ *      bugün/yarın bitiyor" — portaldaki göstergeyle aynı hesap (`queueRunway`).
+ *      Ayrı bir cron ve "gönderildi" damgası yerine günlük özete eklendi:
+ *      zaten günde bir kez gidiyor.
  * İkisini ayrı ayrı göndermek aynı kutuya aynı saatte iki mail demekti.
  *
  * `pending-reminders` günlük cron'undan çağrılır (Vercel Hobby: günde bir,
@@ -114,10 +121,18 @@ export async function runQueueDigest(now: Date = new Date()): Promise<QueueDiges
         });
       }
 
+      // Kuyruk bitmek üzere mi (c). Hiç onaylı video yoksa (`approved: null`)
+      // bu değil: o durumu slotun kendisi "boş kaldı" diye anlatıyor.
+      const approved = queueRunway(queue, settings, now)?.approved;
+      const runwayLow: DigestRunway | null =
+        approved && approved.days <= RUNWAY_LOW_DAYS
+          ? { days: approved.days, emptyFrom: approved.emptyFrom }
+          : null;
+
       // Anlatacak bir şey yoksa mail yok — "yarın hiçbir şey yok" her gün gelirse
       // okunmaz olur. (Onay bekleyen yoksa ve yarın slot boşsa, slotun kendisi
       // geldiğinde "boş kaldı" e-postası zaten gidiyor.)
-      if (upcoming.length === 0 && !(pendingCount && pendingCount > 0)) continue;
+      if (upcoming.length === 0 && !(pendingCount && pendingCount > 0) && !runwayLow) continue;
 
       const result = await sendQueueDigestEmail({
         to: queueRecipient(settings, client.email),
@@ -125,6 +140,7 @@ export async function runQueueDigest(now: Date = new Date()): Promise<QueueDiges
         timezone: settings.timezone,
         pendingCount,
         upcoming,
+        runwayLow,
         portalUrl: portalUrl(),
       });
 
@@ -132,7 +148,7 @@ export async function runQueueDigest(now: Date = new Date()): Promise<QueueDiges
       // E-postanın sonucundan bağımsız; throw etmez. Tekrar koruması e-postayla
       // aynı `sentKeys` — e-posta gitmezse ve cron aynı gün yeniden tetiklenirse
       // bildirim ikinci kez gidebilir (bilinen, kabul edilmiş: K17).
-      const push = digestPush({ timezone: settings.timezone, pendingCount, upcoming });
+      const push = digestPush({ timezone: settings.timezone, pendingCount, upcoming, runwayLow });
       if (push) await notifyClientUsers(client.id, push);
 
       if (result.sent) {

@@ -9,7 +9,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/portal/video/v1",
 }));
 
-import { UNDO_SECONDS, VideoActions, type VideoActionsProps } from "./video-actions";
+import { UNDO_SECONDS, VideoActions, chipActive, toggleChip, type VideoActionsProps } from "./video-actions";
 
 const props = (overrides: Partial<VideoActionsProps> = {}): VideoActionsProps => ({
   id: "v1",
@@ -154,5 +154,99 @@ describe("VideoActions — redden hemen sonra 'Geri al'", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("VideoActions — onayla ve sıradakine geç", () => {
+  const pending = (review?: VideoActionsProps["review"]) =>
+    props({ status: "pending", inQueue: true, canDelete: false, review });
+  const ok = () => new Response(JSON.stringify({ status: "approved" }), { status: 200 });
+
+  it("birden fazla bekleyen varken çubuk kaçıncısında olduğunu söyler", () => {
+    render(<VideoActions {...pending({ nextId: "v2", awaiting: 3, index: 1 })} />);
+    expect(screen.getByText("Onay bekleyen 3 videodan 1.")).toBeTruthy();
+  });
+
+  it("onaydan sonra 'Onaylandı' + sıradaki bekleyen videonun linki", async () => {
+    fetchMock.mockResolvedValue(ok());
+    render(<VideoActions {...pending({ nextId: "v2", awaiting: 3, index: 1 })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Onayla" }));
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Onaylandı"));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ action: "approve" });
+    const next = screen.getByRole("link", { name: /Sıradakine geç · 2 kaldı/ });
+    expect(next.getAttribute("href")).toBe("/portal/video/v2");
+    expect(screen.getByRole("link", { name: "Kuyruk" }).getAttribute("href")).toBe("/portal");
+    // Karar düğmeleri gitti (sayfa tazelenmeden de).
+    expect(screen.queryByRole("button", { name: "Onayla" })).toBeNull();
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("başka bekleyen yoksa tek düğme: Kuyruğa dön", async () => {
+    fetchMock.mockResolvedValue(ok());
+    render(<VideoActions {...pending({ nextId: null, awaiting: 1, index: 1 })} />);
+    expect(screen.queryByText(/Onay bekleyen 1 videodan/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Onayla" }));
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("başka video yok"));
+    expect(screen.getByRole("link", { name: "Kuyruğa dön" }).getAttribute("href")).toBe("/portal");
+    expect(screen.queryByRole("link", { name: /Sıradakine geç/ })).toBeNull();
+  });
+
+  it("onay kapalıyken (review yok) eski mesaj", async () => {
+    fetchMock.mockResolvedValue(ok());
+    render(<VideoActions {...pending()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Onayla" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("sırası gelince yayınlanacak"));
+    expect(screen.queryByRole("link", { name: /Sıradakine geç/ })).toBeNull();
+  });
+
+  it("onay başarısızsa sıradakine geçiş çıkmaz, hata görünür", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "Video artık onay beklemiyor" }), { status: 409 }));
+    render(<VideoActions {...pending({ nextId: "v2", awaiting: 2, index: 1 })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Onayla" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Video artık onay beklemiyor"));
+    expect(screen.queryByRole("link", { name: /Sıradakine geç/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Onayla" })).toBeTruthy();
+  });
+});
+
+describe("VideoActions — yayın hatası", () => {
+  it("tekrar denemek boşunaysa 'Tekrar dene'nin üstünde uyarı", () => {
+    render(
+      <VideoActions
+        {...props({ inQueue: true, canDelete: false, publishStatus: "failed", retryNote: "Aynı dosyayla boşuna." })}
+      />
+    );
+    expect(screen.getByText("Aynı dosyayla boşuna.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tekrar dene" })).toBeTruthy();
+  });
+});
+
+describe("Yeniden üret — not çipleri", () => {
+  it("toggleChip: ekler, ikinci basışta çıkarır; elle yazılanı korur", () => {
+    expect(toggleChip("", "Daha kısa")).toBe("daha kısa");
+    expect(toggleChip("daha kısa", "Emoji yok")).toBe("daha kısa, emoji yok");
+    expect(toggleChip("daha kısa, emoji yok", "Daha kısa")).toBe("emoji yok");
+    expect(toggleChip("kancayı soruyla aç", "Daha kısa")).toBe("kancayı soruyla aç, daha kısa");
+    // Büyük/küçük harf ve boşluk farkı aynı parça sayılır (Türkçe İ/ı dahil).
+    expect(chipActive("  DAHA KISA ,x", "Daha kısa")).toBe(true);
+    expect(chipActive("kanca daha güçlü", "Kanca daha güçlü")).toBe(true);
+  });
+
+  it("çipe basınca not alanı dolar; gönderilen not çiplerden oluşur", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    render(<VideoActions {...props({ status: "pending", inQueue: true, canDelete: false })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Daha kısa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Emoji yok" }));
+    expect((screen.getByRole("textbox", { name: "Yeniden üret" }) as HTMLInputElement).value).toBe("daha kısa, emoji yok");
+    expect(screen.getByRole("button", { name: "Daha kısa" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Yeniden üret" }));
+    fireEvent.click(screen.getByRole("button", { name: "Evet, yeniden üret" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/portal/videos/v1/regenerate");
+    expect(JSON.parse(init.body)).toEqual({ note: "daha kısa, emoji yok" });
   });
 });

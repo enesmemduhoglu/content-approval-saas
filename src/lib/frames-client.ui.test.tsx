@@ -183,6 +183,23 @@ describe("extractFrames", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:fake");
   });
 
+  it("stopIf true dönerse kare çıkarılmaz: ölçüm döner, hiç sarılmaz, öğe kaldırılır", async () => {
+    const fake = installFakeMedia();
+    const stopIf = vi.fn(() => true);
+    const out = await extractFrames(file, { stopIf });
+    expect(stopIf).toHaveBeenCalledWith({ duration: 30, width: 1080, height: 1920 });
+    expect(out).toEqual({ probe: { duration: 30, width: 1080, height: 1920 }, frames: [] });
+    expect(fake.seekTimes).toEqual([]);
+    expect(fake.play).not.toHaveBeenCalled();
+    expect(document.body.contains(fake.video!)).toBe(false);
+  });
+
+  it("stopIf false dönerse çıkarma olağan sürer", async () => {
+    installFakeMedia();
+    const out = await extractFrames(file, { stopIf: () => false });
+    expect(out.frames).toHaveLength(6);
+  });
+
   it("ilk kare çözülmemişse (readyState < 2) loadeddata beklenir", async () => {
     installFakeMedia({ readyState: 1, loadedOnPlay: true });
     const out = await extractFrames(file);

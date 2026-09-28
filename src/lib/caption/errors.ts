@@ -19,12 +19,15 @@ export class CaptionStepError extends Error {
   readonly retryable: boolean;
   readonly publicReason: string;
   readonly detail: string | undefined;
+  /** Dış servisin HTTP durumu (varsa) — `run.ts` bazı kalıcı hatalarda yol değiştiriyor. */
+  readonly status: number | undefined;
 
   constructor(opts: {
     step: CaptionStep;
     retryable: boolean;
     publicReason: string;
     detail?: string;
+    status?: number;
   }) {
     super(opts.publicReason);
     this.name = "CaptionStepError";
@@ -32,6 +35,7 @@ export class CaptionStepError extends Error {
     this.retryable = opts.retryable;
     this.publicReason = opts.publicReason;
     this.detail = opts.detail;
+    this.status = opts.status;
   }
 }
 

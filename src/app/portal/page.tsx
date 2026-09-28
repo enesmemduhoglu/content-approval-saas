@@ -4,7 +4,7 @@ import { getClientScopedDb, type PortalVideo } from "@/lib/client-scoped-db";
 import { toCard } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
 import { getPortalContext } from "@/lib/portal-app";
-import { estimatePublishTimes, queueRunway } from "@/lib/portal-schedule";
+import { estimateIfApproved, estimatePublishTimes, queueRunway } from "@/lib/portal-schedule";
 import {
   formatTime,
   runwaySummary,
@@ -16,7 +16,8 @@ import { PortalShell } from "@/components/portal/portal-shell";
 import { QueueBoard, type QueueCard } from "@/components/portal/queue-board";
 import { OutsideList } from "@/components/portal/outside-list";
 import { InstallHint } from "@/components/portal/install-hint";
-import { IconPlay } from "@/components/portal/icons";
+import { IconClock, IconPlay } from "@/components/portal/icons";
+import { isInstagramBlocked } from "@/lib/portal-instagram";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,8 @@ async function cardsFor(
  */
 function NextCard({
   href,
+  kicker = "SIRADAKİ YAYIN",
+  alert,
   when,
   sub,
   small,
@@ -53,6 +56,9 @@ function NextCard({
   runway,
 }: {
   href?: string;
+  kicker?: string;
+  /** Yayın akışı durdu: başlığın önünde uyarı noktası. */
+  alert?: boolean;
   when: string;
   sub: ReactNode;
   small?: boolean;
@@ -63,7 +69,10 @@ function NextCard({
     <>
       <span className="p-next-row">
         <span className="p-next-text">
-          <span className="p-next-kicker">SIRADAKİ YAYIN</span>
+          <span className="p-next-kicker">
+            {alert && <span className="p-next-dot" aria-hidden="true" />}
+            {kicker}
+          </span>
           <span className={`p-next-when${small ? " p-next-when--sm" : ""}`}>{when}</span>
           <span className="p-next-sub">{sub}</span>
         </span>
@@ -114,13 +123,16 @@ function RunwayLine({ headline, sub, extra, level }: RunwayRow) {
 export default async function PortalQueuePage() {
   const session = await requirePortalSession();
   const scoped = getClientScopedDb(session);
-  const [client, queue, outside, settings, { app }] = await Promise.all([
+  const now = new Date();
+  const [client, queue, outside, settings, { app }, instagram] = await Promise.all([
     scoped.client.get(),
     scoped.posts.listQueue(),
     scoped.posts.listOutside(),
     scoped.settings.get(),
     getPortalContext(),
+    scoped.client.instagramHealth(now),
   ]);
+  const blocked = isInstagramBlocked(instagram);
   const requireApproval = settings?.requireApproval ?? true;
   const [queueCards, outsideCards] = await Promise.all([
     cardsFor(queue, session.clientId),
@@ -128,11 +140,18 @@ export default async function PortalQueuePage() {
   ]);
   // Tahmin, tick'in kurallarıyla (V4 `projectSchedule`): takvimde olmayan
   // kartta hiçbir şey yazmaz — onay bekleyen video "yayınlanacak" görünmesin.
-  const now = new Date();
+  // Instagram bağlantısı yoksa tick slotları boş geçiyor: saat yazmak yalan olur.
   const timezone = settings?.timezone ?? "Europe/Istanbul";
-  const etaTimes = estimatePublishTimes(queue, settings, now);
+  const etaTimes = blocked ? new Map<string, Date>() : estimatePublishTimes(queue, settings, now);
   const etas = Object.fromEntries(
     [...etaTimes].map(([id, at]) => [id, `${slotDayLabel(at, timezone, now)} ${formatTime(at, timezone)}`])
+  );
+  // Onay bekleyen kartta "Onaylarsan: …" (V7 tasarımı): tek başına onaylansa
+  // hangi slota girerdi.
+  const pendingEtas = Object.fromEntries(
+    [...(blocked ? new Map<string, Date>() : estimateIfApproved(queue, settings, now))].map(
+      ([id, at]) => [id, `Onaylarsan: ${slotDayLabel(at, timezone, now)} ${formatTime(at, timezone)}`]
+    )
   );
   const next = [...etaTimes].sort((a, b) => a[1].getTime() - b[1].getTime())[0];
   const nextCard = next ? queueCards.find((c) => c.id === next[0]) : undefined;
@@ -140,7 +159,19 @@ export default async function PortalQueuePage() {
   const runway = runwaySummary(queueRunway(queue, settings, now), timezone, now);
 
   let nextView: ReactNode;
-  if (!settings) {
+  if (blocked && settings && !settings.paused) {
+    // Tick bu durumda videoyu harcamadan slotu boş geçiyor ve ajansa haber
+    // veriyor (queue/tick `runSlot`). Bağlantıyı yalnızca ajans onarır.
+    nextView = (
+      <NextCard
+        kicker="YAYINLAR DURDU"
+        alert
+        small
+        when={instagram.state === "missing" ? "Instagram bağlı değil" : "Instagram bağlantısı koptu"}
+        sub="Videoların harcanmıyor, sırayla bekliyor. Ajansına haber verdik; bağlantı yenilenince kuyruk kaldığı yerden sürer."
+      />
+    );
+  } else if (!settings) {
     nextView = (
       <NextCard
         href="/portal/ayarlar"
@@ -206,6 +237,17 @@ export default async function PortalQueuePage() {
       brand={{ name: client?.name ?? app.name, iconSrc: `${app.iconBase}/icon-192.png` }}
     >
       {nextView}
+      {instagram.state === "expiring" && settings && !settings.paused && (
+        <p className="p-note p-note--warn" role="status">
+          <IconClock size={18} />
+          <span>
+            <strong>Instagram bağlantısı {instagram.daysLeft} gün içinde bitiyor</strong>
+            <br />
+            Ajansın yenilemezse yayınlar durur (son gün: {slotDayLabel(instagram.expiresAt, timezone, now)}
+            ). Haber vermen yeter, videoların beklemede kalır.
+          </span>
+        </p>
+      )}
       <InstallHint />
 
       <div className="p-section-head">
@@ -214,22 +256,17 @@ export default async function PortalQueuePage() {
         </h2>
         {queueCards.length > 1 && <span className="p-hint">Oklarla sırala</span>}
       </div>
-      <QueueBoard cards={queueCards} requireApproval={requireApproval} etas={etas} />
+      <QueueBoard
+        cards={queueCards}
+        requireApproval={requireApproval}
+        etas={etas}
+        pendingEtas={pendingEtas}
+      />
 
-      {outsideCards.length > 0 && (
-        <section className="p-hgroup" aria-labelledby="kuyruk-disi">
-          <div className="p-section-head">
-            <h2 className="p-h2" id="kuyruk-disi">
-              Kuyruk dışı
-            </h2>
-          </div>
-          <p className="p-hint">
-            Kuyruktan çıkardığın ya da reddettiğin videolar yayınlanmaz. Kuyruğa geri alabilir ya da
-            silebilirsin.
-          </p>
-          <OutsideList cards={outsideCards} requireApproval={requireApproval} />
-        </section>
-      )}
+      {/* Bölüm başlığı listenin içinde: son kart da gidince bölüm kalkar ama
+          "Video silindi" bildirimi (bileşenin durumu) yerinde kalır. Eskiden
+          bölüm burada koşullu çiziliyordu ve bildirim bölümle birlikte gidiyordu. */}
+      <OutsideList cards={outsideCards} requireApproval={requireApproval} />
     </PortalShell>
   );
 }

@@ -1,9 +1,14 @@
 import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { notifyCaptionsReady } from "@/lib/push";
-import { keyBelongsToClient, signGetUrl, StorageNotConfiguredError } from "@/lib/storage-r2";
+import {
+  getObjectBytes,
+  keyBelongsToClient,
+  signGetUrl,
+  StorageNotConfiguredError,
+} from "@/lib/storage-r2";
 import { CaptionStepError, InvalidModelOutputError, safeDetail } from "./errors";
-import { generateCaption } from "./generate";
+import { generateCaption, type FrameImage } from "./generate";
 import { transcribe } from "./transcribe";
 import { validateDraft } from "./validate";
 
@@ -131,10 +136,21 @@ export async function runCaption(
     let transcript = post.transcript;
     if (transcript === null) {
       const audioUrl = await sign(post.videoKey);
-      const result = await transcribe(audioUrl, {
-        timeoutMs: Math.max(1_000, Math.min(TRANSCRIBE_MAX_MS, remaining() - MIN_GENERATE_MS)),
-      });
-      transcript = result.text;
+      try {
+        const result = await transcribe(audioUrl, {
+          timeoutMs: Math.max(1_000, Math.min(TRANSCRIBE_MAX_MS, remaining() - MIN_GENERATE_MS)),
+        });
+        transcript = result.text;
+      } catch (error) {
+        // Ses izi HİÇ olmayan video (sesi kapatılıp dışa aktarılmış klip) fal'da
+        // 400 "Soundfile … not in the correct format" veriyor (2026-09-28
+        // analizi). Kareler varsa bu, konuşmasız videodan farksız: caption
+        // karelerden üretilir ("Transkript boşsa içeriği karelerden çıkar").
+        // Kare yoksa elde hiçbir şey kalmaz — olağan hata yolu.
+        if (!isUnreadableAudio(error) || frameKeys.length === 0) throw error;
+        console.warn(`[caption] ${postId} ses okunamadı, karelerden devam: ${(error as CaptionStepError).detail}`);
+        transcript = "";
+      }
       // Hemen yazılır: üretim patlarsa QStash'in tekrarı Whisper'ı yeniden
       // ödemesin, bütçenin tamamı Claude'a kalsın.
       // `updateMany`: Whisper beklenirken (10–60 sn) video silindiyse `update`
@@ -143,7 +159,7 @@ export async function runCaption(
       if (saved.count === 0) return DELETED;
     }
 
-    const frameUrls = await Promise.all(frameKeys.map((key) => sign(key)));
+    const frames = await loadFrames(postId, frameKeys);
     const note = opts.note?.trim().slice(0, MAX_NOTE_LENGTH) || undefined;
     const currentCaption = post.caption.trim() || undefined;
 
@@ -157,7 +173,7 @@ export async function runCaption(
       let raw: unknown;
       try {
         raw = await generateCaption({
-          frameUrls,
+          frames,
           transcript,
           captionStyle: post.client.captionStyle,
           note,
@@ -228,6 +244,46 @@ async function isGone(postId: string): Promise<boolean> {
   }
 }
 
+/** fal'ın dosyayı ses olarak açamaması: kalıcı bir 400/422 (bağlantı ya da 5xx değil). */
+function isUnreadableAudio(error: unknown): boolean {
+  return (
+    error instanceof CaptionStepError &&
+    error.step === "transcribe" &&
+    (error.status === 400 || error.status === 422)
+  );
+}
+
+/**
+ * Kareleri Claude'a İÇERİK olarak göndermek için indirir (bkz. `FrameImage`).
+ * Tek tek indirilemeyen kare atlanır — bağlam eksik kalır ama iş düşmez.
+ * Hiçbiri indirilemediyse depolama erişilemiyor demektir: `sign` ile aynı
+ * `storage` hatası, QStash yeniden dener.
+ */
+async function loadFrames(postId: string, keys: string[]): Promise<FrameImage[]> {
+  if (keys.length === 0) return [];
+  const results = await Promise.allSettled(keys.map((key) => getObjectBytes(key)));
+  const frames: FrameImage[] = [];
+  for (const result of results) {
+    if (result.status === "fulfilled" && result.value && result.value.byteLength > 0) {
+      frames.push({ mediaType: "image/jpeg", data: Buffer.from(result.value).toString("base64") });
+    }
+  }
+  const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+  if (rejected.length === results.length) {
+    const reason = rejected[0].reason;
+    throw new CaptionStepError({
+      step: reason instanceof StorageNotConfiguredError ? "config" : "storage",
+      retryable: !(reason instanceof StorageNotConfiguredError),
+      publicReason: "Video depolamasına erişilemedi",
+      detail: safeDetail(reason),
+    });
+  }
+  if (frames.length < keys.length) {
+    console.warn(`[caption] ${postId} ${keys.length - frames.length}/${keys.length} kare indirilemedi, onlarsız devam`);
+  }
+  return frames;
+}
+
 async function sign(key: string): Promise<string> {
   try {
     return await signGetUrl(key);
@@ -281,5 +337,9 @@ async function alert(
   detail: string,
   retryable: boolean
 ): Promise<void> {
+  // Ayrıntı HER ZAMAN loga: `sendAlert` `ALERT_EMAIL` yokken ve aynı hata
+  // kısa sürede tekrarlanınca (bastırma) ayrıntıyı hiçbir yere yazmıyor — asıl
+  // neden (ör. servisin 400 metni) yalnızca e-postada kalıyordu.
+  console.error(`[caption] ${key} post=${postId} tekrar=${retryable}: ${detail}`);
   await sendAlert(key, title, { postId, detail, retryable });
 }

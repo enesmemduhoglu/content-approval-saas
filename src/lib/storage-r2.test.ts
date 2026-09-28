@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  DISPLAY_URL_WINDOW_SECONDS,
   StorageNotConfiguredError,
   frameKey,
+  signDisplayUrl,
   keyBelongsToClient,
   r2Configured,
   resetStorageClientForTests,
@@ -52,5 +54,39 @@ describe("yapılandırma", () => {
     expect(url).toContain("acc.r2.cloudflarestorage.com");
     expect(url).toContain("X-Amz-Signature=");
     expect(url).toContain("X-Amz-Expires=60");
+  });
+});
+
+describe("signDisplayUrl — kararlı gösterim adresi", () => {
+  function withEnv() {
+    process.env.R2_ACCOUNT_ID = "acc";
+    process.env.R2_ACCESS_KEY_ID = "key";
+    process.env.R2_SECRET_ACCESS_KEY = "secret";
+    process.env.R2_BUCKET = "bucket";
+  }
+  const key = "clients/cl1/frames/po1/0.jpg";
+
+  it("aynı saat içinde birebir aynı adres (tarayıcı önbelleği çalışsın)", async () => {
+    withEnv();
+    const a = await signDisplayUrl(key, new Date("2026-09-28T10:00:05Z"));
+    const b = await signDisplayUrl(key, new Date("2026-09-28T10:59:59Z"));
+    expect(a).toBe(b);
+  });
+
+  it("saat değişince yeni adres; imza pencere başında, iki pencere geçerli", async () => {
+    withEnv();
+    const a = new URL(await signDisplayUrl(key, new Date("2026-09-28T10:30:00Z")));
+    const b = new URL(await signDisplayUrl(key, new Date("2026-09-28T11:00:00Z")));
+    expect(a.href).not.toBe(b.href);
+    expect(a.searchParams.get("X-Amz-Date")).toBe("20260928T100000Z");
+    expect(a.searchParams.get("X-Amz-Expires")).toBe(String(DISPLAY_URL_WINDOW_SECONDS * 2));
+  });
+
+  it("yanıt önbellek başlığını imzaya katar", async () => {
+    withEnv();
+    const url = new URL(await signDisplayUrl(key, new Date("2026-09-28T10:30:00Z")));
+    expect(url.searchParams.get("response-cache-control")).toBe(
+      `private, max-age=${DISPLAY_URL_WINDOW_SECONDS}`
+    );
   });
 });

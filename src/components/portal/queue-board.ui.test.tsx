@@ -97,16 +97,51 @@ describe("QueueBoard", () => {
     expect(screen.getByRole("link", { name: "Video yükle" }).getAttribute("href")).toBe("/portal/yukle");
   });
 
-  it("yayın hatası kartı hatayı ve 'Tekrar dene' çağrısını gösterir", () => {
+  it("yayın hatası kartı ham metni değil hatanın türünü ve 'Tekrar dene' çağrısını gösterir", () => {
     render(
       <QueueBoard
-        cards={[card("a", { status: "approved", publishStatus: "failed", publishError: "Token süresi doldu." })]}
+        cards={[
+          card("a", {
+            status: "approved",
+            publishStatus: "failed",
+            publishError: "Error validating access token · type=OAuthException · code=190 · fbtrace_id=Ab1",
+          }),
+        ]}
         requireApproval
       />
     );
-    expect(screen.getByText(/Token süresi doldu\./)).toBeTruthy();
+    expect(screen.getByText("Instagram bağlantısı geçersiz. Video sırada bekliyor.")).toBeTruthy();
+    expect(screen.queryByText(/fbtrace_id/)).toBeNull();
     expect(screen.getByText("Tekrar dene")).toBeTruthy();
     expect(screen.getByText("Yayınlanamadı")).toBeTruthy();
+  });
+
+  it("biçim hatasında çağrı 'Ne yapmalıyım?' olur (aynı dosyayla tekrar denemek boşuna)", () => {
+    render(
+      <QueueBoard
+        cards={[
+          card("a", {
+            status: "approved",
+            publishStatus: "failed",
+            publishError: "Container c1 durumu ERROR: Media upload has failed with error code 2207026",
+          }),
+        ]}
+        requireApproval
+      />
+    );
+    expect(screen.getByText("Instagram videoyu kabul etmedi. Video sırada bekliyor.")).toBeTruthy();
+    expect(screen.getByText("Ne yapmalıyım?")).toBeTruthy();
+  });
+
+  it("onay bekleyen kartta caption'ın altında 'Onaylarsan: …'", () => {
+    render(
+      <QueueBoard
+        cards={[card("a", { status: "pending" })]}
+        requireApproval
+        pendingEtas={{ a: "Onaylarsan: Yarın 19:00" }}
+      />
+    );
+    expect(screen.getByText("Onaylarsan: Yarın 19:00")).toBeTruthy();
   });
 
   it("tahmini zaman rozetin yanında yazar", () => {

@@ -6,7 +6,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
 
-import { SettingsForm, type SettingsValue } from "./settings-form";
+import { SettingsForm, sortSlots, suggestSlot, type SettingsValue } from "./settings-form";
 
 const initial: SettingsValue = {
   slots: ["19:00"],
@@ -82,9 +82,18 @@ describe("SettingsForm — onayı kapatırken uyarı", () => {
     for (let i = 0; i < 5; i++) fireEvent.click(screen.getByRole("button", { name: /Saat ekle/ }));
     expect(screen.getAllByLabelText(/yayın saati/)).toHaveLength(6);
     expect(screen.queryByRole("button", { name: /Saat ekle/ })).toBeNull();
-    // Eklenen saatlerin hepsi "12:00": özet tekrarı bir kez sayar — tick de
-    // aynı saati günde bir kez işler (sunucu tekrarı kayıtta zaten reddeder).
-    expect(screen.getByText("Her gün 2 video · 12:00, 19:00")).toBeTruthy();
+    // Her ekleme henüz seçilmemiş bir saat önerir (eskiden hep "12:00" ekleniyor,
+    // tekrar kayıtta "Aynı saat iki kez seçilemez"le dönüyordu) ve çipler sıralı.
+    const shown = screen.getAllByLabelText(/yayın saati/).map((el) => (el as HTMLInputElement).value);
+    expect(shown).toEqual(["09:00", "12:00", "15:00", "17:00", "19:00", "21:00"]);
+    expect(screen.getByText("Her gün 6 video · 09:00, 12:00, 15:00, 17:00, 19:00, 21:00")).toBeTruthy();
+  });
+
+  it("sortSlots / suggestSlot", () => {
+    expect(sortSlots(["19:00", "", "12:00"])).toEqual(["12:00", "19:00", ""]);
+    expect(suggestSlot(["19:00"])).toBe("12:00");
+    expect(suggestSlot(["12:00", "19:00"])).toBe("09:00");
+    expect(suggestSlot(["12:00", "19:00", "09:00", "15:00", "21:00", "17:00"])).toBe("00:00");
   });
 
   it("sunucunun alan hatası saatlerin altında gösterilir", async () => {

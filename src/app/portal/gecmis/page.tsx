@@ -3,6 +3,7 @@ import { getClientScopedDb } from "@/lib/client-scoped-db";
 import { toCard, type PortalVideoCard } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
 import { historyGroup, shortDateTime } from "@/lib/portal-format";
+import { explainPublishError } from "@/lib/portal-publish-error";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { HistoryTabs } from "@/components/portal/history-tabs";
 import { IconChevronRight, IconExternal, IconVideo } from "@/components/portal/icons";
@@ -106,7 +107,7 @@ export default async function PortalHistoryPage() {
                   <span className="p-hcard-body">
                     <span className="p-hcard-date">{shortDateTime(failedAt(card), timezone)}</span>
                     <span className="p-hcard-caption">{card.caption || "Caption yok"}</span>
-                    {card.publishError && <span className="p-hcard-error">{card.publishError}</span>}
+                    <span className="p-hcard-error">{explainPublishError(card.publishError).title}</span>
                     <span className="sr-only">Tekrar dene ya da sona at</span>
                   </span>
                   <span className="p-square-link" aria-hidden="true">

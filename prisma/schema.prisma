@@ -416,6 +416,14 @@ model Post {
   // birini zorunlu tutuyor (`validatePostMedia`).
   videoUrl String?
 
+  // Portal yüklemesinin kaynak dosyası (2026-09-28 analizi): aynı videonun
+  // ikinci kez yüklenmesini seçim anında yakalamak için. Boyut (bayt) tek
+  // başına yeterince ayırt edici — onlarca MB'lık iki farklı videonun bayt
+  // bayt aynı boyutta olması pratikte görülmez; ad yalnızca bilgi (iOS seçici
+  // aynı dosyaya farklı ad verebiliyor). Eski satırlarda boş: onlar için uyarı yok.
+  sourceSize Int?
+  sourceName String?
+
   // Video yayını İKİ FAZLI olmak zorunda (bkz. lib/instagram.ts).
   // Instagram görsel container'ını ~8.5 sn'de hazırlıyor ve yayın onay
   // isteğinin içine sığıyor; video'da işleme onlarca saniye–dakikalar sürüyor,

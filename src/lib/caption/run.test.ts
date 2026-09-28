@@ -14,6 +14,13 @@ vi.mock("@anthropic-ai/sdk", async (importOriginal) => {
   }
   return { ...actual, default: FakeAnthropic };
 });
+// Kareler artık Claude'a İÇERİK olarak gidiyor; baytlar R2'den okunuyor. İmzalama
+// gerçek kalır (video Whisper'a hâlâ imzalı adresle gidiyor), okuma sahte.
+const { getObjectBytes } = vi.hoisted(() => ({ getObjectBytes: vi.fn() }));
+vi.mock("@/lib/storage-r2", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/storage-r2")>();
+  return { ...actual, getObjectBytes: (key: string) => getObjectBytes(key) };
+});
 vi.mock("@/lib/alerts", () => ({ sendAlert: vi.fn() }));
 // V7c: "onayına hazır" kancası; toplama/kısma mantığı `push.test.ts`te.
 vi.mock("@/lib/push", () => ({ notifyCaptionsReady: vi.fn(async () => undefined) }));
@@ -107,7 +114,15 @@ beforeEach(async () => {
   mockReady.mockClear();
   subscribe.mockResolvedValue({ data: { text: "Bugün present perfect öğreniyoruz.", chunks: [] } });
   create.mockResolvedValue(reply(VALID));
+  getObjectBytes.mockReset().mockImplementation(async (key: string) => new TextEncoder().encode(`jpeg:${key}`));
 });
+
+/** Claude'a giden son isteğin görsel blokları. */
+function imageBlocks(call = create.mock.calls.length - 1) {
+  return (create.mock.calls[call][0].messages[0].content as Array<{ type: string; source?: { type: string; data: string } }>).filter(
+    (b) => b.type === "image"
+  );
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -115,7 +130,7 @@ afterEach(() => {
 
 describe("runCaption — mutlu yol", () => {
   it("pending postu ready yapar, caption'ı yazar, transkripti saklar", async () => {
-    const { post } = await seedPortalPost();
+    const { client, post } = await seedPortalPost();
     const outcome = await runCaption(post.id);
 
     expect(outcome).toMatchObject({ status: "ready", altText: VALID.altText });
@@ -125,15 +140,17 @@ describe("runCaption — mutlu yol", () => {
     expect(after.caption).toBe(`${VALID.aciklama}\n\n${tags.join(" ")}`);
     expect(after.transcript).toBe("Bugün present perfect öğreniyoruz.");
 
-    // Whisper'a ve Claude'a giden URL'ler imzalı ve doğru anahtarı gösteriyor.
+    // Whisper'a giden video imzalı adresle; Claude'a giden kareler İÇERİK olarak
+    // (adres değil — 2026-09-28 analizinde Claude'un adresten indirmesi ara sıra 400'dü).
     const audioUrl: string = subscribe.mock.calls[0][1].input.audio_url;
     expect(audioUrl).toContain(`videos/${post.id}.mp4`);
     expect(audioUrl).toContain("X-Amz-Signature");
-    const images = create.mock.calls[0][0].messages[0].content.filter(
-      (b: { type: string }) => b.type === "image"
-    );
+    const images = imageBlocks(0);
     expect(images).toHaveLength(3);
-    expect(images[0].source.url).toContain(`frames/${post.id}/0.jpg`);
+    expect(images[0].source!.type).toBe("base64");
+    expect(Buffer.from(images[0].source!.data, "base64").toString()).toBe(
+      `jpeg:${frameKey(client.id, post.id, 0)}`
+    );
     expect(create.mock.calls[0][0].system).toContain("Furkan'ın samimi öğretmen sesi.");
   });
 
@@ -294,6 +311,62 @@ describe("runCaption — doğrulama ve hatalar", () => {
       throw new TypeError("senkron patlama");
     });
     await expect(runCaption(post.id)).resolves.toMatchObject({ status: "failed" });
+  });
+});
+
+describe("runCaption — kareler içerik olarak, ses izi olmayan video", () => {
+  it("indirilemeyen tek kare atlanır, caption yine üretilir", async () => {
+    const { post } = await seedPortalPost();
+    getObjectBytes.mockImplementation(async (key: string) =>
+      key.endsWith("/1.jpg") ? null : new TextEncoder().encode(`jpeg:${key}`)
+    );
+    expect((await runCaption(post.id)).status).toBe("ready");
+    expect(imageBlocks()).toHaveLength(2);
+    expect(promptText()).toContain("2 kare var");
+  });
+
+  it("hiçbir kare okunamıyorsa (depolama erişilemez) tekrar denenebilir hata, Claude çağrılmaz", async () => {
+    const { post } = await seedPortalPost({ transcript: "x" });
+    getObjectBytes.mockRejectedValue(new Error("R2 cevap vermiyor"));
+    const outcome = await runCaption(post.id);
+    expect(outcome).toMatchObject({ status: "failed", retryable: true });
+    expect(create).not.toHaveBeenCalled();
+    const after = await db.post.findUniqueOrThrow({ where: { id: post.id } });
+    expect(after.captionError).toBe("Video depolamasına erişilemedi");
+  });
+
+  it("ses izi olmayan video (fal 400) kareler varsa boş transkriptle karelerden üretilir", async () => {
+    const { post } = await seedPortalPost();
+    subscribe.mockRejectedValueOnce(
+      new ApiError({ message: "Soundfile is either not in the correct format or is malformed", status: 400 })
+    );
+    const outcome = await runCaption(post.id);
+    expect(outcome.status).toBe("ready");
+    expect(promptText()).toContain("(boş — videoda konuşma yok)");
+    expect(imageBlocks()).toHaveLength(3);
+    // Boş transkript kalıcı sonuç: yeniden üretmede Whisper tekrar çağrılmaz.
+    const after = await db.post.findUniqueOrThrow({ where: { id: post.id } });
+    expect(after.transcript).toBe("");
+    expect(mockAlert).not.toHaveBeenCalled();
+  });
+
+  it("ses okunamaz ve kare de yoksa olağan hata yolu: failed + uyarı", async () => {
+    const { post } = await seedPortalPost();
+    await db.post.update({ where: { id: post.id }, data: { frameKeys: [] } });
+    subscribe.mockRejectedValueOnce(new ApiError({ message: "bad audio", status: 400 }));
+    const outcome = await runCaption(post.id);
+    expect(outcome).toMatchObject({ status: "failed", retryable: false });
+    expect(create).not.toHaveBeenCalled();
+    expect(mockAlert).toHaveBeenCalledWith("caption:transcribe", expect.any(String), expect.anything());
+  });
+
+  it("uyarının ayrıntısı e-posta olmasa da loga düşer", async () => {
+    const { post } = await seedPortalPost({ transcript: "x" });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    create.mockRejectedValueOnce(new Error("ayrıntılı neden"));
+    await runCaption(post.id);
+    expect(log.mock.calls.some((args) => String(args[0]).includes("ayrıntılı neden"))).toBe(true);
+    log.mockRestore();
   });
 });
 

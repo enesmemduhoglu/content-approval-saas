@@ -1,6 +1,7 @@
 # V7 — Portal telefonda uygulama olarak (PWA)
 
-> **Durum: ⬜ planlandı, uygulanmadı.** Kullanıcı başlatana kadar kod yazılmaz.
+> **Durum (2026-09-28): V7a ✅ (#72, #75) · V7b ✅ (#71) · V7c ✅ (#74, canlı
+> doğrulama `TODOS.md`'de) · V7d ⏸ ertelendi.** Aşağıdaki plan metni tarihseldir.
 > Kararlar: [K23](KARARLAR.md), [K25](KARARLAR.md). Faz durumu: [`FAZLAR.md`](FAZLAR.md).
 > Plan yazılırken master: `15ae578` (#69). Satır/dosya atıfları o duruma göre;
 > uygulamadan önce yeniden doğrula.

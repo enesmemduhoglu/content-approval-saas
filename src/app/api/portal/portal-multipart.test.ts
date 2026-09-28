@@ -13,6 +13,7 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
     r2Configured: vi.fn(() => true),
     signPutUrl: vi.fn(async (key: string) => `https://acc.r2.cloudflarestorage.com/put/${key}`),
     signGetUrl: vi.fn(async (key: string) => `https://acc.r2.cloudflarestorage.com/get/${key}`),
+    signDisplayUrl: vi.fn(async (key: string) => `https://acc.r2.cloudflarestorage.com/get/${key}`),
     headObject: vi.fn(async () => ({ size: 40 * 1024 * 1024, contentType: "video/mp4" })),
     deleteObject: vi.fn(async () => true),
     createMultipartUpload: vi.fn(async () => "r2-upload-id"),

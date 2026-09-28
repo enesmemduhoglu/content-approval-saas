@@ -22,6 +22,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { PortalBadges } from "@/components/portal/portal-badges";
+import { explainPublishError } from "@/lib/portal-publish-error";
 import { IconChevronDown, IconChevronUp, IconGrip, IconVideo } from "@/components/portal/icons";
 
 export type QueueCard = {
@@ -71,6 +72,7 @@ function SortableRow({
   busy,
   requireApproval,
   eta,
+  pendingEta,
   onStep,
 }: {
   card: QueueCard;
@@ -79,6 +81,7 @@ function SortableRow({
   busy: boolean;
   requireApproval: boolean;
   eta?: ReactNode;
+  pendingEta?: ReactNode;
   onStep: (id: string, delta: -1 | 1) => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
@@ -137,15 +140,22 @@ function SortableRow({
             </>
           ) : card.publishStatus === "failed" ? (
             <>
+              {/* Ham Instagram hatası değil, türü (2026-09-28 analizi); ayrıntı
+                  ve ne yapılacağı detayda. */}
               <span className="p-qcard-error">
-                {card.publishError ?? "Instagram'a gönderilemedi."} Video sırada bekliyor.
+                {explainPublishError(card.publishError).title}. Video sırada bekliyor.
               </span>
-              <span className="p-qcard-cta">Tekrar dene</span>
+              <span className="p-qcard-cta">
+                {explainPublishError(card.publishError).retryUseless ? "Ne yapmalıyım?" : "Tekrar dene"}
+              </span>
             </>
           ) : (
-            <span className={`p-qcard-caption${card.caption.trim() ? "" : " p-qcard-caption--muted"}`}>
-              {captionHead(card)}
-            </span>
+            <>
+              <span className={`p-qcard-caption${card.caption.trim() ? "" : " p-qcard-caption--muted"}`}>
+                {captionHead(card)}
+              </span>
+              {pendingEta ? <span className="p-eta">{pendingEta}</span> : null}
+            </>
           )}
         </span>
       </Link>
@@ -186,11 +196,14 @@ export function QueueBoard({
   cards,
   requireApproval,
   etas,
+  pendingEtas,
 }: {
   cards: QueueCard[];
   requireApproval: boolean;
   /** Kart id'si → tahmini yayın zamanı metni ("Yarın 19:00"); takvimde olmayan kartta yok. */
   etas?: Record<string, ReactNode>;
+  /** Onay bekleyen kart id'si → "Onaylarsan: Yarın 19:00" (`estimateIfApproved`). */
+  pendingEtas?: Record<string, ReactNode>;
 }) {
   const router = useRouter();
   const [order, setOrder] = useState(() => cards.map((c) => c.id));
@@ -268,7 +281,15 @@ export function QueueBoard({
           {error}
         </p>
       )}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      {/* Sabit `id`: dnd-kit erişilebilirlik açıklamasının kimliğini sayaçla
+          üretiyor; sunucu ve tarayıcıda farklı çıkıp hidrasyon uyuşmazlığı
+          veriyordu (DndDescribedBy-0 ≠ -1, 2026-09-28 analizi). */}
+      <DndContext
+        id="kuyruk-siralama"
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={onDragEnd}
+      >
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ol className="p-list" aria-label="Yayın kuyruğu">
             {ids.map((id, index) => {
@@ -283,6 +304,7 @@ export function QueueBoard({
                   busy={busy}
                   requireApproval={requireApproval}
                   eta={etas?.[id]}
+                  pendingEta={pendingEtas?.[id]}
                   onStep={onStep}
                 />
               );

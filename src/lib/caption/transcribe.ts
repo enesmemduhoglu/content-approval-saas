@@ -82,6 +82,7 @@ export async function transcribe(
           ? "Transkript servisine ulaşılamadı ya da zaman aşımına uğradı"
           : `Transkript servisi hata verdi (${status})`,
       detail: safeDetail(error),
+      status,
     });
   }
 }

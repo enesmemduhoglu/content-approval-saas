@@ -360,6 +360,17 @@ body:has(.portal-root) {
   color: #ffb59a;
 }
 
+/* Yayın akışı durdu (Instagram bağlantısı yok): başlığın önündeki nokta. */
+.p-next-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: #ff7a59;
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
 .p-next-when {
   font-family: var(--p-font-display), Archivo, sans-serif;
   font-stretch: 80%;
@@ -541,6 +552,10 @@ body:has(.portal-root) {
 
 .p-hint--md {
   font-size: 13px;
+}
+
+.p-hint--center {
+  text-align: center;
 }
 
 .portal-root .p-kicker {
@@ -1130,6 +1145,12 @@ body:has(.portal-root) {
   opacity: 0.55;
 }
 
+/* Çıkarılan ilk kare: aynı kutu, görsel kırpılarak doldurur. */
+.p-ucard-thumb--img {
+  display: block;
+  object-fit: cover;
+}
+
 .p-ucard-text {
   display: flex;
   flex-direction: column;
@@ -1495,6 +1516,39 @@ body:has(.portal-root) {
 }
 
 /* Redden hemen sonra "Geri al" (V7 tasarımı, "Reddettikten hemen sonra"). */
+/* Onaydan hemen sonra: "Onaylandı" satırı + "Sıradakine geç" (28 Eyl (3)). */
+.p-approved {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.p-approved-check {
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--p-ink);
+  color: #faf6e9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.p-approved-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12.5px;
+  color: var(--p-muted);
+  min-width: 0;
+}
+
+.p-approved-text strong {
+  font-size: 14px;
+  color: var(--p-ink);
+}
+
 .p-undo {
   background: var(--p-ink);
   color: #faf6e9;
@@ -1613,6 +1667,18 @@ body:has(.portal-root) {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* Alt sekme çubuğunun hemen üstünde yüzer (V7 tasarımı "Kuyruk dışı · silme"). */
+.p-toast--float {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100% - 2 * var(--p-gutter)), calc(var(--p-col) - 2 * var(--p-gutter)));
+  box-sizing: border-box;
+  bottom: calc(var(--p-tabbar-h) + 8px + max(12px, env(safe-area-inset-bottom)) + 12px);
+  z-index: 40;
+  box-shadow: 0 8px 24px rgba(14, 32, 56, 0.2);
 }
 
 /* ─── Silme onayı (alttan açılan sayfa) ─────────────────────────────────── */
@@ -2297,4 +2363,183 @@ body:has(.portal-root) {
   width: 40px;
   height: 40px;
   color: #c9cfdb;
+}
+
+/* ─── Yayın hatası kartı (video detayı, 2026-09-28 analizi) ──────────────── */
+
+.p-perr {
+  background: var(--p-card);
+  border: 1.5px solid var(--p-danger-line);
+  border-radius: 18px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.p-perr-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.p-perr-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--p-danger-soft);
+  color: var(--p-danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.p-perr-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--p-body-2);
+}
+
+.p-perr-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--p-ink);
+}
+
+.p-perr-todo {
+  margin: 0;
+  background: var(--p-sand);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--p-ink);
+}
+
+.p-perr-todo-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--p-muted);
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.p-perr-raw summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--p-muted);
+  cursor: pointer;
+}
+
+.p-perr-raw code {
+  display: block;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--p-body-2);
+  background: var(--p-bg);
+  border: 1px solid var(--p-line);
+  border-radius: 10px;
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+
+/* ─── "Yeniden üret" not çipleri (28 Eyl (3)) ─────────────────────────────── */
+
+.p-notechips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.portal-root .p-notechip {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  border: 1.5px solid #d9cfb6;
+  background: var(--p-card);
+  color: var(--p-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.portal-root .p-notechip--on {
+  background: var(--p-ink);
+  border-color: var(--p-ink);
+  color: #faf6e9;
+}
+
+.portal-root .p-notechip:disabled {
+  opacity: 0.5;
+}
+
+/* ─── Yükle: "aynı video" uyarısı (28 Eyl (3)) ───────────────────────────── */
+
+.p-dup {
+  background: var(--p-peach-soft);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: #6b2410;
+}
+
+.p-dup > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--p-accent-deep);
+}
+
+.p-dup-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.p-dup-text strong {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.portal-root .p-dup-text a {
+  color: #6b2410;
+  font-weight: 700;
+  text-underline-offset: 3px;
+  /* "Kuyrukta 1." iki satıra bölünmesin. */
+  white-space: nowrap;
+}
+
+.p-dup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.portal-root .p-dup-actions .p-btn {
+  height: 44px;
+  font-size: 14px;
+}
+
+.p-ucard--skipped .p-ucard-thumb,
+.p-ucard--skipped .p-ucard-name {
+  opacity: 0.55;
 }

@@ -187,8 +187,16 @@ const HIDDEN_VIDEO_STYLE =
  * gelmiyor. Bu yüzden öğe görünmez bir kutuyla DOM'a ekleniyor, sessiz +
  * satır içi `play()/pause()` ile çözücü uyandırılıyor ve ilk kare
  * (`loadeddata`) beklenip öyle sarılıyor.
+ *
+ * `stopIf`: süre/boyut ölçülür ölçülmez sorulur; `true` ise kare çıkarılmadan
+ * `{ probe, frames: [] }` döner. Reddedilecek bir video (90 sn üstü, yatay) için
+ * altı kare çözmek — HEVC'de saniyeler sürüyor — boşa beklemek olurdu.
  */
-export async function extractFrames(file: Blob, count: number = FRAME_COUNT): Promise<FrameExtraction> {
+export async function extractFrames(
+  file: Blob,
+  opts: { count?: number; stopIf?: (probe: VideoProbe) => boolean } = {}
+): Promise<FrameExtraction> {
+  const count = opts.count ?? FRAME_COUNT;
   await whenVisible(10_000);
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
@@ -212,6 +220,7 @@ export async function extractFrames(file: Blob, count: number = FRAME_COUNT): Pr
     if (!Number.isFinite(probe.duration) || probe.duration <= 0 || probe.width <= 0) {
       return { probe: null, frames: [], error: "bad-metadata" };
     }
+    if (opts.stopIf?.(probe)) return { probe, frames: [] };
 
     await nudgeDecoder(video);
     // HAVE_CURRENT_DATA (2): en az bir kare çözülmüş. Gelmezse yine de sarmayı

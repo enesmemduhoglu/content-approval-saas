@@ -1,4 +1,4 @@
-import { keyBelongsToClient, r2Configured, signGetUrl } from "@/lib/storage-r2";
+import { keyBelongsToClient, r2Configured, signDisplayUrl } from "@/lib/storage-r2";
 import type { PortalVideo } from "@/lib/client-scoped-db";
 
 /**
@@ -9,6 +9,9 @@ import type { PortalVideo } from "@/lib/client-scoped-db";
  * bile `keyBelongsToClient` son kapı — bozuk/elle yazılmış bir satır başka
  * müşterinin nesnesine imza aldırmasın.
  *
+ * Adresler `signDisplayUrl` ile: bir saatlik pencere içinde aynı kalır, yanıt
+ * önbellek başlığı taşır — kuyruk her açılışta kapakları yeniden indirmez.
+ *
  * R2 yapılandırılmamışsa URL'ler `null` döner; liste yine çizilir (kapak
  * yerine boş kutu). Sayfa düşmez, yükleme route'u zaten açık hata veriyor.
  */
@@ -16,7 +19,7 @@ import type { PortalVideo } from "@/lib/client-scoped-db";
 async function signIfOwned(key: string | null | undefined, clientId: string): Promise<string | null> {
   if (!key || !keyBelongsToClient(key, clientId) || !r2Configured()) return null;
   try {
-    return await signGetUrl(key);
+    return await signDisplayUrl(key);
   } catch (error) {
     console.error("[portal-media] imzalı URL üretilemedi", (error as Error).message);
     return null;

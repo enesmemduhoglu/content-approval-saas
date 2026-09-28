@@ -114,6 +114,14 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
+  experimental: {
+    // İstemci yönlendirici önbelleği: dinamik bir sayfaya 30 sn içinde yeniden
+    // gidilirse (portalın alt sekmeleri arasında gidip gelmek) sunucu turu
+    // yapılmaz. Varsayılan 0: her sekme dokunuşu Türkiye'den ~350 ms'lik bir
+    // tur demekti (2026-09-28 analizi). Veri tazeliği değişmiyor: her mutasyon
+    // `router.refresh()` çağırıyor ve o önbelleği tamamen temizliyor.
+    staleTimes: { dynamic: 30 },
+  },
 };
 
 export default nextConfig;

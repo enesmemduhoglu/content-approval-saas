@@ -8,7 +8,7 @@ const goToPortalHome = vi.fn();
 vi.mock("@/lib/portal-hard-nav", () => ({ goToPortalHome: () => goToPortalHome() }));
 
 import { CodeLoginForm, RESEND_COOLDOWN_SECONDS } from "./code-login-form";
-import { PortalLoginForm } from "./login-form";
+import { PortalLoginForm, PortalVerifyButton } from "./login-form";
 
 const fetchMock = vi.fn();
 
@@ -110,5 +110,41 @@ describe("PortalLoginForm — e-posta adımı", () => {
     fireEvent.click(screen.getByRole("button", { name: "Kodum var" }));
     expect(screen.getByLabelText("E-posta adresin")).toBeTruthy();
     expect(screen.getByLabelText("Giriş kodu")).toBeTruthy();
+  });
+});
+
+describe("PortalVerifyButton — e-postadaki link", () => {
+  const verifyFails = (status: number, error: string) =>
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error }), { status }));
+
+  it("başarılıysa portala tam yüklemeyle geçer", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    render(<PortalVerifyButton token="t1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Portala giriş yap" }));
+    await waitFor(() => expect(goToPortalHome).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ token: "t1" });
+  });
+
+  it("kullanılmış/süresi dolmuş link: ana eylem 'Yeni kod iste' olur, tekrar dene düğmesi kalkar", async () => {
+    verifyFails(400, "Link geçersiz ya da süresi dolmuş");
+    render(<PortalVerifyButton token="t1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Portala giriş yap" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("süresi dolmuş"));
+    expect(screen.queryByRole("button", { name: "Portala giriş yap" })).toBeNull();
+    const links = screen.getAllByRole("link", { name: "Yeni kod iste" });
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("href")).toBe("/portal/giris");
+  });
+
+  it("geçici hata (429/5xx): düğme yerinde kalır, yanında 'Yeni kod iste' linki", async () => {
+    for (const status of [429, 503]) {
+      cleanup();
+      verifyFails(status, "Çok fazla deneme");
+      render(<PortalVerifyButton token="t1" />);
+      fireEvent.click(screen.getByRole("button", { name: "Portala giriş yap" }));
+      await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+      expect(screen.getByRole("button", { name: "Portala giriş yap" })).toBeTruthy();
+      expect(screen.getAllByRole("link", { name: "Yeni kod iste" })).toHaveLength(1);
+    }
   });
 });

@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { cache } from "react";
 import type { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { normalizeEmail } from "@/lib/membership";
@@ -217,13 +218,25 @@ export async function getClientSession(request?: Request): Promise<ClientSession
 export async function getClientSessionWithExpiry(
   request?: Request
 ): Promise<{ session: ClientSession; expiresAt: Date } | null> {
-  let raw: string | null | undefined;
-  if (request) {
-    raw = readCookie(request.headers.get("cookie"), CLIENT_SESSION_COOKIE);
-  } else {
-    const { cookies } = await import("next/headers");
-    raw = (await cookies()).get(CLIENT_SESSION_COOKIE)?.value;
-  }
+  if (!request) return sessionFromCookies();
+  return verifySessionCookie(readCookie(request.headers.get("cookie"), CLIENT_SESSION_COOKIE));
+}
+
+/**
+ * Çerezli yol İSTEK BAŞINA önbellekli: portal layout'u (`getPortalContext`) ve
+ * sayfa (`requirePortalSession`) aynı istekte ayrı ayrı çağırıyor, her biri
+ * ayrı bir `clientUser` sorgusuydu (2026-09-28 analizi). React `cache` yalnızca
+ * sunucu bileşeni çiziminde saklar; başka yerde her çağrı olduğu gibi çalışır.
+ * "Her istekte DB'den doğrula" kuralı değişmiyor — önbellek tek bir isteğin içi.
+ */
+const sessionFromCookies = cache(async () => {
+  const { cookies } = await import("next/headers");
+  return verifySessionCookie((await cookies()).get(CLIENT_SESSION_COOKIE)?.value);
+});
+
+async function verifySessionCookie(
+  raw: string | null | undefined
+): Promise<{ session: ClientSession; expiresAt: Date } | null> {
   const parsed = parseClientSession(raw, new Date());
   if (!parsed) return null;
   const user = await db.clientUser.findUnique({

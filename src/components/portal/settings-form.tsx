@@ -27,6 +27,26 @@ export type SettingsValue = {
 
 const MAX_SLOTS = 6;
 
+/** "+ Saat ekle"nin sırayla önerdiği saatler (Reels için yaygın öğle/akşam saatleri önce). */
+const SLOT_SUGGESTIONS = ["12:00", "19:00", "09:00", "15:00", "21:00", "17:00"];
+
+/** "HH:MM" dizgileri sözlük sırasında zaten saat sırasındadır; boşlar sona. */
+export function sortSlots(slots: string[]): string[] {
+  return [...slots].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)));
+}
+
+/** Henüz seçilmemiş ilk öneri; öneriler tükendiyse günün ilk boş tam saati. */
+export function suggestSlot(taken: string[]): string {
+  const used = new Set(taken);
+  const free = SLOT_SUGGESTIONS.find((slot) => !used.has(slot));
+  if (free) return free;
+  for (let hour = 0; hour < 24; hour += 1) {
+    const slot = `${String(hour).padStart(2, "0")}:00`;
+    if (!used.has(slot)) return slot;
+  }
+  return "12:00";
+}
+
 /** Özet kutusundaki "sıradaki yayınlar" sayısı. */
 const UPCOMING_COUNT = 3;
 /** Yalnız bir gün seçiliyken 3 yayın 3 haftaya yayılır; +1 gün DST/bugün payı. */
@@ -106,6 +126,16 @@ export function SettingsForm({
   }
 
   /**
+   * Yeni saat: henüz seçilmemiş ilk öneri, çipler saat sırasına dizilerek.
+   * Eskiden hep "12:00" sona ekleniyordu — 12:00 varsa ikinci bir kopya, yoksa
+   * "19:00, 12:00" gibi sırasız çipler (2026-09-28 analizi). Düzenleme SIRASINDA
+   * yeniden sıralanmaz: iOS'un tekerlek seçicisi açıkken çip yer değiştirirdi.
+   */
+  function addSlot() {
+    setSlots((prev) => sortSlots([...prev, suggestSlot(prev)]));
+  }
+
+  /**
    * Gün seçimi. Son gün kaldırılamaz (K28): hiç günü olmayan ayar "hiç yayın
    * yok" demek olurdu, onun yolu "Yayını duraklat". Çip kapanmaz, altta neden
    * kapanmadığı söylenir — sessizce yok saymak "dokunuş algılanmadı" sanılırdı.
@@ -160,7 +190,7 @@ export function SettingsForm({
         setError({ message: data.error ?? "Kaydedilemedi", field: data.field });
         return;
       }
-      setSlots(data.settings.slots);
+      setSlots(sortSlots(data.settings.slots));
       if (Array.isArray(data.settings.days)) setDays(data.settings.days);
       setSaved(true);
       router.refresh();
@@ -261,11 +291,7 @@ export function SettingsForm({
                 </span>
               ))}
               {slots.length < MAX_SLOTS && (
-                <button
-                  type="button"
-                  className="p-chip-add"
-                  onClick={() => setSlots((prev) => [...prev, "12:00"])}
-                >
+                <button type="button" className="p-chip-add" onClick={addSlot}>
                   + Saat ekle
                 </button>
               )}

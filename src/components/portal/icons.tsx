@@ -160,3 +160,11 @@ export const IconGrip = (p: IconProps) => (
     <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />
   </Svg>
 );
+
+/** "Aynı video" uyarısı: üst üste iki kutu (kopya). */
+export const IconCopy = (p: IconProps) => (
+  <Svg strokeWidth={2} {...p}>
+    <rect x="8" y="8" width="12" height="12" rx="2.5" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+  </Svg>
+);

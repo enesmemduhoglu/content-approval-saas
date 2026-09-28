@@ -1,15 +1,61 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { CAPTION_MAX_LENGTH } from "@/lib/validation";
+import type { ReviewNext } from "@/lib/portal-review";
 import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
 import { RestoreSheet, restoreVideo } from "@/components/portal/restore-sheet";
-import { IconCheck, IconRefresh, IconSparkle, IconTrash, IconUndo } from "@/components/portal/icons";
+import {
+  IconCheck,
+  IconChevronRight,
+  IconRefresh,
+  IconSparkle,
+  IconTrash,
+  IconUndo,
+} from "@/components/portal/icons";
 
 /** Redden sonra "Geri al"ın açık kaldığı süre (sn). */
 export const UNDO_SECONDS = 8;
+
+/**
+ * "Yeniden üret" notunun hazır parçaları (V7, "Güncelleme 28 Eyl (3)").
+ * Telefonda not yazmak zahmetli; en sık istenenler caption-stili.md'nin
+ * ayarlanabilir yerlerinden: uzunluk, ton, kanca, emoji, hashtag, CTA.
+ */
+export const NOTE_CHIPS = [
+  "Daha kısa",
+  "Daha samimi",
+  "Kanca daha güçlü",
+  "Emoji yok",
+  "Daha az hashtag",
+  "Kaydetmeye çağır",
+] as const;
+
+const lower = (text: string) => text.trim().toLocaleLowerCase("tr");
+
+/** Nottaki virgülle ayrılmış parçalar; çip bunlardan biriyse "basılı". */
+function noteParts(note: string): string[] {
+  return note
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+export function chipActive(note: string, chip: string): boolean {
+  return noteParts(note).some((part) => lower(part) === lower(chip));
+}
+
+/** Çipi nota ekler ya da çıkarır; elle yazılmış diğer parçalar yerinde kalır. */
+export function toggleChip(note: string, chip: string): string {
+  const parts = noteParts(note);
+  const next = chipActive(note, chip)
+    ? parts.filter((part) => lower(part) !== lower(chip))
+    : [...parts, lower(chip)];
+  return next.join(", ");
+}
 
 export type VideoActionsProps = {
   id: string;
@@ -24,6 +70,10 @@ export type VideoActionsProps = {
    * yayına girmemiş video. Koşul sunucudaki `posts.deleteOutside` ile aynı.
    */
   canDelete: boolean;
+  /** "Tekrar dene"nin üstündeki uyarı (ör. biçim hatasında tekrar denemek boşuna). */
+  retryNote?: string;
+  /** Onay bekleyenler arasında gezinme (`reviewNext`); onay kapalıyken yok. */
+  review?: ReviewNext;
 };
 
 /**
@@ -48,9 +98,25 @@ export function VideoActions(props: VideoActionsProps) {
   const [restoreError, setRestoreError] = useState<string | null>(null);
   /** Redden hemen sonra: videonun eski sırası ve kalan saniye. */
   const [undo, setUndo] = useState<{ position: number | null; left: number } | null>(null);
+  /**
+   * Onaydan hemen sonra: sıradaki bekleyen video. Onay anındaki `review`dan
+   * alınır — sayfa tazelenince bu video artık "bekleyen" sayılmıyor.
+   */
+  const [approvedNext, setApprovedNext] = useState<{ nextId: string | null; left: number } | null>(
+    null
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
+
+  // Onay kutusu alanın altında açılıyor ve sabit eylem çubuğunun arkasında
+  // kalabiliyordu; açılınca görünür alana kaydırılır (2026-09-28 analizi).
+  useEffect(() => {
+    if (!confirmRegenerate) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    confirmRef.current?.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
+  }, [confirmRegenerate]);
 
   const editable =
     (props.status === "pending" || props.status === "approved") &&
@@ -105,6 +171,20 @@ export function VideoActions(props: VideoActionsProps) {
     setMessage(null);
     const previous = typeof data.previousPosition === "number" ? data.previousPosition : null;
     setUndo({ position: previous, left: UNDO_SECONDS });
+  }
+
+  async function approve() {
+    const review = props.review;
+    const data = await call(
+      "/decision",
+      { action: "approve" },
+      "Onaylandı. Video kuyruktaki sırası gelince yayınlanacak."
+    );
+    if (!data || !review) return;
+    // Onay açıkken mesaj yerine "sıradakine geç" satırı (V7, 28 Eyl (3)).
+    setMessage(null);
+    const left = Math.max(0, review.awaiting - (review.index !== null ? 1 : 0));
+    setApprovedNext({ nextId: review.nextId, left });
   }
 
   // Geri sayım; süre bitince bildirim kalkar, çubukta "Sil / Kuyruğa geri al" kalır.
@@ -183,12 +263,20 @@ export function VideoActions(props: VideoActionsProps) {
   const rejected = props.status === "rejected";
   // `undo` açıkken sayfa henüz tazelenmemiş olabilir (status hâlâ `pending`):
   // karar düğmeleri "Geri al"ın yanında görünmesin.
-  const pendingDecision = props.status === "pending" && !outside && undo === null;
+  const pendingDecision =
+    props.status === "pending" && !outside && undo === null && approvedNext === null;
   const canRetry = editable && props.publishStatus === "failed" && props.inQueue;
   const dirty = caption.trim() !== props.caption.trim();
   // Mesajlar da çubukta: sonucu, dokunulan düğmenin hemen üstünde görsün.
   const showBar =
-    pendingDecision || canRetry || outside || undo !== null || message !== null || error !== null;
+    pendingDecision ||
+    canRetry ||
+    outside ||
+    undo !== null ||
+    approvedNext !== null ||
+    message !== null ||
+    error !== null;
+  const review = props.review;
 
   return (
     <>
@@ -202,8 +290,9 @@ export function VideoActions(props: VideoActionsProps) {
       ) : (
         <>
           {/* Whisper sayıları yanlış duyabiliyor ("15" → "50"); yayından önce
-              okunmadan geçilmesin diye her zaman görünür. */}
-          {captionReady && (
+              okunmadan geçilmesin diye görünür. Reddedilen video yayınlanmayacağı
+              için orada gürültü — kuyruğa geri alınınca yeniden çıkar. */}
+          {captionReady && !rejected && (
             <p className="p-note">
               <IconSparkle size={18} />
               <span>
@@ -255,13 +344,31 @@ export function VideoActions(props: VideoActionsProps) {
           <label htmlFor="regen-note" className="p-label">
             Yeniden üret
           </label>
+          <div className="p-notechips" role="group" aria-label="Hazır notlar">
+            {NOTE_CHIPS.map((chip) => {
+              const on = chipActive(note, chip);
+              return (
+                <button
+                  key={chip}
+                  type="button"
+                  className={`p-notechip${on ? " p-notechip--on" : ""}`}
+                  aria-pressed={on}
+                  disabled={busy || confirmRegenerate}
+                  onClick={() => setNote((current) => toggleChip(current, chip))}
+                >
+                  {on && <IconCheck size={13} />}
+                  {chip}
+                </button>
+              );
+            })}
+          </div>
           <div className="p-inline">
             <input
               id="regen-note"
               type="text"
               className="p-input"
               maxLength={500}
-              placeholder="Not ekle: ör. daha kısa olsun"
+              placeholder="Ya da kendin yaz: ör. kancayı soruyla aç"
               value={note}
               disabled={busy || confirmRegenerate}
               onChange={(e) => setNote(e.target.value)}
@@ -277,7 +384,12 @@ export function VideoActions(props: VideoActionsProps) {
             </button>
           </div>
           {confirmRegenerate && (
-            <div className="p-confirm" role="alertdialog" aria-label="Yeniden üretme onayı">
+            <div
+              ref={confirmRef}
+              className="p-confirm"
+              role="alertdialog"
+              aria-label="Yeniden üretme onayı"
+            >
               {/* KARARLAR "Açık sorular": elle düzenleme kaybolur — önce söyle. */}
               <p>
                 Caption baştan üretilecek; elle yaptığın değişiklikler kaybolur.
@@ -383,6 +495,11 @@ export function VideoActions(props: VideoActionsProps) {
             {pendingDecision && !rejecting && !captionReady && (
               <p className="p-hint">Caption hazır olunca onaylayabilirsin.</p>
             )}
+            {pendingDecision && !rejecting && review && review.index !== null && review.awaiting > 1 && (
+              <p className="p-hint p-hint--center">
+                Onay bekleyen {review.awaiting} videodan {review.index}.
+              </p>
+            )}
             {pendingDecision && rejecting && (
               <>
                 <label htmlFor="reject-reason" className="p-label">
@@ -431,18 +548,49 @@ export function VideoActions(props: VideoActionsProps) {
                   type="button"
                   className="p-btn p-btn--primary p-btn--grow"
                   disabled={busy || !captionReady}
-                  onClick={() =>
-                    call(
-                      "/decision",
-                      { action: "approve" },
-                      "Onaylandı. Video kuyruktaki sırası gelince yayınlanacak."
-                    )
-                  }
+                  onClick={() => void approve()}
                 >
                   <IconCheck size={18} />
                   Onayla
                 </button>
               </div>
+            )}
+            {approvedNext && (
+              <>
+                <div className="p-approved" role="status">
+                  <span className="p-approved-check" aria-hidden="true">
+                    <IconCheck size={14} />
+                  </span>
+                  <span className="p-approved-text">
+                    <strong>Onaylandı</strong>
+                    <span>
+                      {approvedNext.nextId
+                        ? "Sırası gelince yayınlanacak"
+                        : "Sırası gelince yayınlanacak · onay bekleyen başka video yok"}
+                    </span>
+                  </span>
+                </div>
+                <div className="p-actionbar-row">
+                  {approvedNext.nextId ? (
+                    <>
+                      <Link href="/portal" className="p-btn p-btn--outline">
+                        Kuyruk
+                      </Link>
+                      <Link
+                        href={`/portal/video/${approvedNext.nextId}`}
+                        className="p-btn p-btn--primary p-btn--grow"
+                      >
+                        Sıradakine geç · {approvedNext.left} kaldı
+                        <IconChevronRight size={18} />
+                      </Link>
+                    </>
+                  ) : (
+                    <Link href="/portal" className="p-btn p-btn--primary p-btn--grow">
+                      Kuyruğa dön
+                    </Link>
+                  )}
+                </div>
+              </>
             )}
             {undo && (
               <div className="p-undo" role="status">
@@ -492,6 +640,9 @@ export function VideoActions(props: VideoActionsProps) {
                   </button>
                 )}
               </div>
+            )}
+            {!pendingDecision && canRetry && props.retryNote && (
+              <p className="p-hint p-hint--center">{props.retryNote}</p>
             )}
             {!pendingDecision && canRetry && (
               <div className="p-actionbar-row">

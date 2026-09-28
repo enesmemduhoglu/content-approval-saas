@@ -28,7 +28,7 @@ npm run build                    # prod build (deploy öncesi mutlaka)
 migration'ları BOŞ bir veritabanında uygulayıp `schema.prisma` ile kaymadığını
 doğruluyor — testler şemayı `db push` ile kurduğu için `prisma/migrations/`
 klasörünü başka hiçbir şey sınamıyor. e2e bilinçli olarak CI dışında.
-*Branch protection açılmadıysa CI yalnızca tavsiyedir* (bkz. `TODOS.md`).
+Branch protection açık: master'a yalnızca PR ile, `dogrula` check'i yeşilken girilir.
 
 **Testler Docker'da Postgres ister ve otomatik ayağa kalkmaz.** Konteyner yoksa
 `vitest.global-setup.ts` tek satır kod okumadan patlar:
@@ -43,7 +43,7 @@ docker exec cas-test-pg psql -U postgres -c "CREATE DATABASE content_approval_e2
 Integration testleri tek DB paylaşır; `fileParallelism: false` bu yüzden.
 
 **5455 portunda iki konteyner yarışıyor.** Makinede hem `cas-test-pg` (bugün
-kullanılan) hem `content-approval-pg` (README'nin andığı eski isim) var ve ikisi de
+kullanılan) hem `content-approval-pg` (eski isim) var ve ikisi de
 5455'e bağlanıyor — aynı anda yalnızca biri ayağa kalkar. "Port already allocated"
 görürsen diğerini durdur; hangisinin çalıştığını `docker ps` ile teyit et. Şeması
 yüklü olan `cas-test-pg`.
@@ -220,15 +220,15 @@ zamanı. Güvenlik gerekçesiyle Next 16'ya koşma.
 
 ## Belgeler
 
-**`TODOS.md` bu deponun karar günlüğü** — kapanmış işler, bilinçli kapsam dışı bırakılan
-maddeler, bilinen sınırlar ve ölçüm yöntemleri orada. Bir tasarım kararını sorgulamadan
-önce oraya bak; çoğu "neden böyle yapılmamış" sorusunun cevabı yazılı. İş bitirdiğinde
-güncelle.
+**`TODOS.md` açık işlerin listesi** — açık maddeler, bilinçli kapsam dışı bırakılanlar,
+bilinen sınırlar ve bu dosyada olmayan tuzaklar. Yalnızca GÜNCEL durum tutulur; kapanan
+madde silinir (geçmiş: `git log -p TODOS.md`). Bir tasarım kararını sorgulamadan önce
+oraya ve git geçmişine bak. İş bitirdiğinde güncelle.
 
 **Video kuyruğu işi (portal, otomatik caption, slot tabanlı yayın) için önce
 `docs/video-kuyrugu/FAZLAR.md`'deki "Oturum devri" bölümünü oku.** İş birden çok
 oturuma yayılıyor; tasarım, kararlar ve kalan adımlar o klasörde. Oturumu o bölümü
 güncelleyerek bitir.
 
-`README.md` ürün ve kurulum anlatır ama Faz E–I (kota, zamanlanmış yayın, ekip üyeleri,
-revizyon turu) sonrası bazı bölümleri bayat — çelişki halinde `TODOS.md` ve kod esastır.
+`README.md` ürünü (ajans paneli + müşteri portalı), mimariyi, kurulumu ve env
+değişkenlerini anlatır (2026-09-28'de yeniden yazıldı). Çelişki hâlinde kod esastır.

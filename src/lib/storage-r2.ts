@@ -146,6 +146,37 @@ export async function signGetUrl(
   });
 }
 
+/**
+ * Portalda GÖSTERİLEN kapak/video için imza penceresi. İmza zamanı pencerenin
+ * başına sabitlenir: aynı pencere içinde üretilen her adres BİREBİR aynı olur
+ * ve tarayıcı önbelleği çalışır. Eskiden imza saniyelik değiştiği için (analizde
+ * aynı sayfa 2 sn arayla çekildi, 5 kapağın 5'i farklı adres) kuyruk her
+ * açılışta bütün kapakları mobil veriyle yeniden indiriyordu.
+ */
+export const DISPLAY_URL_WINDOW_SECONDS = 60 * 60;
+
+/**
+ * Gösterim adresi: pencere başında imzalanır, İKİ pencere geçerlidir — üretildiği
+ * andan itibaren en az bir pencere (1 saat) çalışır. Yanıt `Cache-Control`
+ * taşır (R2 `response-cache-control`'ü uyguluyor; 2026-09-28'de denendi) —
+ * nesneler tarayıcıdan tipsiz başlıkla yüklendiği için kendi başlıkları yok.
+ * `private`: adres imzalı ve müşteriye özel, paylaşılan önbelleklere girmesin.
+ */
+export async function signDisplayUrl(key: string, now: Date = new Date()): Promise<string> {
+  const { client, bucket } = r2();
+  const windowMs = DISPLAY_URL_WINDOW_SECONDS * 1000;
+  const signingDate = new Date(Math.floor(now.getTime() / windowMs) * windowMs);
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ResponseCacheControl: `private, max-age=${DISPLAY_URL_WINDOW_SECONDS}`,
+    }),
+    { expiresIn: DISPLAY_URL_WINDOW_SECONDS * 2, signingDate }
+  );
+}
+
 export type ObjectInfo = { size: number; contentType: string | null };
 
 /**
@@ -157,6 +188,27 @@ export async function headObject(key: string): Promise<ObjectInfo | null> {
   try {
     const out = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
     return { size: out.ContentLength ?? 0, contentType: out.ContentType ?? null };
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata
+      ?.httpStatusCode;
+    if (status === 404) return null;
+    throw error;
+  }
+}
+
+/**
+ * Küçük bir nesnenin (kare) baytları; yoksa `null`. Caption'da kareler
+ * Claude'a adres değil İÇERİK olarak gidiyor: imzalı adresi Claude'un kendisinin
+ * indirmesi zaman zaman geçici bir 400'le düşüyordu (2026-09-28 analizi) ve
+ * hata kalıcı sayılıp caption "üretilemedi"de kalıyordu. Büyük nesneler
+ * (video) için KULLANMA — tamamı belleğe alınıyor.
+ */
+export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
+  const { client, bucket } = r2();
+  try {
+    const out = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    if (!out.Body) return null;
+    return await out.Body.transformToByteArray();
   } catch (error) {
     const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata
       ?.httpStatusCode;

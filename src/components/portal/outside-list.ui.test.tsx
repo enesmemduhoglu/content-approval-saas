@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/portal",
 }));
 
-import { OutsideList, type OutsideCard } from "./outside-list";
+import { OutsideList, TOAST_MS, type OutsideCard } from "./outside-list";
 
 const card = (id: string, overrides: Partial<OutsideCard> = {}): OutsideCard => ({
   id,
@@ -86,14 +86,51 @@ describe("OutsideList", () => {
     expect(refresh).toHaveBeenCalled();
   });
 
-  it("404 (başka sekmede silinmiş) de başarı sayılır", async () => {
+  it("404 (başka sekmede silinmiş) de başarı sayılır; son kart gidince bölüm kalkar, bildirim kalır", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "Video bulunamadı" }), { status: 404 }));
-    render(<OutsideList cards={[card("a")]} requireApproval />);
+    const { rerender } = render(<OutsideList cards={[card("a")]} requireApproval />);
 
     fireEvent.click(screen.getByRole("button", { name: "Videoyu sil" }));
     fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
 
-    await waitFor(() => expect(screen.getByText("Kuyruk dışında video kalmadı.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Video silindi"));
+    expect(screen.queryByRole("heading", { name: "Kuyruk dışı" })).toBeNull();
+    // router.refresh sonrası sunucu boş liste gönderir: bileşen yerinde kalır,
+    // bildirim de (eskiden bölüm sayfada koşullu çizildiği için bildirim de gidiyordu).
+    rerender(<OutsideList cards={[]} requireApproval />);
+    expect(screen.getByRole("status").textContent).toContain("Video silindi");
+  });
+
+  it("bildirim birkaç saniye sonra kendiliğinden kalkar", async () => {
+    // `waitFor` sahte setTimeout'la donar; sahte zamanda mikro görevler elle boşaltılır.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      render(<OutsideList cards={[card("a"), card("b")]} requireApproval />);
+      fireEvent.click(screen.getAllByRole("button", { name: "Videoyu sil" })[0]);
+      fireEvent.click(screen.getByRole("button", { name: "Kalıcı olarak sil" }));
+      for (let i = 0; i < 20 && !screen.queryByRole("status"); i++) {
+        await act(async () => {
+          await Promise.resolve();
+        });
+      }
+      expect(screen.getByRole("status").textContent).toContain("Video silindi");
+      act(() => {
+        vi.advanceTimersByTime(TOAST_MS - 1);
+      });
+      expect(screen.queryByRole("status")).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(screen.queryByRole("status")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("kart yoksa hiçbir şey çizilmez (bölüm başlığı dahil)", () => {
+    const { container } = render(<OutsideList cards={[]} requireApproval />);
+    expect(container.innerHTML).toBe("");
   });
 
   it("409'da kart kalır, hata onay sayfasında görünür", async () => {

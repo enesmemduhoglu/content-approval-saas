@@ -7,6 +7,8 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
     r2Configured: vi.fn(() => true),
     signPutUrl: vi.fn(async (key: string) => `https://acc.r2.cloudflarestorage.com/put/${key}`),
     signGetUrl: vi.fn(async (key: string) => `https://acc.r2.cloudflarestorage.com/get/${key}`),
+    // Portal kapak/video adresleri bu yoldan (kararlı gösterim imzası).
+    signDisplayUrl: vi.fn(async (key: string) => `https://acc.r2.cloudflarestorage.com/view/${key}`),
     headObject: vi.fn(async () => ({ size: 1000, contentType: "video/mp4" })),
     deleteObject: vi.fn(async () => true),
   };
@@ -17,7 +19,7 @@ vi.mock("@/lib/qstash", () => ({
 
 import { db } from "@/lib/db";
 import { resetRateLimiter } from "@/lib/rate-limit";
-import { deleteObject, signGetUrl, signPutUrl } from "@/lib/storage-r2";
+import { deleteObject, signDisplayUrl, signGetUrl, signPutUrl } from "@/lib/storage-r2";
 import { enqueueCaption } from "@/lib/qstash";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
 import {
@@ -78,14 +80,19 @@ beforeEach(async () => {
   await resetDb();
   resetRateLimiter();
   vi.mocked(signGetUrl).mockClear();
+  vi.mocked(signDisplayUrl).mockClear();
   vi.mocked(signPutUrl).mockClear();
   vi.mocked(deleteObject).mockClear();
   vi.mocked(enqueueCaption).mockClear();
   ctx = await setup();
 });
 
+/** Bu testte imzalanan HER anahtar — hangi imza yolundan geçtiği fark etmez. */
 function signedKeys(): string[] {
-  return vi.mocked(signGetUrl).mock.calls.map(([key]) => key);
+  return [
+    ...vi.mocked(signGetUrl).mock.calls.map(([key]) => key),
+    ...vi.mocked(signDisplayUrl).mock.calls.map(([key]) => key),
+  ];
 }
 
 describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", () => {
@@ -95,6 +102,8 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
     const data = await res.json();
     const ids = [...data.queue, ...data.outside, ...data.history].map((v: { id: string }) => v.id);
     expect(ids).toEqual([ctx.postA.id]);
+    // Boş liste "her şey A'nın" diye geçmesin: imza gerçekten üretilmiş olmalı.
+    expect(signedKeys().length).toBeGreaterThan(0);
     expect(signedKeys().every((key) => key.startsWith(`clients/${ctx.clientA.id}/`))).toBe(true);
     // Ham anahtar yanıta sızmaz.
     expect(JSON.stringify(data)).not.toContain("videoKey");
@@ -106,7 +115,7 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
       idParams(ctx.postB.id)
     );
     expect(res.status).toBe(404);
-    expect(signGetUrl).not.toHaveBeenCalled();
+    expect(signedKeys()).toEqual([]);
   });
 
   it("PATCH caption: B'nin videosu 404, caption değişmez", async () => {
