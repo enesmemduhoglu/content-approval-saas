@@ -1,3 +1,5 @@
+import type { QueueRunway } from "@/lib/portal-schedule";
+
 /**
  * Portal ekranlarının tarih/metin biçimleri (mobil arayüz, V7). Saf
  * fonksiyonlar: sunucu bileşenleri çağırıyor, testler sabit `now` ile.
@@ -152,4 +154,64 @@ export function maskEmail(email: string): string {
 /** Ayarlar'daki "Günde 2 video · Türkiye saati" satırının dilim kısmı. */
 export function timezoneLabel(timezone: string): string {
   return timezone === "Europe/Istanbul" ? "Türkiye saati" : timezone.replace(/_/g, " ");
+}
+
+// ─── Kuyruk kaç gün yeter ──────────────────────────────────────────────────
+
+export type RunwaySummary = {
+  /** "10 gün yeter" · "Yayınlanacak video yok" */
+  headline: string;
+  /** "Son yayın Çar 7 Eki · 19:00" · "Sıradaki slot boş geçer · Bugün 19:00" */
+  sub: string;
+  /** "Hepsini onaylarsan 12 gün" — yalnızca onay bekleyenler takvimi uzatıyorsa. */
+  extra?: string;
+  /** `low`: en fazla 2 gün kaldı (bugün + yarın) — video eklemenin vakti. */
+  level: "ok" | "low" | "empty";
+};
+
+/** Bu kadar gün ya da daha azı kaldıysa gösterge uyarır. */
+export const RUNWAY_LOW_DAYS = 2;
+
+/**
+ * "Bugün"/"Yarın" cümle içinde küçük harfle ("Son yayın yarın · 19:00");
+ * "Çar 7 Eki" olduğu gibi kalır.
+ */
+function inlineDayLabel(at: Date, timezone: string, now: Date): string {
+  const label = slotDayLabel(at, timezone, now);
+  return label === "Bugün" || label === "Yarın" ? label.toLocaleLowerCase("tr-TR") : label;
+}
+
+/**
+ * `queueRunway` sonucunun metni. `null` gelirse `null` döner — gösterge
+ * gizlenir (ayar yok / duraklatıldı / slot yok; o durumları "Sıradaki yayın"
+ * kartı zaten anlatıyor). Gün sayısının tanımı `queueRunway`da: bugün dahil
+ * yerel takvim günü.
+ */
+export function runwaySummary(
+  runway: QueueRunway | null,
+  timezone: string,
+  now: Date = new Date()
+): RunwaySummary | null {
+  if (!runway) return null;
+  const extra = runway.ifAllApproved
+    ? `Hepsini onaylarsan ${runway.ifAllApproved.days} gün`
+    : undefined;
+
+  const { approved } = runway;
+  if (!approved) {
+    const next = runway.nextSlotAt;
+    return {
+      headline: "Yayınlanacak video yok",
+      sub: `Sıradaki slot boş geçer · ${slotDayLabel(next, timezone, now)} ${formatTime(next, timezone)}`,
+      ...(extra && { extra }),
+      level: "empty",
+    };
+  }
+
+  return {
+    headline: `${approved.days} gün yeter`,
+    sub: `Son yayın ${inlineDayLabel(approved.lastAt, timezone, now)} · ${formatTime(approved.lastAt, timezone)}`,
+    ...(extra && { extra }),
+    level: approved.days <= RUNWAY_LOW_DAYS ? "low" : "ok",
+  };
 }

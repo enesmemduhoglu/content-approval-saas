@@ -4,6 +4,7 @@ import {
   historyGroup,
   maskEmail,
   presetFor,
+  runwaySummary,
   scheduleSummary,
   shortDateTime,
   slotDayLabel,
@@ -12,6 +13,7 @@ import {
   timezoneLabel,
   weekdayDateTime,
 } from "./portal-format";
+import { queueRunway } from "./portal-schedule";
 
 const TZ = "Europe/Istanbul";
 // 2026-09-25 Cuma, İstanbul 14:00 (UTC+3).
@@ -80,5 +82,99 @@ describe("yayın günleri (V8)", () => {
     expect(presetFor([1, 3])).toBeNull();
     expect(dayCountLabel([1])).toBe("Haftada 1 gün");
     expect(dayCountLabel([1, 2, 3, 4, 5, 6, 7])).toBe("Her gün");
+  });
+});
+
+describe("runwaySummary — kuyruk kaç gün yeter", () => {
+  // NOW: Cuma 25 Eyl 14:00 İstanbul.
+  const end = (days: number, lastAt: string) => ({
+    count: days * 2,
+    lastAt: new Date(lastAt),
+    days,
+    emptyFrom: new Date(lastAt),
+  });
+  const next = new Date("2026-09-25T16:00:00Z");
+
+  it("yeterli: gün sayısı, son yayının tarihi, hepsini onaylarsan", () => {
+    expect(
+      runwaySummary(
+        {
+          approved: end(10, "2026-10-07T16:00:00Z"),
+          ifAllApproved: end(12, "2026-10-09T16:00:00Z"),
+          nextSlotAt: next,
+        },
+        TZ,
+        NOW
+      )
+    ).toEqual({
+      headline: "10 gün yeter",
+      sub: "Son yayın Çar 7 Eki · 19:00",
+      extra: "Hepsini onaylarsan 12 gün",
+      level: "ok",
+    });
+  });
+
+  it("az kaldı (≤ 2 gün): 'yarın' cümle içinde küçük harf, extra yoksa alan da yok", () => {
+    const out = runwaySummary(
+      { approved: end(2, "2026-09-26T16:00:00Z"), ifAllApproved: null, nextSlotAt: next },
+      TZ,
+      NOW
+    );
+    expect(out).toStrictEqual({
+      headline: "2 gün yeter",
+      sub: "Son yayın yarın · 19:00",
+      level: "low",
+    });
+    expect(
+      runwaySummary(
+        { approved: end(1, "2026-09-25T16:00:00Z"), ifAllApproved: null, nextSlotAt: next },
+        TZ,
+        NOW
+      )?.sub
+    ).toBe("Son yayın bugün · 19:00");
+    // Sınır: 3 gün artık uyarı değil.
+    expect(
+      runwaySummary(
+        { approved: end(3, "2026-09-27T16:00:00Z"), ifAllApproved: null, nextSlotAt: next },
+        TZ,
+        NOW
+      )?.level
+    ).toBe("ok");
+  });
+
+  it("takvime giren yok: sıradaki slot boş geçer; onay bekleyenler varsa extra", () => {
+    expect(
+      runwaySummary(
+        { approved: null, ifAllApproved: end(5, "2026-09-29T16:00:00Z"), nextSlotAt: next },
+        TZ,
+        NOW
+      )
+    ).toEqual({
+      headline: "Yayınlanacak video yok",
+      sub: "Sıradaki slot boş geçer · Bugün 19:00",
+      extra: "Hepsini onaylarsan 5 gün",
+      level: "empty",
+    });
+  });
+
+  it("gösterge gizliyse (null) metin de yok", () => {
+    expect(runwaySummary(null, TZ, NOW)).toBeNull();
+  });
+
+  it("queueRunway ile uçtan uca: 20 onaylı, günde 2 slot, 10:00'da bakınca", () => {
+    const now = new Date("2026-09-25T07:00:00Z");
+    const queue = Array.from({ length: 20 }, (_, i) => ({
+      id: `v${i}`,
+      queuePosition: i + 1,
+      captionStatus: "ready" as const,
+      status: "approved" as const,
+      publishStatus: "idle" as const,
+    }));
+    const settings = { slots: ["12:00", "19:00"], timezone: TZ, days: [], requireApproval: true, paused: false };
+    expect(runwaySummary(queueRunway(queue, settings, now), TZ, now)).toEqual({
+      headline: "10 gün yeter",
+      sub: "Son yayın Paz 4 Eki · 19:00",
+      level: "ok",
+    });
   });
 });
