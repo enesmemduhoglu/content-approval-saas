@@ -29,6 +29,37 @@ export function estimatePublishTimes(
   );
 }
 
+/**
+ * Onay bekleyen her video için "Onaylarsan ne zaman çıkar" (V7 tasarımı,
+ * kuyruk kartı "Onaylarsan: 27 Eyl 19:00"). Her video için AYRI bir
+ * varsayım: yalnızca o video onaylanır, diğerleri olduğu gibi kalır — kart
+ * "bunu onaylarsan" diyor, "hepsini onaylarsan" değil. Hesap yine
+ * `projectSchedule`; kuyruk kısa (onlarca video), video başına bir projeksiyon
+ * ucuz.
+ *
+ * Yalnızca onay açıkken ve caption'ı hazır olan (onay düğmesi açık) videolar
+ * için; duraklatılmış kuyrukta ya da ayar yokken boş.
+ */
+export function estimateIfApproved(
+  queue: QueueItem[],
+  settings: Pick<PublishSettings, "slots" | "timezone" | "days" | "requireApproval" | "paused"> | null,
+  now: Date = new Date()
+): Map<string, Date> {
+  const result = new Map<string, Date>();
+  if (!settings || settings.paused || !settings.requireApproval) return result;
+  for (const item of queue) {
+    if (item.status !== "pending" || item.captionStatus !== "ready") continue;
+    const hypothetical = queue.map((other) =>
+      other.id === item.id ? { ...other, status: "approved" as const } : other
+    );
+    const slot = projectSchedule(hypothetical, settings, now, hypothetical.length).find(
+      (projected) => projected.postId === item.id
+    );
+    if (slot) result.set(item.id, slot.slotAt);
+  }
+  return result;
+}
+
 /** "Cmt 27 Eyl 19:00" — müşterinin kendi saat diliminde. */
 export function formatEta(slotAt: Date, timezone: string): string {
   return slotAt.toLocaleString("tr-TR", {

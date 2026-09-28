@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { queueRunway } from "./portal-schedule";
+import { estimateIfApproved, queueRunway } from "./portal-schedule";
 import type { QueueItem } from "./queue";
 
 // Saf — DB yok. `queue.test.ts`teki desen: anlar açık UTC ile yazılıyor ki
@@ -203,5 +203,36 @@ describe("queueRunway — Europe/Istanbul gece yarısı dönümü", () => {
     expect(runway?.approved?.lastAt).toEqual(utc("2026-09-25T21:30:00Z")); // yerel Cmt 00:30
     expect(runway?.approved?.days).toBe(2);
     expect(runway?.approved?.emptyFrom).toEqual(utc("2026-09-26T21:30:00Z"));
+  });
+});
+
+describe("estimateIfApproved — kartta 'Onaylarsan: …'", () => {
+  const now = utc("2026-09-25T07:00:00Z"); // Cuma 10:00
+
+  it("her bekleyen için AYRI varsayım: yalnız o onaylanır, diğerleri olduğu gibi", () => {
+    const queue = queueOf(5, (i) => {
+      if (i === 1 || i === 3) return { status: "pending" };
+      if (i === 4) return { status: "pending", captionStatus: "generating" };
+      return {};
+    });
+    const etas = estimateIfApproved(queue, TWICE, now);
+    // v02 onaylanırsa: v01 12:00, v02 19:00 (v04 onaysız, araya girmez).
+    expect(etas.get("v02")).toEqual(utc("2026-09-25T16:00:00Z"));
+    // v04 onaylanırsa: v01 12:00, v03 19:00, v04 Cmt 12:00 — v02 hâlâ onaysız.
+    expect(etas.get("v04")).toEqual(utc("2026-09-26T09:00:00Z"));
+    // Onaylı olanlar ve caption'ı hazır olmayan listede yok.
+    expect([...etas.keys()].sort()).toEqual(["v02", "v04"]);
+  });
+
+  it("onay kapalı / duraklatılmış / ayar yok → boş", () => {
+    const queue = queueOf(2, () => ({ status: "pending" }));
+    expect(estimateIfApproved(queue, { ...TWICE, requireApproval: false }, now).size).toBe(0);
+    expect(estimateIfApproved(queue, { ...TWICE, paused: true }, now).size).toBe(0);
+    expect(estimateIfApproved(queue, null, now).size).toBe(0);
+  });
+
+  it("yayını patlamış bekleyen video onaylansa da takvime girmez → yok", () => {
+    const queue = queueOf(2, (i) => (i === 1 ? { status: "pending", publishStatus: "failed" } : {}));
+    expect(estimateIfApproved(queue, TWICE, now).has("v02")).toBe(false);
   });
 });

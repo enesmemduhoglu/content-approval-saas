@@ -5,6 +5,7 @@ import { videoKey } from "@/lib/storage-r2";
 import { planMove, positionAtEnd, type MoveTarget } from "@/lib/portal-order";
 import { renumberPositions } from "@/lib/queue";
 import type { PublishSettingsInput } from "@/lib/portal-validation";
+import { instagramHealth, type InstagramHealth } from "@/lib/portal-instagram";
 
 /**
  * Video kuyruğu (V3) — müşteri portalının veri katmanı. `getScopedDb`'nin
@@ -122,6 +123,18 @@ export function getClientScopedDb(session: ClientSession) {
        * ihtiyaç yok.
        */
       getApp: () => findClientApp(clientId),
+
+      /**
+       * Instagram bağlantısının sağlığı (portal uyarısı). Token kolonu yalnızca
+       * "dolu mu" kontrolü için okunur; dönen değerde token YOK.
+       */
+      instagramHealth: async (now: Date = new Date()): Promise<InstagramHealth> => {
+        const row = await db.client.findUnique({
+          where: { id: clientId },
+          select: { instagramUserId: true, instagramAccessToken: true, instagramTokenExpiry: true },
+        });
+        return row ? instagramHealth(row, now) : { state: "missing" };
+      },
     },
 
     posts: {

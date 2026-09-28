@@ -3,10 +3,14 @@ import { notFound } from "next/navigation";
 import { getClientScopedDb } from "@/lib/client-scoped-db";
 import { toDetail } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
-import { estimatePublishTimes } from "@/lib/portal-schedule";
+import { estimateIfApproved, estimatePublishTimes } from "@/lib/portal-schedule";
 import { shortDateTime, slotLabel } from "@/lib/portal-format";
 import { PortalBadges } from "@/components/portal/portal-badges";
 import { VideoActions } from "@/components/portal/video-actions";
+import { PublishErrorCard } from "@/components/portal/publish-error-card";
+import { explainPublishError } from "@/lib/portal-publish-error";
+import { reviewNext } from "@/lib/portal-review";
+import { isInstagramBlocked } from "@/lib/portal-instagram";
 import { IconChevronLeft, IconExternal } from "@/components/portal/icons";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +19,12 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
   const session = await requirePortalSession();
   const { id } = await params;
   const scoped = getClientScopedDb(session);
-  const [video, settings, queue] = await Promise.all([
+  const now = new Date();
+  const [video, settings, queue, instagram] = await Promise.all([
     scoped.posts.findById(id),
     scoped.settings.get(),
     scoped.posts.listQueue(),
+    scoped.client.instagramHealth(now),
   ]);
   // Başka müşterinin videosu da "yok": kapsamlı sorgu satırı hiç döndürmez.
   if (!video || video.status === "draft") notFound();
@@ -27,12 +33,15 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
   const timezone = settings?.timezone ?? "Europe/Istanbul";
 
   // Yayın satırı: kuyruk ekranıyla AYNI tahmin (`projectSchedule`). Takvimde
-  // yoksa saat uydurulmuyor, nedeni yazılıyor.
-  const now = new Date();
-  const eta = estimatePublishTimes(queue, settings, now).get(detail.id);
+  // yoksa saat uydurulmuyor, nedeni yazılıyor. Instagram bağlantısı yoksa
+  // tick slotları boş geçiyor: saat yazmak yalan olur (kuyruk ekranıyla aynı).
+  const blocked = isInstagramBlocked(instagram);
+  const eta = blocked ? undefined : estimatePublishTimes(queue, settings, now).get(detail.id);
   const position = queue.findIndex((v) => v.id === detail.id);
   const inQueue = detail.queuePosition !== null;
   const captionBusy = detail.captionStatus === "pending" || detail.captionStatus === "generating";
+  const publishError =
+    detail.publishStatus === "failed" ? explainPublishError(detail.publishError) : null;
 
   let kicker = "YAYIN";
   let when: string;
@@ -48,6 +57,8 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
     when = "Tekrar denemeni bekliyor";
   } else if (!inQueue) {
     when = "Kuyruk dışında";
+  } else if (blocked) {
+    when = "Instagram bağlantısı bekleniyor";
   } else if (eta) {
     when = slotLabel(eta, timezone, now);
   } else if (!settings) {
@@ -57,7 +68,9 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
   } else if (captionBusy) {
     when = "Caption hazır olunca takvime girer";
   } else if (detail.status === "pending" && requireApproval) {
-    when = "Onaylayınca takvime girer";
+    // V7 tasarımı: "Onaylarsan 27 Eyl · 19:00" — yalnızca bu video onaylansa.
+    const ifApproved = estimateIfApproved(queue, settings, now).get(detail.id);
+    when = ifApproved ? `Onaylarsan ${slotLabel(ifApproved, timezone, now)}` : "Onaylayınca takvime girer";
   } else {
     when = "Takvimde değil";
   }
@@ -103,9 +116,7 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
         {detail.status === "rejected" && detail.rejectionReason && (
           <p className="p-note p-note--danger">Red nedeni: {detail.rejectionReason}</p>
         )}
-        {detail.publishStatus === "failed" && detail.publishError && (
-          <p className="p-note p-note--danger">Yayın hatası: {detail.publishError}</p>
-        )}
+        {publishError && <PublishErrorCard error={publishError} />}
         {detail.captionStatus === "failed" && detail.captionError && (
           <p className="p-note p-note--danger">Caption üretilemedi: {detail.captionError}</p>
         )}
@@ -126,6 +137,12 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
           publishStatus={detail.publishStatus}
           inQueue={inQueue}
           requireApproval={requireApproval}
+          review={requireApproval ? reviewNext(queue, detail.id) : undefined}
+          retryNote={
+            publishError?.retryUseless
+              ? "Aynı dosyayla tekrar denemek büyük ihtimalle yine başarısız olur."
+              : undefined
+          }
           canDelete={
             !inQueue &&
             detail.status !== "draft" &&

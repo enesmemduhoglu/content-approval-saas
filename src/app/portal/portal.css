@@ -360,6 +360,17 @@ body:has(.portal-root) {
   color: #ffb59a;
 }
 
+/* Yayın akışı durdu (Instagram bağlantısı yok): başlığın önündeki nokta. */
+.p-next-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: #ff7a59;
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
 .p-next-when {
   font-family: var(--p-font-display), Archivo, sans-serif;
   font-stretch: 80%;
@@ -541,6 +552,10 @@ body:has(.portal-root) {
 
 .p-hint--md {
   font-size: 13px;
+}
+
+.p-hint--center {
+  text-align: center;
 }
 
 .portal-root .p-kicker {
@@ -1501,6 +1516,39 @@ body:has(.portal-root) {
 }
 
 /* Redden hemen sonra "Geri al" (V7 tasarımı, "Reddettikten hemen sonra"). */
+/* Onaydan hemen sonra: "Onaylandı" satırı + "Sıradakine geç" (28 Eyl (3)). */
+.p-approved {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.p-approved-check {
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--p-ink);
+  color: #faf6e9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.p-approved-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12.5px;
+  color: var(--p-muted);
+  min-width: 0;
+}
+
+.p-approved-text strong {
+  font-size: 14px;
+  color: var(--p-ink);
+}
+
 .p-undo {
   background: var(--p-ink);
   color: #faf6e9;
@@ -2315,4 +2363,128 @@ body:has(.portal-root) {
   width: 40px;
   height: 40px;
   color: #c9cfdb;
+}
+
+/* ─── Yayın hatası kartı (video detayı, 2026-09-28 analizi) ──────────────── */
+
+.p-perr {
+  background: var(--p-card);
+  border: 1.5px solid var(--p-danger-line);
+  border-radius: 18px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.p-perr-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.p-perr-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--p-danger-soft);
+  color: var(--p-danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.p-perr-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--p-body-2);
+}
+
+.p-perr-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--p-ink);
+}
+
+.p-perr-todo {
+  margin: 0;
+  background: var(--p-sand);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--p-ink);
+}
+
+.p-perr-todo-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--p-muted);
+  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.p-perr-raw summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--p-muted);
+  cursor: pointer;
+}
+
+.p-perr-raw code {
+  display: block;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--p-body-2);
+  background: var(--p-bg);
+  border: 1px solid var(--p-line);
+  border-radius: 10px;
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+
+/* ─── "Yeniden üret" not çipleri (28 Eyl (3)) ─────────────────────────────── */
+
+.p-notechips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.portal-root .p-notechip {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  border: 1.5px solid #d9cfb6;
+  background: var(--p-card);
+  color: var(--p-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.portal-root .p-notechip--on {
+  background: var(--p-ink);
+  border-color: var(--p-ink);
+  color: #faf6e9;
+}
+
+.portal-root .p-notechip:disabled {
+  opacity: 0.5;
 }
