@@ -272,6 +272,37 @@ export function validateCompleteParts(
   return { ok: true, parts };
 }
 
+/**
+ * `complete` gövdesindeki isteğe bağlı kare raporu (istemci:
+ * frames-client `FramesReport`). Yalnızca teşhis için — kareler yine R2'ye
+ * HEAD atılarak bulunuyor, bu rapora güvenilip hiçbir şey yazılmıyor. Yine de
+ * sıkı: uyarı e-postasına giren her alan burada biçimlenmiş olmalı, gövdeye
+ * keyfi metin taşınamasın.
+ */
+const FRAME_ERROR_RE = /^[a-z][a-z-]{0,31}$/;
+const FRAMES_REPORT_KEYS = new Set(["extracted", "uploadFailed", "error"]);
+
+export type FramesReportInput = { extracted: number; uploadFailed: number; error?: string };
+
+export function validateFramesReport(
+  value: unknown
+): { ok: true; report: FramesReportInput | null } | ({ ok: false } & FieldError) {
+  if (value === undefined) return { ok: true, report: null };
+  const invalid = { ok: false as const, field: "frames", error: "Kare raporu geçersiz" };
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return invalid;
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).some((key) => !FRAMES_REPORT_KEYS.has(key))) return invalid;
+  const count = (n: unknown): n is number =>
+    typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= FRAME_COUNT;
+  const { extracted, uploadFailed, error } = input;
+  if (!count(extracted) || !count(uploadFailed) || uploadFailed > extracted) return invalid;
+  if (error !== undefined && (typeof error !== "string" || !FRAME_ERROR_RE.test(error))) return invalid;
+  return {
+    ok: true,
+    report: error === undefined ? { extracted, uploadFailed } : { extracted, uploadFailed, error },
+  };
+}
+
 // ─── Diğer ──────────────────────────────────────────────────────────────────
 
 export const REGENERATE_NOTE_MAX = 500;

@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
+import { sendAlert } from "@/lib/alerts";
 import { getClientScopedDb } from "@/lib/client-scoped-db";
 import { notFound, portalMutationGuard, readJson } from "@/lib/portal-route";
-import { FRAME_COUNT, MAX_FRAME_BYTES, validateCompleteParts } from "@/lib/portal-validation";
+import {
+  FRAME_COUNT,
+  MAX_FRAME_BYTES,
+  validateCompleteParts,
+  validateFramesReport,
+  type FramesReportInput,
+} from "@/lib/portal-validation";
 import { enqueueCaption } from "@/lib/qstash";
 import {
   completeMultipartUpload,
@@ -29,6 +36,12 @@ import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/validation";
  * birleştirilir: gövdedeki `parts: [{ partNumber, etag }]` listesiyle
  * `CompleteMultipartUpload`. Kimlik gövdeden değil DB'den; birleşmeden sonra
  * aşağıdaki `headObject` / boyut / tip kontrolleri tek PUT yoluyla AYNI.
+ *
+ * Kare raporu — gövdede isteğe bağlı `frames: { extracted, uploadFailed,
+ * error? }` (tek PUT'ta da, çok parçalıda da). Yalnızca teşhis: kareler yine
+ * HEAD'le bulunur. Hiç kare bulunamazsa log + operatör uyarısı; canlıda
+ * (2026-09-28) 19 portal videosunun 15'i karesiz kalmıştı ve istemci hatayı
+ * yuttuğu için kimse fark etmemişti.
  */
 
 /** R2'nin "gönderdiğin parça listesi tutmuyor" hataları — istemcinin hatası, 400. */
@@ -56,10 +69,14 @@ export async function POST(
 
   // Gövde isteğe bağlı (tek PUT yolu gövdesiz geliyor); `parts` VARSA DB'ye
   // gitmeden doğrulanır. Gerekip gerekmediği ancak taslağa bakınca belli.
-  const body = ((await readJson(request)) ?? {}) as { parts?: unknown };
+  const body = ((await readJson(request)) ?? {}) as { parts?: unknown; frames?: unknown };
   const parts = body.parts === undefined ? null : validateCompleteParts(body.parts);
   if (parts && !parts.ok) {
     return NextResponse.json({ error: parts.error, field: parts.field }, { status: 400 });
+  }
+  const frames = validateFramesReport(body.frames);
+  if (!frames.ok) {
+    return NextResponse.json({ error: frames.error, field: frames.field }, { status: 400 });
   }
 
   const scoped = getClientScopedDb(guard.session);
@@ -148,9 +165,44 @@ export async function POST(
     console.error(`[portal-complete] caption kuyruğa atılamadı (post=${id}): ${enqueue.reason}`);
   }
 
+  if (frameKeys.length === 0) await reportMissingFrames(id, clientId, frames.report);
+
   return NextResponse.json({
     ok: true,
     frameCount: frameKeys.length,
     captionQueued: enqueue.queued,
+  });
+}
+
+/**
+ * Karesiz video: yükleme başarılı sayılır (caption transkriptle üretilir) ama
+ * operatör bilmeli — kapak görseli ve sessiz videoların caption bağlamı yok.
+ * Uyarı anahtarı nedene göre: aynı neden 30 dk'da bir kez mail olur, farklı
+ * bir neden ayrıca gelir. `sendAlert` fırlatmaz; akışı düşürmez.
+ */
+async function reportMissingFrames(
+  postId: string,
+  clientId: string,
+  report: FramesReportInput | null
+): Promise<void> {
+  const reason = !report
+    ? "rapor-yok"
+    : report.extracted === 0
+      ? `cikarilamadi:${report.error ?? "bilinmiyor"}`
+      : report.uploadFailed > 0
+        ? "yukleme-dustu"
+        : "r2de-yok";
+  console.error(
+    `[portal-complete] kare yok (post=${postId}, neden=${reason}` +
+      (report ? `, çıkarılan=${report.extracted}, yüklenemeyen=${report.uploadFailed}` : "") +
+      ")"
+  );
+  await sendAlert(`portal:frames:${reason}`, "Portal videosu karesiz kuyruğa girdi", {
+    postId,
+    clientId,
+    neden: reason,
+    cikarilan: report?.extracted,
+    yuklenemeyen: report?.uploadFailed,
+    hata: report?.error,
   });
 }

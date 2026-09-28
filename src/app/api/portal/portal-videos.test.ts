@@ -14,6 +14,7 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
 vi.mock("@/lib/qstash", () => ({
   enqueueCaption: vi.fn(async () => ({ queued: true, messageId: "m-1" })),
 }));
+vi.mock("@/lib/alerts", () => ({ sendAlert: vi.fn(async () => undefined) }));
 // Onay yayın tetiklememeli: modül mock'lanıyor ki olası bir çağrı yakalansın.
 vi.mock("@/lib/publish-post", () => ({
   publishApprovedPost: vi.fn(),
@@ -24,6 +25,7 @@ import { db } from "@/lib/db";
 import { resetRateLimiter } from "@/lib/rate-limit";
 import { deleteObject, headObject, r2Configured } from "@/lib/storage-r2";
 import { enqueueCaption } from "@/lib/qstash";
+import { sendAlert } from "@/lib/alerts";
 import { publishApprovedPost } from "@/lib/publish-post";
 import { PORTAL_RATE_LIMIT_MAX } from "@/lib/portal-route";
 import { POSITION_STEP } from "@/lib/queue";
@@ -55,6 +57,7 @@ beforeEach(async () => {
   await resetDb();
   resetRateLimiter();
   vi.mocked(enqueueCaption).mockClear();
+  vi.mocked(sendAlert).mockClear();
   vi.mocked(publishApprovedPost).mockClear();
   vi.mocked(headObject).mockReset();
   vi.mocked(headObject).mockResolvedValue({ size: 1000, contentType: "video/mp4" });
@@ -244,6 +247,76 @@ describe("POST /api/portal/videos/[id]/complete", () => {
     expect((await completeVideo(post(`/api/portal/videos/${d.id}/complete`), idParams(d.id))).status).toBe(200);
     expect((await completeVideo(post(`/api/portal/videos/${d.id}/complete`), idParams(d.id))).status).toBe(409);
     expect(enqueueCaption).toHaveBeenCalledTimes(1);
+  });
+
+  // ─── Kare raporu (canlıda karesiz videoların nedeni görünmüyordu) ───────
+
+  it("kare varsa rapor kabul edilir, uyarı gitmez", async () => {
+    const d = await draft();
+    const res = await completeVideo(
+      post(`/api/portal/videos/${d.id}/complete`, { frames: { extracted: 6, uploadFailed: 0 } }),
+      idParams(d.id)
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ frameCount: 6 });
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+
+  it("hiç kare yoksa video yine kuyruğa girer, nedenle birlikte uyarı gider", async () => {
+    const d = await draft();
+    vi.mocked(headObject).mockImplementation(async (key: string) =>
+      key.includes("/videos/") ? { size: 5000, contentType: "video/mp4" } : null
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const res = await completeVideo(
+      post(`/api/portal/videos/${d.id}/complete`, {
+        frames: { extracted: 0, uploadFailed: 0, error: "seek-timeout" },
+      }),
+      idParams(d.id)
+    );
+    expect(res.status).toBe(200);
+    expect((await db.post.findUniqueOrThrow({ where: { id: d.id } })).status).toBe("pending");
+    expect(sendAlert).toHaveBeenCalledWith(
+      "portal:frames:cikarilamadi:seek-timeout",
+      expect.any(String),
+      expect.objectContaining({ postId: d.id, cikarilan: 0, hata: "seek-timeout" })
+    );
+    expect(errors.mock.calls.flat().join(" ")).toContain("kare yok");
+    errors.mockRestore();
+  });
+
+  it("kareler çıkarıldı ama yüklenemediyse neden 'yukleme-dustu'; eski istemci (rapor yok) da raporlanır", async () => {
+    vi.mocked(headObject).mockImplementation(async (key: string) =>
+      key.includes("/videos/") ? { size: 5000, contentType: "video/mp4" } : null
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const a = await draft();
+    await completeVideo(
+      post(`/api/portal/videos/${a.id}/complete`, { frames: { extracted: 6, uploadFailed: 6 } }),
+      idParams(a.id)
+    );
+    const b = await draft();
+    await completeVideo(post(`/api/portal/videos/${b.id}/complete`), idParams(b.id));
+    expect(vi.mocked(sendAlert).mock.calls.map(([key]) => key)).toEqual([
+      "portal:frames:yukleme-dustu",
+      "portal:frames:rapor-yok",
+    ]);
+    errors.mockRestore();
+  });
+
+  it.each([
+    ["dizi", []],
+    ["sayı değil", { extracted: "6", uploadFailed: 0 }],
+    ["sınır dışı", { extracted: 7, uploadFailed: 0 }],
+    ["yüklenemeyen > çıkarılan", { extracted: 2, uploadFailed: 3 }],
+    ["hata kodunda keyfi metin", { extracted: 0, uploadFailed: 0, error: "<b>hack</b>" }],
+    ["bilinmeyen alan", { extracted: 0, uploadFailed: 0, note: "x" }],
+  ])("geçersiz kare raporu (%s) 400 — taslak kalır", async (_, frames) => {
+    const d = await draft();
+    const res = await completeVideo(post(`/api/portal/videos/${d.id}/complete`, { frames }), idParams(d.id));
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe("frames");
+    expect((await db.post.findUniqueOrThrow({ where: { id: d.id } })).status).toBe("draft");
   });
 });
 
