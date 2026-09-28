@@ -135,6 +135,20 @@ export const IconExternal = (p: IconProps) => (
   </Svg>
 );
 
+export const IconTrash = (p: IconProps) => (
+  <Svg strokeWidth={1.9} {...p}>
+    <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+  </Svg>
+);
+
+/** Kapak karesi olmayan videonun yer tutucusu (tarayıcı kare çıkaramadıysa). */
+export const IconVideo = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="3" width="16" height="18" rx="3" />
+    <path d="M10 9.5v5l4-2.5z" fill="currentColor" />
+  </Svg>
+);
+
 export const IconGrip = (p: IconProps) => (
   <Svg strokeWidth={2.4} {...p}>
     <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />

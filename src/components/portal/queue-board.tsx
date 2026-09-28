@@ -22,7 +22,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { PortalBadges } from "@/components/portal/portal-badges";
-import { IconChevronDown, IconChevronUp, IconGrip } from "@/components/portal/icons";
+import { IconChevronDown, IconChevronUp, IconGrip, IconVideo } from "@/components/portal/icons";
 
 export type QueueCard = {
   id: string;
@@ -114,10 +114,14 @@ function SortableRow({
             loading="lazy"
           />
         ) : (
+          // Kapak yoksa (tarayıcı kare çıkaramadı) lacivert boş kutu değil,
+          // "video var ama karesi yok" diyen yer tutucu. İskelette ikon yok.
           <span
-            className={`p-cover${tone === "busy" ? " p-cover--busy" : ""}${tone === "failed" ? " p-cover--dim" : ""}`}
+            className={`p-cover${tone === "busy" ? " p-cover--busy" : " p-cover--empty"}${tone === "failed" ? " p-cover--dim" : ""}`}
             aria-hidden="true"
-          />
+          >
+            {tone !== "busy" && <IconVideo size={22} />}
+          </span>
         )}
         <span className="p-qcard-body">
           <span className="p-qcard-meta">

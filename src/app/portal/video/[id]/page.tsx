@@ -126,6 +126,11 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
           publishStatus={detail.publishStatus}
           inQueue={inQueue}
           requireApproval={requireApproval}
+          canDelete={
+            !inQueue &&
+            detail.status !== "draft" &&
+            (detail.publishStatus === "idle" || detail.publishStatus === "failed")
+          }
         />
       </div>
     </main>

@@ -4,11 +4,17 @@ import { getClientScopedDb, type PortalVideo } from "@/lib/client-scoped-db";
 import { toCard } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
 import { getPortalContext } from "@/lib/portal-app";
-import { estimatePublishTimes } from "@/lib/portal-schedule";
-import { formatTime, slotDayLabel, slotWeekdayLabel } from "@/lib/portal-format";
+import { estimatePublishTimes, queueRunway } from "@/lib/portal-schedule";
+import {
+  formatTime,
+  runwaySummary,
+  slotDayLabel,
+  slotWeekdayLabel,
+  type RunwaySummary,
+} from "@/lib/portal-format";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { QueueBoard, type QueueCard } from "@/components/portal/queue-board";
-import { PortalBadges } from "@/components/portal/portal-badges";
+import { OutsideList } from "@/components/portal/outside-list";
 import { InstallHint } from "@/components/portal/install-hint";
 import { IconPlay } from "@/components/portal/icons";
 
@@ -40,29 +46,34 @@ function NextCard({
   sub,
   small,
   thumb,
+  runway,
 }: {
   href?: string;
   when: string;
   sub: ReactNode;
   small?: boolean;
   thumb?: { coverUrl: string | null };
+  runway?: RunwayRow;
 }) {
   const body = (
     <>
-      <span className="p-next-text">
-        <span className="p-next-kicker">SIRADAKİ YAYIN</span>
-        <span className={`p-next-when${small ? " p-next-when--sm" : ""}`}>{when}</span>
-        <span className="p-next-sub">{sub}</span>
-      </span>
-      {thumb && (
-        <span className="p-next-thumb" aria-hidden="true">
-          {thumb.coverUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={thumb.coverUrl} alt="" />
-          )}
-          <IconPlay size={22} />
+      <span className="p-next-row">
+        <span className="p-next-text">
+          <span className="p-next-kicker">SIRADAKİ YAYIN</span>
+          <span className={`p-next-when${small ? " p-next-when--sm" : ""}`}>{when}</span>
+          <span className="p-next-sub">{sub}</span>
         </span>
-      )}
+        {thumb && (
+          <span className="p-next-thumb" aria-hidden="true">
+            {thumb.coverUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={thumb.coverUrl} alt="" />
+            )}
+            <IconPlay size={22} />
+          </span>
+        )}
+      </span>
+      {runway && <RunwayLine {...runway} />}
     </>
   );
   return href ? (
@@ -73,6 +84,26 @@ function NextCard({
     <section className="p-next" aria-label="Sıradaki yayın">
       {body}
     </section>
+  );
+}
+
+type RunwayRow = Pick<RunwaySummary, "headline" | "level"> & { sub?: string; extra?: string };
+
+/**
+ * "Kuyruk kaç gün yeter" — sıradaki yayın kartının alt satırı (V7 tasarımı,
+ * varyant B). Ana rakam onaylı videolarla (gerçekten yayınlanacaklar); onay
+ * bekleyenler takvimi uzatıyorsa sağda "Hepsini onaylarsan X gün".
+ */
+function RunwayLine({ headline, sub, extra, level }: RunwayRow) {
+  return (
+    <span className={`p-next-runway${level === "low" ? " p-next-runway--low" : ""}`}>
+      <span className="p-next-runway-main">
+        <span className="p-next-kicker">KUYRUK</span>
+        <span className="p-next-runway-head">{headline}</span>
+        {sub && <span className="p-next-runway-sub">{sub}</span>}
+      </span>
+      {extra && <span className="p-next-runway-extra">{extra}</span>}
+    </span>
   );
 }
 
@@ -101,6 +132,8 @@ export default async function PortalQueuePage() {
   );
   const next = [...etaTimes].sort((a, b) => a[1].getTime() - b[1].getTime())[0];
   const nextCard = next ? queueCards.find((c) => c.id === next[0]) : undefined;
+  // Aynı `now`: gösterge ile "Sıradaki yayın" aynı anı baz alsın.
+  const runway = runwaySummary(queueRunway(queue, settings, now), timezone, now);
 
   let nextView: ReactNode;
   if (!settings) {
@@ -134,6 +167,7 @@ export default async function PortalQueuePage() {
             : "Sıradaki video yayınlanır · Onay kapalı"
         }
         thumb={{ coverUrl: nextCard?.coverUrl ?? null }}
+        runway={runway && runway.level !== "empty" ? runway : undefined}
       />
     );
   } else if (queueCards.length === 0) {
@@ -155,6 +189,9 @@ export default async function PortalQueuePage() {
             ? "Onayladığın ilk video sıradaki saatte yayınlanır"
             : "Caption'ı hazır olan ilk video sıradaki saatte yayınlanır"
         }
+        // Başlık zaten "Onaylı video yok" diyor; gösterge yalnızca onaylanırsa
+        // kuyruğun ne kadar yeteceğini ekler.
+        runway={runway?.extra ? { headline: runway.extra, level: "ok" } : undefined}
       />
     );
   }
@@ -182,27 +219,10 @@ export default async function PortalQueuePage() {
               Kuyruk dışı
             </h2>
           </div>
-          <p className="p-hint">Kuyruktan çıkardığın ya da reddettiğin videolar. Bunlar yayınlanmaz.</p>
-          <ul className="p-list">
-            {outsideCards.map((card) => (
-              <li key={card.id}>
-                <Link href={`/portal/video/${card.id}`} className="p-hcard">
-                  {card.coverUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={card.coverUrl} alt="" className="p-hcover p-cover--dim" loading="lazy" />
-                  ) : (
-                    <span className="p-hcover p-cover--dim" aria-hidden="true" />
-                  )}
-                  <span className="p-hcard-body">
-                    <span className="p-qcard-meta">
-                      <PortalBadges video={card} requireApproval={requireApproval} />
-                    </span>
-                    <span className="p-hcard-caption">{card.caption || "Caption yok"}</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <p className="p-hint">
+            Kuyruktan çıkardığın ya da reddettiğin videolar. Bunlar yayınlanmaz; istemediğini silebilirsin.
+          </p>
+          <OutsideList cards={outsideCards} requireApproval={requireApproval} />
         </section>
       )}
     </PortalShell>

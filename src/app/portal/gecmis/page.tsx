@@ -5,7 +5,7 @@ import { requirePortalSession } from "@/lib/portal-page";
 import { historyGroup, shortDateTime } from "@/lib/portal-format";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { HistoryTabs } from "@/components/portal/history-tabs";
-import { IconChevronRight, IconExternal } from "@/components/portal/icons";
+import { IconChevronRight, IconExternal, IconVideo } from "@/components/portal/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,9 @@ function Cover({ card }: { card: PortalVideoCard }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img src={card.coverUrl} alt="" className="p-hcover" loading="lazy" />
   ) : (
-    <span className="p-hcover" aria-hidden="true" />
+    <span className="p-hcover p-cover--empty" aria-hidden="true">
+      <IconVideo size={20} />
+    </span>
   );
 }
 

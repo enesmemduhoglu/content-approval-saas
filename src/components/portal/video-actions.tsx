@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { CAPTION_MAX_LENGTH } from "@/lib/validation";
-import { IconCheck, IconRefresh, IconSparkle } from "@/components/portal/icons";
+import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
+import { IconCheck, IconRefresh, IconSparkle, IconTrash } from "@/components/portal/icons";
 
 export type VideoActionsProps = {
   id: string;
@@ -14,6 +15,11 @@ export type VideoActionsProps = {
   publishStatus: PublishStatus;
   inQueue: boolean;
   requireApproval: boolean;
+  /**
+   * Kalıcı silme: yalnızca kuyruk dışındaki (çıkarılan ya da reddedilen),
+   * yayına girmemiş video. Koşul sunucudaki `posts.deleteOutside` ile aynı.
+   */
+  canDelete: boolean;
 };
 
 /**
@@ -32,6 +38,8 @@ export function VideoActions(props: VideoActionsProps) {
   const [reason, setReason] = useState("");
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,11 +78,35 @@ export function VideoActions(props: VideoActionsProps) {
     }
   }
 
-  const pendingDecision = props.status === "pending";
+  const closeDelete = useCallback(() => {
+    setDeleting(false);
+    setDeleteError(null);
+  }, []);
+
+  async function confirmDelete() {
+    if (busy) return;
+    setBusy(true);
+    setDeleteError(null);
+    const result = await deleteVideo(props.id);
+    if (!result.ok) {
+      setDeleteError(result.error);
+      setBusy(false);
+      return;
+    }
+    // Sayfanın kendisi artık yok: kuyruğa dönülür (orada "Kuyruk dışı" tazelenmiş).
+    router.replace("/portal");
+    router.refresh();
+  }
+
+  // Kuyruk dışındaki videoda karar (Onayla/Reddet) çubuğu yerine "Sil" +
+  // "Kuyruğa geri al": yayınlanmayacak bir videoyu onaylamak anlamsız, önce
+  // kuyruğa geri alınır.
+  const outside = !props.inQueue && props.canDelete;
+  const pendingDecision = props.status === "pending" && !outside;
   const canRetry = editable && props.publishStatus === "failed" && props.inQueue;
   const dirty = caption.trim() !== props.caption.trim();
   // Mesajlar da çubukta: sonucu, dokunulan düğmenin hemen üstünde görsün.
-  const showBar = pendingDecision || canRetry || message !== null || error !== null;
+  const showBar = pendingDecision || canRetry || outside || message !== null || error !== null;
 
   return (
     <>
@@ -195,7 +227,7 @@ export function VideoActions(props: VideoActionsProps) {
         </div>
       )}
 
-      {editable && (
+      {editable && !outside && (
         <div className="p-tools">
           {props.inQueue && (
             <button
@@ -222,6 +254,10 @@ export function VideoActions(props: VideoActionsProps) {
             {props.inQueue ? "Sona at" : "Kuyruğa geri al"}
           </button>
         </div>
+      )}
+
+      {deleting && (
+        <DeleteSheet busy={busy} error={deleteError} onCancel={closeDelete} onConfirm={confirmDelete} />
       )}
 
       {showBar && (
@@ -311,6 +347,35 @@ export function VideoActions(props: VideoActionsProps) {
                   <IconCheck size={18} />
                   Onayla
                 </button>
+              </div>
+            )}
+            {outside && (
+              <div className="p-actionbar-row">
+                <button
+                  type="button"
+                  className="p-btn p-btn--danger"
+                  disabled={busy}
+                  onClick={() => {
+                    setMessage(null);
+                    setError(null);
+                    setDeleting(true);
+                  }}
+                >
+                  <IconTrash size={18} />
+                  Sil
+                </button>
+                {/* Reddedilen video kuyruğa geri alınamaz (`moveToEnd`); yalnızca silinir. */}
+                {editable && (
+                  <button
+                    type="button"
+                    className="p-btn p-btn--primary p-btn--grow"
+                    disabled={busy}
+                    onClick={() => call("/to-end", {}, "Video kuyruğa geri alındı")}
+                  >
+                    <IconRefresh size={18} />
+                    Kuyruğa geri al
+                  </button>
+                )}
               </div>
             )}
             {!pendingDecision && canRetry && (
