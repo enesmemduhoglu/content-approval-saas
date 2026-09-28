@@ -5,104 +5,28 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 ## Oturum devri
 
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
+> Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-09-28 (analiz geliştirme oturumu)
-- **Portal analiz iyileştirmeleri (`feat/portal-analiz-iyilestirmeleri`, taslak PR #83, MERGE EDİLMEDİ):**
-  2026-09-28 analiz raporundaki öncelik sırasıyla:
-  - Yükleme sağlamlığı (octet-stream .mov, uygunsuz dosya tek satırda, seçimde kapak), caption
-    sağlamlığı (sessiz video, kareler base64), hız (kararlı imzalı URL, staleTimes, oturum `cache()`).
-  - Küçük düzeltmeler: yüzen/kendiliğinden kalkan bildirim, "Saat ekle" boş saat, ölü giriş linki.
-  - Tasarım turu (V7 kanvası "Güncelleme 28 Eyl (3)"): Instagram bağlantı uyarısı, okunur yayın
-    hataları, onayla → sıradakine geç, "Onaylarsan: <slot>", not çipleri, aynı video uyarısı.
-  - Günlük özette "kuyruk bugün/yarın bitiyor" (e-posta + bildirim).
-  - **Şema göçü var:** `20260928100000_kaynak_dosya` (Post.sourceSize/sourceName, boş olabilen).
-  - Yerel prod build + test DB ile tarayıcıda doğrulandı; tam paket 1471/1471 yeşil.
-  - Bilinçli olarak YAPILMADI: SW'de /_next/static önbelleği (prod zaten immutable + edge HIT;
-    sw.js "değişmez" kuralını bozardı). Küçük kapak (thumb) ölçülmedi — sıradaki iş.
-  - Merge kararı kullanıcıda.
-- **Portal: reddi geri alma (`feat/portal-red-geri-al`, 2026-09-28):** kullanıcı
-  "yanlışlıkla reddedilmiş olabilir, niye sadece sil" dedi; tasarım V7
-  kanvasının "Güncelleme 28 Eyl (2)" satırında (3 ekran), kullanıcı onayladı.
-  - `POST /api/portal/videos/[id]/restore` + `posts.restoreRejected`:
-    `{ approve, position? }` — onaylı (caption hazır olmalı) ya da onay bekler
-    hâlde kuyruğa döner; `position` yoksa sona. Defterde `restored` (+ onaylı
-    dönüşte `approved`); `audit-trail` etiketi "Müşteri reddi geri aldı".
-  - Red yanıtı artık `previousPosition` döner: detayda redden sonra 8 sn
-    "Geri al" bildirimi videoyu ESKİ yerine, onay bekler hâlde koyar.
-  - Detay: reddedilen videoda Sil + Kuyruğa geri al → "Onaylayıp kuyruğa al /
-    Onay bekleyen olarak al" sayfası (onay kapalıyken sorulmaz, doğrudan alınır).
-  - Kuyruk dışı listesi: her kartta geri al + sil; reddedilende red nedeni.
-    Çıkarılmış (reddedilmemiş) video geri alda doğrudan `to-end`.
-- **#80 ve #81 merge edildi (2026-09-28)**; gereksiz worktree/branch/test DB'leri temizlendi.
-- **Portal: silme + kuyruk süresi + kapak (`feat/portal-sil-kapak-sure`, 2026-09-28):**
-  kullanıcı isteği üç iş, tasarım önce V7 kanvasına eklendi
-  (https://claude.ai/artifact/WUckhyutaTLTtwo7V5CpYC, "Güncelleme 28 Eyl" satırı;
-  kullanıcı "kaç gün yeter" için **varyant B**'yi seçti).
-  - **Silme:** `DELETE /api/portal/videos/[id]` + `posts.deleteOutside` — yalnızca
-    kuyruk dışı (çıkarılan ya da reddedilen), yayına girmemiş video; ilişkili
-    satırlar tek transaction'da, R2 nesneleri commit'ten sonra. Kuyruk dışı
-    listesinde çöp kutusu + alttan onay sayfası; detayda Sil + Kuyruğa geri al
-    (reddedilende yalnızca Sil). Kuyruk dışındaki onay bekleyen videoda
-    Onayla/Reddet artık yok (önce kuyruğa alınır). Silinen videonun caption işi
-    `skipped/not_found` döner (alarm/yeniden deneme yok).
-  - **Kuyruk süresi:** `queueRunway` (portal-schedule.ts, `projectSchedule`
-    üstüne) + `runwaySummary`; "Sıradaki yayın" kartının alt satırı: "N gün yeter ·
-    Son yayın …", onay bekleyen varsa "Hepsini onaylarsan N gün"; ≤2 gün turuncu.
-    Gün = bugün dahil yerel takvim günü.
-  - **Kapak teşhisi:** canlıda 19 tamamlanmış videonun 4'ünde kare vardı;
-    3'lü yüklemelerde yalnızca son dosyada. Kareler tarayıcıda çıkarılamıyor
-    (URL süresi, video içeriği, yükleme dışlandı — ffprobe ile 19 video aynı tür);
-    iOS mekanizması kesin değil. `extractFrames` sağlamlaştırıldı (DOM'a görünmez
-    ekleme, play/pause ile çözücü uyandırma, `loadeddata`, seek yeniden deneme,
-    zaman aşımında yükleme sırasında ikinci deneme) ve neden kodu `complete`
-    gövdesiyle sunucuya gidiyor: kare çıkmazsa `sendAlert`
-    `portal:frames:<neden>` + log. Kapaksız kartta video ikonlu yer tutucu.
-  - **Onarım:** `scripts/kapak-onar.mjs` (ffmpeg, varsayılan dry-run) — 15
-    karesiz video listelendi; kullanıcı onayıyla `--apply` koştu (2026-09-28): 15/15 onarıldı, canlıda 19 videonun hepsinde 6 kare.
-  - **Doğrulama bekleyen:** Furkan'ın iPhone'undan tek + 3'lü yükleme → yeni
-    postlarda `frameKeys` 6 mı; değilse uyarı e-postasındaki neden koduyla ikinci tur.
-- **Son durum:** V0–V4 merge edildi (#59–#65), dış doğrulamalar tamam (#67, #68), **V5 canlıda.** İlk gerçek yayın 2026-09-25 03:10 (onaylı video, slot 03:09 → Reels ~20 sn'de yayında); 03:13 boş slotu `empty` + "onaylı video yok" e-postası (Resend kabul etti, log temiz). Yayınlanan video dikey çıktı → V6.
-- **V6 iptal (K24):** video telefonda hazırlanıp yüklenecek; portal videoya dokunmaz.
-- **Sıradaki iş: V7 (PWA)** — [`V7-pwa.md`](V7-pwa.md), sıra V7a → V7b → V7c → V7d. Kullanıcı 2026-09-25'te "şimdi halledeceğiz" dedi.
-- **Sıradaki adım:** V5 kalanı — Furkan'ın portal e-postası (kullanıcıdan bekleniyor) eklenip test kullanıcısı kaldırılır; Furkan gerçek yayın saatlerini seçer; bir hafta onay açık modda izleme. Sonra V6/V7 (kullanıcı başlatınca).
-- **Açık durumlar (prod):** portalın tek kullanıcısı test için `eneshan034@gmail.com` (Furkan'ın müşteri kaydında); yayın duraklatılmış, tek slot 03:19. **Test videoları temizlendi (2026-09-25):** Furkan'ın 5 portal videosu (2 yayınlanmış, 3 kuyruk dışı) + 35 R2 nesnesi `scripts/portal-video-temizligi.mjs --apply` ile silindi (kullanıcı çalıştırdı); Instagram'daki 2 test Reel'i (DdsKHIJjE6N, DdsI93Uk3wl) yerinde — silinmesi kullanıcıda.
-- **Canlıda kurulu:** Vercel env (R2, QStash US, fal, Anthropic — Production + Preview), QStash schedule `scd_4rmi9RPUgv1uQkyzWBRwTagJEQQk` (`*/5 * * * *` → `POST /api/queue/tick`, ilk tick 200), Furkan'ın `captionStyle`'ı (`scripts/caption-stili-yukle.mjs`).
-- **Dikkat:** Furkan'ın Instagram token'ı 2026-10-15'te bitiyor; yenileme cron'u 20 gün kala devreye girer — 2026-09-26 sabahı yenilendiğini kontrol et.
-- **V8 (yayın günleri, K28):** #77 merge edildi. Furkan Ayarlar'dan günleri seçer.
-- **iPhone denemesi (2026-09-25, kullanıcı):** portal açılıyor, çoğu şey çalışıyor,
-  video yüklendi; yüklenen videonun yayını telefondan henüz denenmedi.
-- **Portal hızı + seçince yükle (`perf/portal-iskelet`):** ölçüm (Türkiye → iad1,
-  sıcak): sayfa yanıtları 200–300 ms, bunun ~130 ms'i ağ; DB (Neon us-east-1)
-  Vercel'le aynı bölgede, sorgular paralel, JS ~100 kB — sunucu darboğaz değil.
-  Asıl sorun sekmeye dokununca yanıt gelene kadar ekranın hiç değişmemesiydi
-  (`loading.tsx` yoktu) → `app/portal/loading.tsx` iskeleti eklendi. Yükle
-  ekranında "Videoyu yükle" düğmesi kalktı: galeriden seçim yüklemeyi hemen
-  başlatır. Soğuk başlangıç ölçülemedi (Vercel log erişimi yok). Aynı PR'da
-  kullanıcı isteğiyle sadeleştirme: Ayarlar'daki "Uygulama" kartı (ana ekrana
-  ekli / sürüm) kalktı, yalnızca "Çıkış yap" kaldı (yeni sürümü `UpdateBand`
-  zaten söylüyor); saat dilimi seçicisi kalktı, kayıt hep `Europe/Istanbul`
-  gönderir; Kuyruk başlığındaki sağ üst Ayarlar düğmesi kalktı (alt çubukta var).
-- **Müşteriye iPhone kurulum rehberi** yazıldı (sohbette kullanıcıya verildi).
-  Göndermeden önce: `Client.app*` alanları ve Vercel'de `VAPID_*` env'i
-  doğrulanmalı.
-- **Furkan portala eklendi (2026-09-25):** `furkanking668@gmail.com` "Portal
-  erişimi"ne eklendi, davet linki gitti. `Client.email` zaten bu adres.
-  Kullanıcı kendisi yapacak: portal Ayarlar'daki "Yedek e-posta"yı
-  (`notifyEmail` = `eneshan034@gmail.com`) boşaltıp kaydetmek, sonra test
-  kullanıcısını (`eneshan034@gmail.com`) paneldan kaldırmak. Yayın şu an
-  duraklatılmış, tek slot 03:19 — Furkan gerçek saatleri seçip devam ettirecek.
-  Instagram token'ı yenilenmiş (bitiş 2026-11-24).
-- **Merge izni:** #79'dan sonra Claude Code'un otomatik izin denetimi
-  "incelemesiz merge" diye uyardı; aşağıdaki yazılı izne rağmen yeni
-  oturumlar merge'den önce kullanıcıya sormalı.
-- **Yarım kalan:** `feat/portal-red-geri-al` PR'ı (merge kullanıcı onayıyla;
-  şema göçü yok — `ApprovalAudit.action` String, `restored` göç istemiyor).
-- **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
-  anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
-  fonksiyonlar beklemeden ilerleyebilir.
-- **Çalışma izni:** kullanıcı 2026-09-25'te fazlarda commit, PR ve merge
-  için tam izin verdi. Şema göçü içeren PR'lar yine de `CLAUDE.md`'deki
-  "Merge = prod şema göçü" kuralına göre sınanmadan merge edilmez.
+- **Son güncelleme:** 2026-09-28 (açık işleri kapatma + belge turu)
+- **Canlı durum:** V0–V5, V7a/b/c ve V8 canlıda; #83 (portal analiz iyileştirmeleri +
+  bu belge turu, göç `20260928100000_kaynak_dosya`) merge edildi. Furkan portalı
+  iPhone'unda PWA olarak kullanıyor, kendi yayın gün/saatlerini seçti, yayın açık.
+  Test dönemi kalıntıları (test portal kullanıcısı, yedek e-posta, duraklatılmış tek
+  slot, test Reels'leri) artık yok — kullanıcı beyanı, 2026-09-28. Kapak düzeltmesinin
+  (#81) iPhone'dan yükleme denemesi kullanıcı tarafından yapıldı.
+- **Sıradaki işler:** `TODOS.md` → "Video kuyruğu" bölümü (küçük kapak, V7c canlı
+  doğrulaması, K17 özet tekrar koruması, K15 altText, V7d ertelendi). Kullanıcı
+  2026-09-28'de başka bir işe geçti; bunlar kullanıcı başlatınca.
+- **Dikkat:** Furkan'ın Instagram token'ı 2026-11-24'te bitiyor; yenileme cron'u 20 gün
+  kala (~2026-11-04) devreye girer — o hafta yenilendiğini kontrol et.
+- **Canlıda kurulu:** Vercel env (R2, QStash US, fal, Anthropic — Production + Preview),
+  QStash schedule (`*/5 * * * *` → `POST /api/queue/tick`), R2 CORS + lifecycle (yarım
+  çok parçalı yükleme 2 gün sonra iptal), Furkan'ın `captionStyle`'ı ve `Client.app*`
+  alanları.
+- **Prod okuma/merge:** Claude Code'un otomatik izin denetimi prod DB okumayı ve
+  incelemesiz merge'ü engelleyebiliyor. Yeni oturumlar merge'den önce kullanıcıya
+  sorar; şema göçü içeren PR `CLAUDE.md`'deki "Merge = prod şema göçü" kuralıyla
+  sınanmadan merge edilmez.
 
 ## Elle yapılacaklar (repo yapamaz)
 
@@ -115,8 +39,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 - [x] **fal.ai:** `FAL_KEY` (subtitle-pipeline'daki anahtar kullanılabilir).
 - [x] **Anthropic:** `ANTHROPIC_API_KEY`. (Vercel'e eklendiği kullanıcı beyanı; deploy sonrası doğrulanacak.)
 - [x] **QStash schedule** (`*/5 * * * *` → `/api/queue/tick`) — 2026-09-25.
-- [ ] **Furkan'ın `ClientUser` kaydı** (`/clients` → "Portal erişimi") ve
-      portal ayarlarından yayın saatleri (`PublishSettings`).
+- [x] **Furkan'ın `ClientUser` kaydı** ve portal ayarlarından yayın gün/saatleri
+      (`PublishSettings`) — 2026-09-25 / 28.
 
 ## Fazlar
 
@@ -174,29 +98,26 @@ branch → PR → bu dosyanın güncellenmesi.
   asla yayınlanmıyor (ayrı test); hata kuyruğu durdurmuyor; e-posta
   şablonları testli.
 
-### V5 — Canlıya geçiş 🟡
+### V5 — Canlıya geçiş ✅
 - **Canlı test (2026-09-25):** 3 video yüklendi, üçünün caption'ı dakikalar içinde `ready`; onaylı olan 03:09 slotunda yayınlandı (container aynı tick'te `FINISHED`, tek sonuç e-postası), onaysız ikisi kuyrukta kaldı; 03:13 slotu onaylı video olmadığı için `empty` + e-posta. E-posta Gmail'de spam'e düşebilir — kullanıcıya "Spam değil" dedirt.
 - **Kapsam:** QStash schedule, Furkan'ın kaydı ve ayarları, furi1'de Reels
   elle gönderim yolunun emekliye ayrıldığı notu, bir hafta onay açık modda
   izleme.
 - **Kabul:** uçtan uca senaryo (README'deki doğrulama listesi) canlıda
   geçti; sonuç bu dosyaya yazıldı.
+- **Kapanış (2026-09-28):** Furkan gerçek kullanıcı olarak portalda, gerçek yayın
+  saatleriyle yayın açık; test kullanıcısı ve test verisi temizlendi.
 
 ### V6 — Yüklemede 1:1 kare kırpma ❌ İPTAL
 - **Belge:** [`V6-kare-kirpma.md`](V6-kare-kirpma.md) (tarihsel) · Kararlar: K22 → K24.
 
 ### V7 — PWA (telefonda uygulama olarak) — belge: [`V7-pwa.md`](V7-pwa.md) · K23, K25
 Öncelikli cihaz iPhone; ad/ikon sayfaya özel.
-- **V7a — Kurulum + kodla giriş + mobil arayüz 🟡** — altyapı ✅ (#72: dinamik
+- **V7a — Kurulum + kodla giriş + mobil arayüz ✅** — altyapı (#72: dinamik
   manifest, iOS meta, SW + çevrimdışı sayfa, 6 haneli kodla giriş, kaydırmalı
-  oturum, 67 yeni test); ikon ✅ (Furkan'ın kendi illüstrasyonu, K27); kalan:
-  mobil arayüzün tasarımdan koda dökülmesi (tasarım:
-  https://claude.ai/artifact/WUckhyutaTLTtwo7V5CpYC), kurulum rehberi bandı,
-  yeni sürüm bandı, Furkan'ın `app*` alanları.
-  Özgün plan: — dinamik manifest,
-  ikonlar, viewport/güvenli alan, 6 haneli kodla giriş, kaydırmalı oturum,
-  alt sekme çubuğu, iOS kurulum rehberi, en küçük service worker. Şema:
-  `Client.app*`, `ClientLoginToken.codeHash/attempts`. Kabul: §4.7.
+  oturum); ikon (Furkan'ın kendi illüstrasyonu, K27); mobil arayüz, iOS kurulum
+  bandı ve yeni sürüm bandı (#75); Furkan'ın `app*` alanları dolu, iPhone'da kurulu.
+  Android'e özel "Uygulamayı yükle" (`beforeinstallprompt`) V7d'ye taşındı.
 - **V7b — Dayanıklı yükleme ✅ (#71)** — 8 MB parçalı, kaldığı yerden devam,
   IndexedDB, wakeLock, 24 saatlik taslak temizliği (günlük cron). Gerçek R2'de
   denendi; gerçek iPhone testi bekliyor. R2 lifecycle kuralı kuruldu
@@ -204,15 +125,15 @@ branch → PR → bu dosyanın güncellenmesi.
   günlük cron 24 saatte temizliyor, kural ikinci güvenlik ağı. Özgün plan: — R2 çok parçalı, kaldığı yerden devam,
   IndexedDB ilerleme, wakeLock, yarım yükleme temizliği. Şema:
   `Post.uploadId`. Kabul: §5.2.
-- **V7c — Bildirimler (Web Push) ⬜** — VAPID, `PushSubscription` tablosu,
-  yayın/hata/boş slot/caption hazır/günlük hatırlatma bildirimleri; e-posta
-  yedek. Kabul: §6.2.
-- **V7d — Android paylaşım hedefi ⏸ ERTELENDİ (2026-09-25)** — `share_target` + SW.
+- **V7c — Bildirimler (Web Push) ✅ (#74)** — VAPID, `PushSubscription` tablosu,
+  yayın/hata/boş slot/caption hazır/günlük hatırlatma bildirimleri; e-posta yedek.
+  Kalan canlı doğrulama (VAPID env'i + iPhone'da kilit ekranı bildirimi) `TODOS.md`'de.
+- **V7d — Android paylaşım hedefi + yükleme düğmesi ⏸ ERTELENDİ (2026-09-25)** — `share_target` + SW, `beforeinstallprompt`.
   Kullanıcı kararı: bekletilecek. Furkan iPhone kullanıyor ve iOS PWA paylaşım
   hedefini desteklemiyor; Android kullanan bir müşteri gelince ele alınır
   (~yarım gün). Kabul: §7.
 
-### V8 — Yayın günleri ✅ (#77, merge bekliyor) — belge: [`V8-yayin-gunleri.md`](V8-yayin-gunleri.md) · K28
+### V8 — Yayın günleri ✅ (#77) — belge: [`V8-yayin-gunleri.md`](V8-yayin-gunleri.md) · K28
 Haftanın hangi günleri yayın olacağı (tek gün kümesi × tek saat listesi).
 Göç `20260926130000_yayin_gunleri` (`PublishSettings.days`, varsayılan tüm
 günler; eski veriyle sınandı), `slotInstants` yerel gün filtresi, ayar
