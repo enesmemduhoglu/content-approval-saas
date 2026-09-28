@@ -2524,6 +2524,8 @@ body:has(.portal-root) {
   color: #6b2410;
   font-weight: 700;
   text-underline-offset: 3px;
+  /* "Kuyrukta 1." iki satıra bölünmesin. */
+  white-space: nowrap;
 }
 
 .p-dup-actions {
