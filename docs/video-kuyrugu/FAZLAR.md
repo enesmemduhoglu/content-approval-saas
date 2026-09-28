@@ -7,13 +7,22 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-09-28 (açık işleri kapatma + belge turu)
+- **Son güncelleme:** 2026-09-28 (V9 — R2 depolama temizliği, #84 açık)
 - **Canlı durum:** V0–V5, V7a/b/c ve V8 canlıda; #83 (portal analiz iyileştirmeleri +
   bu belge turu, göç `20260928100000_kaynak_dosya`) merge edildi. Furkan portalı
   iPhone'unda PWA olarak kullanıyor, kendi yayın gün/saatlerini seçti, yayın açık.
   Test dönemi kalıntıları (test portal kullanıcısı, yedek e-posta, duraklatılmış tek
   slot, test Reels'leri) artık yok — kullanıcı beyanı, 2026-09-28. Kapak düzeltmesinin
   (#81) iPhone'dan yükleme denemesi kullanıcı tarafından yapıldı.
+- **V9 (#84) merge bekliyor — şema göçü var** (`outsideAt`, toplayıcı; eski veriyle
+  sınandı). Merge kullanıcıda. Merge sonrası: (1) bir saat içinde tick yanıtında
+  `retention` sayıları görünmeli; (2) kullanıcı `node scripts/r2-denetim.mjs` ile
+  bucket boyutunu ve sahipsiz nesneleri kontrol eder (prod okuması — komut
+  kullanıcıya verilir); (3) portalda kuyruk dışı kartlarda sayaç görünür.
+  Platform sorusu (2026-09-28): Vercel'de kalınıyor — video baytları Vercel'den
+  geçmiyor, Hobby kota aşımında fatura çıkarmaz; Cloudflare'e taşımanın kazancı
+  yok. Furkan ücretli müşteriye dönüşürse Hobby'nin ticari kullanım koşulu ayrıca
+  ele alınır.
 - **Sıradaki işler:** `TODOS.md` → "Video kuyruğu" bölümü (küçük kapak, V7c canlı
   doğrulaması, K17 özet tekrar koruması, K15 altText, V7d ertelendi). Kullanıcı
   2026-09-28'de başka bir işe geçti; bunlar kullanıcı başlatınca.
@@ -142,7 +151,7 @@ ve saatleri" kartı (gün çipleri, hazır seçimler, canlı özet + sıradaki 3
 yayın), kuyrukta "Perşembe · 19:00". Merge = prod göçü (toplayıcı; Furkan'ın
 ayarı "her gün" kalır, günleri portaldan kendisi seçer).
 
-### V9 — R2 depolama temizliği ✅ (PR bekliyor) · K30
+### V9 — R2 depolama temizliği 🟡 (#84, merge bekliyor) · K30
 Yayınlanan videonun mp4'ü + 5 karesi yayından 2 gün sonra silinir, kapak
 (ilk kare) kalır; kuyruk dışı (reddedilen/çıkarılan) video 3 gün sonra
 tamamen silinir. `src/lib/retention-rules.ts` (saf kurallar + metinler),
