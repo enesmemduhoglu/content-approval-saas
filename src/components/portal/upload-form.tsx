@@ -25,10 +25,21 @@ const ACCEPT = "video/mp4,video/quicktime";
 /** Bağlantı/görünürlük bekleyen yükleme: kart turuncuya döner (maket). */
 const WAITING = new Set<string>(Object.values(STATUS_TEXT));
 
-function mb(bytes: number): string {
+/** Büyük videoda ondalık gürültü; 1 MB altında "0.0 MB" yanıltıcı — KB. */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   const value = bytes / (1024 * 1024);
-  // Büyük videoda ondalık gürültü; küçükte "0 MB" yanıltıcı.
   return value >= 10 ? `${Math.round(value)} MB` : `${value.toFixed(1)} MB`;
+}
+
+/** Kartın solundaki kutu: kare çıkarıldıysa ilk kare, yoksa düz renk. */
+function Thumb({ item, className }: { item: ItemState; className: string }) {
+  return item.thumb ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={item.thumb} alt="" className={`${className} p-ucard-thumb--img`} />
+  ) : (
+    <span className={className} aria-hidden="true" />
+  );
 }
 
 function UploadCard({ item }: { item: ItemState }) {
@@ -36,7 +47,7 @@ function UploadCard({ item }: { item: ItemState }) {
     return (
       <li className="p-ucard">
         <div className="p-ucard-row">
-          <span className="p-ucard-thumb" aria-hidden="true" />
+          <Thumb item={item} className="p-ucard-thumb" />
           <span className="p-ucard-text">
             <span className="p-ucard-name">{item.name}</span>
             <span className="p-ucard-meta" role="status">
@@ -65,13 +76,13 @@ function UploadCard({ item }: { item: ItemState }) {
   return (
     <li className={`p-ucard${waiting ? " p-ucard--waiting" : ""}${failed ? " p-ucard--error" : ""}`}>
       <div className="p-ucard-row">
-        <span
+        <Thumb
+          item={item}
           className={`p-ucard-thumb${waiting ? " p-ucard-thumb--waiting" : ""}${failed ? " p-ucard-thumb--error" : ""}`}
-          aria-hidden="true"
         />
         <span className="p-ucard-text">
           <span className="p-ucard-name">{item.name}</span>
-          <span className="p-ucard-meta">{mb(item.size)}</span>
+          <span className="p-ucard-meta">{fileSize(item.size)}</span>
         </span>
         {showPct && <span className="p-ucard-pct">%{pct}</span>}
       </div>

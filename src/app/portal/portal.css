@@ -1130,6 +1130,12 @@ body:has(.portal-root) {
   opacity: 0.55;
 }
 
+/* Çıkarılan ilk kare: aynı kutu, görsel kırpılarak doldurur. */
+.p-ucard-thumb--img {
+  display: block;
+  object-fit: cover;
+}
+
 .p-ucard-text {
   display: flex;
   flex-direction: column;

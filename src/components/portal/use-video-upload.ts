@@ -25,6 +25,7 @@ import {
   type UploadedPart,
 } from "@/lib/multipart-client";
 import { deleteResume, loadResume, pruneResume, saveResume } from "@/lib/upload-resume-store";
+import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/validation";
 
 /**
  * Video kuyruğu — yükleme akışının MANTIĞI (README §7, V7b). Görünüm
@@ -56,7 +57,26 @@ export type ItemState = {
   note?: string;
   /** Yükleme sırasındaki anlık durum ("Bağlantı bekleniyor" gibi). */
   status?: string;
+  /** İlk karenin `data:` adresi — kartta doğru videonun seçildiği görülsün. */
+  thumb?: string;
 };
+
+/**
+ * Karttaki önizleme için. Sayfanın CSP'si görsellerde `blob:` adresine izin
+ * vermiyor (`img-src 'self' data: https:`), `data:` adresine veriyor.
+ */
+function toDataUrl(blob: Blob): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+      reader.onerror = () => resolve(undefined);
+      reader.readAsDataURL(blob);
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
 
 type UploadTarget =
   | { postId: string; multipart: false; videoPutUrl: string; framePutUrls: string[] }
@@ -82,17 +102,43 @@ const RESUMED_TEXT = "Devam ediyor…";
 const RESUME_HINT = "Aynı videoyu yeniden seçersen kaldığı yerden devam eder";
 const NO_FRAMES_NOTE = "Kare çıkarılamadı; caption yalnızca sesten üretilecek";
 
+/** Uzantıdan beklenen tip — tarayıcının verdiği tip işe yaramadığında. */
+const EXTENSION_TYPES: [string, string][] = [
+  [".mov", "video/quicktime"],
+  [".mp4", "video/mp4"],
+  [".m4v", "video/mp4"],
+];
+
 /**
- * Bazı tarayıcılar (.mov'da Windows Chrome'u gibi) `file.type`'ı boş verir.
- * Uzantıdan tamamlanıyor; imzalı PUT'un tipi de AYNI fonksiyondan gelmeli,
- * yoksa R2 imza uyuşmazlığıyla 403 döner.
+ * Tarayıcılar `.mov` için bazen boş tip (Windows Chrome), bazen
+ * `application/octet-stream` (bazı Windows/Android tarayıcıları) veriyor.
+ * İzinli bir video tipi değilse uzantıdan tamamlanıyor; eskiden yalnızca BOŞ
+ * tip tamamlanıyordu ve `octet-stream` sunucuya olduğu gibi gidip reddediliyordu
+ * (2026-09-28 analizinde görüldü). İmzalı PUT'un tipi de AYNI fonksiyondan
+ * gelmeli, yoksa R2 imza uyuşmazlığıyla 403 döner.
  */
 export function videoType(file: File): string {
-  if (file.type) return file.type;
+  if (ALLOWED_VIDEO_TYPES[file.type]) return file.type;
   const name = file.name.toLowerCase();
-  if (name.endsWith(".mov")) return "video/quicktime";
-  if (name.endsWith(".mp4")) return "video/mp4";
-  return "";
+  for (const [extension, type] of EXTENSION_TYPES) {
+    if (name.endsWith(extension)) return type;
+  }
+  return file.type;
+}
+
+/**
+ * Sunucunun `validateVideoUpload` kuralının seçimdeki karşılığı. Sunucu
+ * toplu başlatma listesini TOPTAN reddediyor: tek bir uygunsuz dosya, aynı
+ * seçimdeki geçerli videoları da "Başlatılamadı"ya düşürüyordu. Burada elenen
+ * dosya yalnızca kendi satırında hata gösterir, istek listesine hiç girmez.
+ */
+export function fileProblem(file: File): string | null {
+  if (!ALLOWED_VIDEO_TYPES[videoType(file)]) return "Bu dosya yüklenemiyor — MP4 ya da MOV video seç";
+  if (file.size <= 0) return "Dosya boş görünüyor";
+  if (file.size > MAX_VIDEO_BYTES) {
+    return `Video en fazla ${Math.floor(MAX_VIDEO_BYTES / (1024 * 1024))} MB olabilir`;
+  }
+  return null;
 }
 
 async function requestUploads(
@@ -343,7 +389,7 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
     if (again.frames.length > 0) {
       p.frames = again.frames;
       p.frameError = again.error;
-      patch(p.key, { note: undefined, status: undefined });
+      patch(p.key, { note: undefined, status: undefined, thumb: await toDataUrl(again.frames[0]) });
     } else {
       p.frameError = again.error ?? p.frameError;
       patch(p.key, { status: undefined });
@@ -406,8 +452,16 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
       // 1) Ölç + kare çıkar (sırayla — her biri belleğe bir video açıyor).
       const prepared: Prepared[] = [];
       for (const { file, key } of picked) {
+        const invalid = fileProblem(file);
+        if (invalid) {
+          patch(key, { phase: "hata", error: invalid });
+          continue;
+        }
         patch(key, { phase: "hazırlanıyor" });
-        const { probe, frames, error: frameError } = await extractFrames(file);
+        // Süre/yön uymuyorsa kareler hiç çıkarılmaz (bkz. `stopIf`).
+        const { probe, frames, error: frameError } = await extractFrames(file, {
+          stopIf: (measured) => probeError(measured) !== null,
+        });
         const problem = probeError(probe);
         if (problem) {
           patch(key, { phase: "hata", error: problem });
@@ -430,6 +484,7 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
           phase: "bekliyor",
           note: frames.length === 0 ? NO_FRAMES_NOTE : undefined,
           status: resumeRecord ? "Yarım kalan yükleme bulundu, kaldığı yerden devam edecek" : undefined,
+          thumb: frames[0] ? await toDataUrl(frames[0]) : undefined,
         });
         prepared.push({ file, key, frames, frameError, resume: resumeRecord });
       }
