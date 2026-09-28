@@ -17,10 +17,11 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 - **V9 (#84) canlıda** (merge 2026-09-28 20:35 UTC, prod deploy Ready). Göç
   `kuyruk_disi_zamani` merge'de DEĞİL, PR'ın preview build'inde prod'a uygulandı
   (preview = prod DB; CLAUDE.md tuzağı güncellendi). Canlı yoklama: portal sayfaları
-  200, imzasız tick/cron/API 401. Açık doğrulama: saatlik tick'in temizlik koşusu
-  (yanıtında `retention`; QStash logu gövde tutmuyor, yerelde `CRON_SECRET` yok) —
-  kullanıcı `node scripts/r2-denetim.mjs` ile bucket boyutunu ve sahipsizleri
-  görür; portalda kuyruk dışı kartlarda sayaç görünmeli.
+  200, imzasız tick/cron/API 401. **Temizlik canlıda doğrulandı** (29 Eyl 00:00 TR
+  tick'i 200, hata logu yok): `r2-denetim` önce 19 video / 1382 MB / 114 kare,
+  sonra 18 / 1313 MB / 109 — 2 günden eski tek yayının mp4'ü + 5 karesi gitti,
+  kapak kaldı, sahipsiz 0. Kuyruk dışındakilerin sayacı göçle 28 Eyl 20:26 UTC'de
+  başladı; ilk silme 2 Eki 00:00 TR tick'inde.
   Platform sorusu (2026-09-28): Vercel'de kalınıyor — video baytları Vercel'den
   geçmiyor, Hobby kota aşımında fatura çıkarmaz; Cloudflare'e taşımanın kazancı
   yok. Furkan ücretli müşteriye dönüşürse Hobby'nin ticari kullanım koşulu ayrıca
