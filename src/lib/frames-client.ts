@@ -16,11 +16,61 @@ export const MAX_DURATION_SEC = 90;
 
 export type VideoProbe = { duration: number; width: number; height: number };
 
+/**
+ * Kare çıkarma neden başarısız oldu — `complete` gövdesiyle sunucuya gider ve
+ * karesiz kalan video için operatöre uyarı olarak düşer. Canlıda (2026-09-28)
+ * portal videolarının çoğu karesiz kaldı; istemci bunu sessizce yuttuğu için
+ * nedeni hiçbir yerde görünmedi. Bu kodlar o körlüğü kapatmak için.
+ */
+export type FrameErrorCode =
+  | "metadata-timeout" // `loadedmetadata` hiç gelmedi (yükleme izni yok / dosya okunamıyor)
+  | "loadeddata-timeout" // süre ölçüldü ama ilk kare hiç çözülmedi, sarma da tutmadı
+  | "seek-timeout" // `seeked` yeniden denemeye rağmen gelmedi
+  | "decode" // `<video>` `error` verdi (codec açılamıyor)
+  | "bad-metadata" // süre/boyut okunamadı (Infinity, 0)
+  | "no-canvas" // 2d bağlam alınamadı
+  | "encode" // `toBlob` boş döndü
+  | "unknown";
+
+export type FrameExtraction = {
+  probe: VideoProbe | null;
+  frames: Blob[];
+  /** Bir adım takıldıysa dolu; kısmi başarıda (ör. 4/6 kare) da dolu olabilir. */
+  error?: FrameErrorCode;
+};
+
+/**
+ * Yeniden denemeye değer hatalar: zaman aşımları. Canlıdaki desen (toplu
+ * yüklemede yalnızca SON dosyanın karesi var, tek video hiç yok) çıkarmanın
+ * seçimden hemen sonra takılıp biraz sonra tuttuğunu düşündürüyor; codec
+ * hatası ya da okunamayan süre ise ikinci denemede de aynı kalır.
+ */
+export function isRetryableFrameError(error: FrameErrorCode | undefined): boolean {
+  return error === "metadata-timeout" || error === "loadeddata-timeout" || error === "seek-timeout";
+}
+
+/** Aralıkların ORTASI: 0. saniye çoğu videoda siyah/geçiş karesi. */
+export function frameTimes(duration: number, count: number = FRAME_COUNT): number[] {
+  return Array.from({ length: count }, (_, i) => (duration * (i + 0.5)) / count);
+}
+
+class FrameStepError extends Error {
+  constructor(readonly code: FrameErrorCode) {
+    super(code);
+  }
+}
+
+const TIMEOUT_CODE: Record<string, FrameErrorCode> = {
+  loadedmetadata: "metadata-timeout",
+  loadeddata: "loadeddata-timeout",
+  seeked: "seek-timeout",
+};
+
 function once(target: HTMLVideoElement, event: string, timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`${event} zaman aşımı`));
+      reject(new FrameStepError(TIMEOUT_CODE[event] ?? "unknown"));
     }, timeoutMs);
     const ok = () => {
       cleanup();
@@ -28,7 +78,7 @@ function once(target: HTMLVideoElement, event: string, timeoutMs: number): Promi
     };
     const fail = () => {
       cleanup();
-      reject(new Error("Video okunamadı"));
+      reject(new FrameStepError("decode"));
     };
     function cleanup() {
       clearTimeout(timer);
@@ -45,33 +95,135 @@ function toJpeg(canvas: HTMLCanvasElement): Promise<Blob | null> {
 }
 
 /**
+ * Galeri seçicisi kapanırken sayfa bir an görünmez olabiliyor (iOS ana ekran
+ * uygulaması). Görünmez sayfada WebKit medya yüklemesini askıya alıyor; çıkarma
+ * sayfa görünür olunca başlar. Sonsuza dek beklenmez — kullanıcı uygulamadan
+ * çıktıysa zaman aşımları durumu zaten raporlar.
+ */
+function whenVisible(timeoutMs: number): Promise<void> {
+  if (typeof document === "undefined" || document.visibilityState !== "hidden") return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onChange);
+      resolve();
+    };
+    const onChange = () => {
+      if (document.visibilityState !== "hidden") done();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    document.addEventListener("visibilitychange", onChange);
+  });
+}
+
+/**
+ * Çözücüyü uyandırır: iOS hiç oynatılmamış bir öğede yalnızca metadata'yı
+ * yükleyip kareyi çözmeyebiliyor. `play()` sözü izin yoksa reddediliyor ama
+ * bazı durumlarda hiç sonuçlanmayabiliyor; kare çıkarma buna rehin kalmasın
+ * diye süreli.
+ */
+async function nudgeDecoder(video: HTMLVideoElement): Promise<void> {
+  try {
+    const played = video.play() as Promise<void> | undefined;
+    if (played && typeof played.then === "function") {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        played.catch(() => undefined),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, 2_000);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
+  } catch {
+    // Eski motorlar `play()`'de senkron fırlatabiliyor; uyandırma isteğe bağlı.
+  }
+  try {
+    video.pause();
+  } catch {
+    // Aynı gerekçe.
+  }
+}
+
+/**
+ * Tek bir kareye sar. Zaman aşımında BİR KEZ yeniden denenir: iOS ilk seek
+ * isteğini, çözücü henüz hazır değilken sessizce düşürebiliyor. Aynı değeri
+ * yeniden atamak bazı motorlarda yeni seek başlatmadığı için ikinci deneme
+ * çok küçük bir kaydırmayla.
+ */
+async function seekTo(video: HTMLVideoElement, time: number, timeoutMs: number): Promise<void> {
+  video.currentTime = time;
+  try {
+    await once(video, "seeked", timeoutMs);
+  } catch (error) {
+    if (!(error instanceof FrameStepError) || error.code !== "seek-timeout") throw error;
+    video.currentTime = Math.max(0, time - 0.01);
+    await once(video, "seeked", timeoutMs);
+  }
+}
+
+/**
+ * 1 px'lik görünmez kutu. Ekran DIŞINA (left:-9999px) değil, ekranın içine:
+ * WebKit'in görünürlük sezgileri görünür alan dışındaki videonun oynatılmasını
+ * durdurabiliyor; `opacity` ise o hesaba girmiyor.
+ */
+const HIDDEN_VIDEO_STYLE =
+  "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1";
+
+/**
  * Videonun süresini/boyutunu ölçer ve kareleri çıkarır.
  *
  * Kare çıkarma başarısız olursa (tarayıcı codec'i açamıyor — ör. masaüstü
- * Chrome'da bazı HEVC .mov dosyaları) HATA FIRLATMAZ: `probe: null, frames: []`
- * döner. Video yine yüklenir; caption yalnızca transkriptle üretilir. Kare
- * yüzünden yüklemeyi engellemek, kullanıcının asıl işini (videoyu kuyruğa
- * koymak) ikincil bir özelliğe rehin etmek olurdu.
+ * Chrome'da bazı HEVC .mov dosyaları) HATA FIRLATMAZ: kareler boş, `error`
+ * dolu döner. Video yine yüklenir; caption yalnızca transkriptle üretilir.
+ * Kare yüzünden yüklemeyi engellemek, kullanıcının asıl işini (videoyu kuyruğa
+ * koymak) ikincil bir özelliğe rehin etmek olurdu. Süre ölçüldüyse `probe`
+ * sonraki adımlar takılsa bile döner — 90 sn / dikey kapısı karelere bağlı
+ * değil.
+ *
+ * iOS sağlamlaştırması (canlıda 19 portal videosunun yalnızca 4'ünde kare
+ * vardı): WebKit DOM'a bağlı olmayan, hiç oynatılmamış bir `<video>`'da
+ * `preload`'ı yok sayıp kare verisini yüklemeyebiliyor; o zaman `seeked`
+ * gelmiyor. Bu yüzden öğe görünmez bir kutuyla DOM'a ekleniyor, sessiz +
+ * satır içi `play()/pause()` ile çözücü uyandırılıyor ve ilk kare
+ * (`loadeddata`) beklenip öyle sarılıyor.
  */
-export async function extractFrames(
-  file: Blob,
-  count: number = FRAME_COUNT
-): Promise<{ probe: VideoProbe | null; frames: Blob[] }> {
+export async function extractFrames(file: Blob, count: number = FRAME_COUNT): Promise<FrameExtraction> {
+  await whenVisible(10_000);
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
   video.muted = true;
+  video.defaultMuted = true;
   video.playsInline = true;
+  // Özellik atamasını görmeyen eski WebKit sürümleri özniteliği okuyor.
+  video.setAttribute("muted", "");
+  video.setAttribute("playsinline", "");
+  video.setAttribute("aria-hidden", "true");
   video.preload = "auto";
+  video.style.cssText = HIDDEN_VIDEO_STYLE;
+  document.body.appendChild(video);
   video.src = url;
+
+  let probe: VideoProbe | null = null;
+  const frames: Blob[] = [];
   try {
     await once(video, "loadedmetadata", 15_000);
-    const probe = {
-      duration: video.duration,
-      width: video.videoWidth,
-      height: video.videoHeight,
-    };
+    probe = { duration: video.duration, width: video.videoWidth, height: video.videoHeight };
     if (!Number.isFinite(probe.duration) || probe.duration <= 0 || probe.width <= 0) {
-      return { probe: null, frames: [] };
+      return { probe: null, frames: [], error: "bad-metadata" };
+    }
+
+    await nudgeDecoder(video);
+    // HAVE_CURRENT_DATA (2): en az bir kare çözülmüş. Gelmezse yine de sarmayı
+    // deneriz — seek veriyi kendisi de yükleyebilir; rapor için not düşülür.
+    let stalled: FrameErrorCode | undefined;
+    if (video.readyState < 2) {
+      try {
+        await once(video, "loadeddata", 10_000);
+      } catch (error) {
+        if (error instanceof FrameStepError && error.code === "decode") throw error;
+        stalled = "loadeddata-timeout";
+      }
     }
 
     const scale = Math.min(1, FRAME_MAX_WIDTH / probe.width);
@@ -79,29 +231,85 @@ export async function extractFrames(
     canvas.width = Math.round(probe.width * scale);
     canvas.height = Math.round(probe.height * scale);
     const ctx = canvas.getContext("2d");
-    if (!ctx) return { probe, frames: [] };
+    if (!ctx) return { probe, frames: [], error: "no-canvas" };
 
-    const frames: Blob[] = [];
-    for (let i = 0; i < count; i++) {
-      // Aralıkların ORTASI: 0. saniye çoğu videoda siyah/geçiş karesi.
-      video.currentTime = (probe.duration * (i + 0.5)) / count;
+    let error: FrameErrorCode | undefined;
+    for (const time of frameTimes(probe.duration, count)) {
       try {
-        await once(video, "seeked", 10_000);
-      } catch {
+        await seekTo(video, time, 10_000);
+      } catch (err) {
+        // Kısmi kareler de işe yarar (caption bağlamı); raporda neden kalır.
+        error = err instanceof FrameStepError ? err.code : "unknown";
         break;
       }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const blob = await toJpeg(canvas);
       if (blob) frames.push(blob);
+      else error = "encode";
     }
-    return { probe, frames };
-  } catch {
-    return { probe: null, frames: [] };
+    // İlk kare hiç çözülmediyse ve sarma da tutmadıysa asıl neden o.
+    if (frames.length === 0 && stalled) error = stalled;
+    return error ? { probe, frames, error } : { probe, frames };
+  } catch (error) {
+    return { probe, frames, error: error instanceof FrameStepError ? error.code : "unknown" };
   } finally {
     URL.revokeObjectURL(url);
     video.removeAttribute("src");
-    video.load();
+    try {
+      video.load();
+    } catch {
+      // jsdom ve bazı eski motorlar `load()`'u uygulamıyor; asıl iş kaynağı bırakmak.
+    }
+    video.remove();
   }
+}
+
+/**
+ * `complete` gövdesindeki kare raporu (sunucu tarafı: portal-validation
+ * `validateFramesReport`). Karesiz kalan video için operatöre giden uyarının
+ * tek bilgi kaynağı: kare mi çıkarılamadı, yoksa yükleme mi düştü?
+ */
+export type FramesReport = { extracted: number; uploadFailed: number; error?: FrameErrorCode };
+
+/**
+ * Kareleri paralel yükler; düşenleri BİR KEZ yeniden dener ve kaç tanesinin
+ * gerçekten gittiğini döner. Eskiden hatalar `.catch(() => undefined)` ile
+ * yutuluyordu — canlıda karesiz videoların nedeni bu yüzden görünmedi.
+ *
+ * `freshUrls` verilirse yeniden deneme taze imzalarla yapılır: en olası
+ * kalıcı hata süresi dolmuş URL'in 403'ü, aynı URL'le tekrar denemek onu
+ * düzeltmez. Taze URL alınamazsa eskileriyle denenir (geçici ağ hatası).
+ */
+export async function uploadFrameBlobs(
+  frames: Blob[],
+  urls: string[],
+  put: (url: string, body: Blob) => Promise<void>,
+  opts: { freshUrls?: () => Promise<string[] | undefined>; wait?: (ms: number) => Promise<void> } = {}
+): Promise<{ uploaded: number; failed: number }> {
+  const attempt = async (indices: number[], list: string[]) => {
+    const results = await Promise.all(
+      indices.map(async (n) => {
+        if (!list[n]) return false;
+        try {
+          await put(list[n], frames[n]);
+          return true;
+        } catch {
+          return false;
+        }
+      })
+    );
+    return indices.filter((_, i) => !results[i]);
+  };
+
+  const all = frames.map((_, n) => n);
+  let failed = await attempt(all, urls);
+  if (failed.length > 0) {
+    const wait = opts.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    await wait(1_000);
+    const fresh = opts.freshUrls ? await opts.freshUrls().catch(() => undefined) : undefined;
+    failed = await attempt(failed, fresh ?? urls);
+  }
+  return { uploaded: frames.length - failed.length, failed: failed.length };
 }
 
 /** README §7 sınırları: ≤ 90 sn ve dikey. Ölçülemeyen video geçer (bkz. `extractFrames`). */

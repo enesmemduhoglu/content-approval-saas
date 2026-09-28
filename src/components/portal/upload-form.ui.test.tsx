@@ -94,3 +94,69 @@ describe("UploadForm — seçim = yükleme", () => {
     await screen.findByText("Kuyruğa eklendi · caption hazırlanıyor");
   });
 });
+
+describe("UploadForm — kare raporu", () => {
+  const frameUrls = Array.from({ length: 6 }, (_, i) => `https://r2/frame/${i}`);
+  const sixFrames = () => Array.from({ length: 6 }, () => new Blob(["j"], { type: "image/jpeg" }));
+
+  function withFrameUrls() {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/portal/upload") {
+        return Response.json({
+          items: [{ postId: "p1", multipart: false, videoPutUrl: "https://r2/put", framePutUrls: frameUrls }],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+  }
+
+  function completeBody(): unknown {
+    const call = fetchMock.mock.calls.find(([url]) => url === "/api/portal/videos/p1/complete");
+    return JSON.parse((call![1] as RequestInit).body as string);
+  }
+
+  it("complete gövdesi kare raporunu taşır; kare yoksa not görünür", async () => {
+    render(<UploadForm />);
+    pickVideo();
+    await screen.findByText("Kuyruğa eklendi · caption hazırlanıyor");
+    expect(completeBody()).toEqual({ frames: { extracted: 0, uploadFailed: 0 } });
+    expect(screen.getByText(/Kare çıkarılamadı/)).toBeTruthy();
+  });
+
+  it("zaman aşımıyla çıkarılamayan kareler yükleme sırasında bir kez daha denenir", async () => {
+    withFrameUrls();
+    extractFrames
+      .mockResolvedValueOnce({ probe: null, frames: [], error: "seek-timeout" })
+      .mockResolvedValueOnce({ probe: { duration: 20, width: 720, height: 1280 }, frames: sixFrames() });
+    render(<UploadForm />);
+    pickVideo();
+    await screen.findByText("Kuyruğa eklendi · caption hazırlanıyor");
+    expect(extractFrames).toHaveBeenCalledTimes(2);
+    expect(putWithProgress).toHaveBeenCalledWith(frameUrls[0], expect.any(Blob), "image/jpeg");
+    expect(completeBody()).toEqual({ frames: { extracted: 6, uploadFailed: 0 } });
+    expect(screen.queryByText(/Kare çıkarılamadı/)).toBeNull();
+  });
+
+  it("codec hatası yeniden denenmez; neden rapora yazılır", async () => {
+    extractFrames.mockResolvedValue({ probe: null, frames: [], error: "decode" });
+    render(<UploadForm />);
+    pickVideo();
+    await screen.findByText("Kuyruğa eklendi · caption hazırlanıyor");
+    expect(extractFrames).toHaveBeenCalledTimes(1);
+    expect(completeBody()).toEqual({ frames: { extracted: 0, uploadFailed: 0, error: "decode" } });
+  });
+
+  it("yüklenemeyen kare yutulmaz, rapora sayılır", async () => {
+    withFrameUrls();
+    extractFrames.mockResolvedValue({ probe: { duration: 20, width: 720, height: 1280 }, frames: sixFrames() });
+    putWithProgress.mockImplementation(async (url: string) => {
+      if (url === frameUrls[3]) throw new Error("Yükleme reddedildi (403)");
+    });
+    render(<UploadForm />);
+    pickVideo();
+    await screen.findByText("Kuyruğa eklendi · caption hazırlanıyor", undefined, { timeout: 3000 });
+    // 6 kare + 1 yeniden deneme + video
+    expect(putWithProgress).toHaveBeenCalledTimes(8);
+    expect(completeBody()).toEqual({ frames: { extracted: 6, uploadFailed: 1 } });
+  });
+});
