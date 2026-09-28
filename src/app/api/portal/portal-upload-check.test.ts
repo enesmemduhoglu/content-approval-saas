@@ -142,7 +142,7 @@ describe("POST /api/portal/upload/check", () => {
   });
 
   it("geçersiz gövde 400; oturumsuz 401; yabancı Origin 403", async () => {
-    for (const body of [{}, { files: [] }, { files: [{ size: -1 }] }, { files: [{ size: "5" }] }]) {
+    for (const body of [{}, { files: [] }, { files: [{ size: -1 }] }, { files: [{ size: "5" }] }, { files: [{ size: 3_000_000_000 }] }]) {
       expect((await check(post("/api/portal/upload/check", body))).status).toBe(400);
     }
     expect(

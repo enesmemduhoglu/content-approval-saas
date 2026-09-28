@@ -185,9 +185,11 @@ export function validateUploadFiles(
 }
 
 /**
- * "Aynı video" kontrolünün girdisi: `[{ size, name? }]`. Boyut kuralı yükleme
- * kuralıyla aynı değil, daha gevşek — kontrol yalnızca eşleşme arar; geçersiz
- * dosya zaten yükleme isteğinde reddedilecek. Sayı sınırı aynı.
+ * "Aynı video" kontrolünün girdisi: `[{ size, name? }]`. Tür kontrolü yok —
+ * kontrol yalnızca eşleşme arar; geçersiz dosya zaten yükleme isteğinde
+ * reddedilecek. Üst boyut sınırı ise şart: `Post.sourceSize` INT4, 2 GiB'ı aşan
+ * değer sorguda Prisma hatasına (500) döner; video sınırının üstünde eş de
+ * olamaz. Sayı sınırı aynı.
  */
 export function validateDuplicateCheck(
   body: unknown
@@ -199,7 +201,7 @@ export function validateDuplicateCheck(
   const out: { size: number; name?: string }[] = [];
   for (const file of files) {
     const { size, name } = (file ?? {}) as { size?: unknown; name?: unknown };
-    if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) {
+    if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0 || size > MAX_VIDEO_BYTES) {
       return { ok: false, field: "files", error: "Geçersiz dosya boyutu" };
     }
     const source = sourceName(name);
