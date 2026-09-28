@@ -125,6 +125,18 @@ describe("queueRunway — onay modu", () => {
     expect(runway?.ifAllApproved).toBeNull();
   });
 
+  it("caption'ı üretilemeyen video 'hepsini onaylarsan'a girmez; hazırlanmakta olan girer", () => {
+    const queue = queueOf(4, (i) => {
+      if (i === 1) return { status: "pending", captionStatus: "failed" };
+      if (i === 2) return { status: "pending", captionStatus: "generating" };
+      return {};
+    });
+    const runway = queueRunway(queue, TWICE, now);
+    expect(runway?.approved?.count).toBe(2);
+    // failed olan önce caption düzeltmesi ister → 4 değil 3.
+    expect(runway?.ifAllApproved?.count).toBe(3);
+  });
+
   it("onay açık, hiç onaylı yok → approved null, ifAllApproved dolu", () => {
     const runway = queueRunway(queueOf(4, () => ({ status: "pending" })), TWICE, now);
     expect(runway?.approved).toBeNull();

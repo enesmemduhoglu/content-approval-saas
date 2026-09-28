@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PortalBadges, type BadgeInput } from "@/components/portal/portal-badges";
 import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
 import { RestoreSheet, requeueVideo, restoreVideo } from "@/components/portal/restore-sheet";
 import { IconCheck, IconTrash, IconUndo, IconVideo } from "@/components/portal/icons";
+
+/** Yüzen bildirimin ekranda kalma süresi. */
+export const TOAST_MS = 4_000;
 
 export type OutsideCard = BadgeInput & {
   id: string;
@@ -31,6 +34,13 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Yüzen bildirim içeriği örtmesin: birkaç saniye sonra kendiliğinden gider.
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const cancel = useCallback(() => {
     setAsking(null);
@@ -101,20 +111,30 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
 
   return (
     <>
+      {/* Bildirim bölümden BAĞIMSIZ ve yüzen (V7 tasarımı): son kart gidince
+          bölüm kalkar, bildirim kalır. Birkaç saniye sonra kendiliğinden gider. */}
       {toast && (
-        <p className="p-toast" role="status">
+        <p className="p-toast p-toast--float" role="status">
           <IconCheck size={18} />
           {toast}
         </p>
       )}
-      {listError && (
-        <p className="p-error" role="alert">
-          {listError}
-        </p>
-      )}
-      {visible.length === 0 ? (
-        <p className="p-hint">Kuyruk dışında video kalmadı.</p>
-      ) : (
+      {visible.length > 0 && (
+        <section className="p-hgroup" aria-labelledby="kuyruk-disi">
+          <div className="p-section-head">
+            <h2 className="p-h2" id="kuyruk-disi">
+              Kuyruk dışı
+            </h2>
+          </div>
+          <p className="p-hint">
+            Kuyruktan çıkardığın ya da reddettiğin videolar yayınlanmaz. Kuyruğa geri alabilir ya da
+            silebilirsin.
+          </p>
+          {listError && (
+            <p className="p-error" role="alert">
+              {listError}
+            </p>
+          )}
         <ul className="p-list" aria-label="Kuyruk dışı videolar">
           {visible.map((card) => (
             <li key={card.id} className="p-hcard p-hcard--tool">
@@ -164,6 +184,7 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
             </li>
           ))}
         </ul>
+        </section>
       )}
       {asking && (
         <DeleteSheet

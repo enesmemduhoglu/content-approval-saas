@@ -149,8 +149,11 @@ function runwayEnd(queue: QueueItem[], settings: RunwaySettings, now: Date): Run
  * `ifAllApproved`: her öğe `status: "approved"`, `captionStatus: "ready"`
  * sayılır; `publishStatus` ve `queuePosition` olduğu gibi kalır, yani yayını
  * patlamış (`failed`) video `isEligible` gereği yine takvime girmez — onu
- * onay değil "tekrar dene" kurtarır. Onay KAPALIYKEN hep `null`: onay yayını
- * zaten belirlemiyor, "hepsini onaylarsan" cümlesi yanıltıcı olurdu.
+ * onay değil "tekrar dene" kurtarır. Caption'ı ÜRETİLEMEMİŞ (`failed`) video
+ * da sayılmaz: onaylanabilmesi için önce caption'ının düzeltilmesi gerekiyor
+ * (2026-09-28 analizi); hazırlanmakta olanlar birazdan hazır olacağı için
+ * sayılır. Onay KAPALIYKEN hep `null`: onay yayını zaten belirlemiyor,
+ * "hepsini onaylarsan" cümlesi yanıltıcı olurdu.
  */
 export function queueRunway(
   queue: QueueItem[],
@@ -166,11 +169,11 @@ export function queueRunway(
 
   let ifAllApproved: RunwayEnd | null = null;
   if (settings.requireApproval) {
-    const hypothetical = queue.map((item) => ({
-      ...item,
-      status: "approved" as const,
-      captionStatus: "ready" as const,
-    }));
+    const hypothetical = queue.map((item) =>
+      item.captionStatus === "failed"
+        ? item
+        : { ...item, status: "approved" as const, captionStatus: "ready" as const }
+    );
     const all = runwayEnd(hypothetical, settings, now);
     if (all && all.count > (approved?.count ?? 0)) ifAllApproved = all;
   }

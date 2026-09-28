@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { CAPTION_MAX_LENGTH } from "@/lib/validation";
 import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
@@ -51,6 +51,15 @@ export function VideoActions(props: VideoActionsProps) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
+
+  // Onay kutusu alanın altında açılıyor ve sabit eylem çubuğunun arkasında
+  // kalabiliyordu; açılınca görünür alana kaydırılır (2026-09-28 analizi).
+  useEffect(() => {
+    if (!confirmRegenerate) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    confirmRef.current?.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
+  }, [confirmRegenerate]);
 
   const editable =
     (props.status === "pending" || props.status === "approved") &&
@@ -202,8 +211,9 @@ export function VideoActions(props: VideoActionsProps) {
       ) : (
         <>
           {/* Whisper sayıları yanlış duyabiliyor ("15" → "50"); yayından önce
-              okunmadan geçilmesin diye her zaman görünür. */}
-          {captionReady && (
+              okunmadan geçilmesin diye görünür. Reddedilen video yayınlanmayacağı
+              için orada gürültü — kuyruğa geri alınınca yeniden çıkar. */}
+          {captionReady && !rejected && (
             <p className="p-note">
               <IconSparkle size={18} />
               <span>
@@ -277,7 +287,12 @@ export function VideoActions(props: VideoActionsProps) {
             </button>
           </div>
           {confirmRegenerate && (
-            <div className="p-confirm" role="alertdialog" aria-label="Yeniden üretme onayı">
+            <div
+              ref={confirmRef}
+              className="p-confirm"
+              role="alertdialog"
+              aria-label="Yeniden üretme onayı"
+            >
               {/* KARARLAR "Açık sorular": elle düzenleme kaybolur — önce söyle. */}
               <p>
                 Caption baştan üretilecek; elle yaptığın değişiklikler kaybolur.

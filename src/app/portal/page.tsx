@@ -216,20 +216,10 @@ export default async function PortalQueuePage() {
       </div>
       <QueueBoard cards={queueCards} requireApproval={requireApproval} etas={etas} />
 
-      {outsideCards.length > 0 && (
-        <section className="p-hgroup" aria-labelledby="kuyruk-disi">
-          <div className="p-section-head">
-            <h2 className="p-h2" id="kuyruk-disi">
-              Kuyruk dışı
-            </h2>
-          </div>
-          <p className="p-hint">
-            Kuyruktan çıkardığın ya da reddettiğin videolar yayınlanmaz. Kuyruğa geri alabilir ya da
-            silebilirsin.
-          </p>
-          <OutsideList cards={outsideCards} requireApproval={requireApproval} />
-        </section>
-      )}
+      {/* Bölüm başlığı listenin içinde: son kart da gidince bölüm kalkar ama
+          "Video silindi" bildirimi (bileşenin durumu) yerinde kalır. Eskiden
+          bölüm burada koşullu çiziliyordu ve bildirim bölümle birlikte gidiyordu. */}
+      <OutsideList cards={outsideCards} requireApproval={requireApproval} />
     </PortalShell>
   );
 }
