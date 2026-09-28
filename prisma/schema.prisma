@@ -509,6 +509,14 @@ model Post {
    * dosyanın tek PUT yolu etkilenmez.
    */
   uploadId      String?
+  /**
+   * V9 — portal videosunun kuyruk DIŞINA çıktığı an (red ya da "kuyruktan
+   * çıkar"); kuyruğa dönünce null. Kuyruk dışı video bu andan 3 gün sonra
+   * kendiliğinden silinir (`media-retention.ts`) ve kartındaki "X gün sonra
+   * silinecek" sayacı da buradan hesaplanır. `updatedAt` yetmezdi: caption
+   * üretimi ya da "yeniden üret" satırı değiştirip sayacı sıfırlardı.
+   */
+  outsideAt     DateTime?
 
   @@index([agencyId])
   @@index([clientId])

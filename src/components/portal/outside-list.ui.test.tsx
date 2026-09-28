@@ -18,6 +18,8 @@ const card = (id: string, overrides: Partial<OutsideCard> = {}): OutsideCard => 
   publishStatus: "idle",
   coverUrl: null,
   rejectionReason: null,
+  deleteLabel: null,
+  deleteSoon: false,
   ...overrides,
 });
 
@@ -163,6 +165,23 @@ describe("OutsideList", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(listed()).toEqual(["b"]);
     expect(refresh).toHaveBeenCalled();
+  });
+
+  it("silme sayacı kartın altında; yalnızca sayacı olan kartta (V9)", () => {
+    render(
+      <OutsideList
+        cards={[
+          card("a", { status: "rejected", deleteLabel: "3 gün sonra silinecek" }),
+          card("b", { deleteLabel: "Yarın silinecek", deleteSoon: true }),
+          card("c"),
+        ]}
+        requireApproval
+      />
+    );
+    expect(screen.getByText("3 gün sonra silinecek").className).toBe("p-expiry");
+    expect(screen.getByText("Yarın silinecek").className).toContain("p-expiry--soon");
+    expect(document.querySelectorAll(".p-expiry")).toHaveLength(2);
+    expect(screen.getByText(/3 gün sonra kendiliğinden silinir/)).toBeTruthy();
   });
 
   it("reddedilen video: red nedeni kartta; geri al iki seçenekli sayfayı açar", async () => {

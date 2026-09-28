@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PortalBadges, type BadgeInput } from "@/components/portal/portal-badges";
 import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
 import { RestoreSheet, requeueVideo, restoreVideo } from "@/components/portal/restore-sheet";
-import { IconCheck, IconTrash, IconUndo, IconVideo } from "@/components/portal/icons";
+import { IconCheck, IconHourglass, IconTrash, IconUndo, IconVideo } from "@/components/portal/icons";
 
 /** Yüzen bildirimin ekranda kalma süresi. */
 export const TOAST_MS = 4_000;
@@ -16,6 +16,10 @@ export type OutsideCard = BadgeInput & {
   caption: string;
   coverUrl: string | null;
   rejectionReason: string | null;
+  /** V9: "3 gün sonra silinecek" (sunucu, müşterinin saat diliminde hesaplar). */
+  deleteLabel: string | null;
+  /** Son gün (yarın/bugün): sayaç koyulaşır. */
+  deleteSoon: boolean;
 };
 
 /**
@@ -24,6 +28,8 @@ export type OutsideCard = BadgeInput & {
  *   • geri al — çıkarılan video doğrudan sona döner; reddedilen video için
  *     "onaylayıp al / onay bekleyen olarak al" sorulur (onay kapalıysa sorulmaz),
  *   • sil — kalıcı silme, onay sayfasıyla.
+ * Kartın altında silme sayacı (V9, "Kuyruk dışı · silinmeye kalan gün"): kuyruk
+ * dışı video 3 gün sonra kendiliğinden silinir (`media-retention.ts`).
  * İşlem biten kart hemen listeden düşer; sayfa arkadan tazelenir.
  */
 export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; requireApproval: boolean }) {
@@ -127,8 +133,8 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
             </h2>
           </div>
           <p className="p-hint">
-            Kuyruktan çıkardığın ya da reddettiğin videolar yayınlanmaz. Kuyruğa geri alabilir ya da
-            silebilirsin.
+            Kuyruktan çıkardığın ya da reddettiğin videolar yayınlanmaz ve{" "}
+            <strong>3 gün sonra kendiliğinden silinir</strong>; o zamana kadar kuyruğa geri alabilirsin.
           </p>
           {listError && (
             <p className="p-error" role="alert">
@@ -154,6 +160,12 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
                   <span className="p-hcard-caption">{card.caption || "Caption yok"}</span>
                   {card.status === "rejected" && card.rejectionReason && (
                     <span className="p-hcard-reason">Neden: {card.rejectionReason}</span>
+                  )}
+                  {card.deleteLabel && (
+                    <span className={`p-expiry${card.deleteSoon ? " p-expiry--soon" : ""}`}>
+                      <IconHourglass size={13} />
+                      {card.deleteLabel}
+                    </span>
                   )}
                 </span>
               </Link>

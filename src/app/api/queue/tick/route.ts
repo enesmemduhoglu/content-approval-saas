@@ -7,6 +7,7 @@ import { publishApprovedPost, resumePublish } from "@/lib/publish-post";
 import { notifyClientUsers } from "@/lib/push";
 import { slotEmptyPush } from "@/lib/push-messages";
 import { authorizeQueueRequest } from "@/lib/qstash";
+import { retentionDue, runMediaRetention, type MediaRetentionStats } from "@/lib/media-retention";
 import { SLOT_LOOKBACK_MS, SLOT_WINDOW_MS, dueSlots, isEligible, pickNext } from "@/lib/queue";
 import {
   attachPostToSlotRun,
@@ -33,6 +34,7 @@ import {
  *   5. Onay kapalıysa koşullu `pending → approved` + `ApprovalAudit(auto_approved)`.
  *   6. `publishApprovedPost` (throw etmez, kendi kilidi ve onay kontrolü var).
  * Ardından `publishing`de kalmış portal videoları `resumePublish` ile ilerletilir.
+ * Saatin ilk tick'inde son iş R2 temizliği (V9, `media-retention.ts`).
  *
  * ─── Zaman bütçesi ──────────────────────────────────────────────────────────
  * Tek bir video yayını ~30 sn yoklama (`IG_VIDEO_BUDGET_MS`) + container açma +
@@ -148,8 +150,17 @@ async function handle(request: Request) {
       }
     }
 
+    // V9 depolama temizliği: saatte bir, yayın işleri bittikten SONRA ve
+    // yalnızca bütçe varken — yayın her zaman önce gelir, temizlik bekleyebilir.
+    // Saatlik olması portaldaki "Bugün silinecek" sayacını gerçeğe yakın
+    // tutuyor; günlük cron da aynı işi emniyet ağı olarak çağırıyor.
+    let retention: MediaRetentionStats | undefined;
+    if (retentionDue(now) && elapsed() < START_DEADLINE_MS) {
+      retention = await runMediaRetention(now);
+    }
+
     // Yanıt yalnızca SAYI taşır — caption/müşteri bilgisi QStash loglarına düşmesin.
-    return NextResponse.json({ ok: true, ...stats });
+    return NextResponse.json({ ok: true, ...stats, ...(retention ? { retention } : {}) });
   } catch (error) {
     console.error("[queue:tick] tick çöktü:", error);
     await sendAlert("queue:tick:crash", "Kuyruk tick'i beklenmeyen hatayla çöktü", {

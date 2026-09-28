@@ -11,7 +11,8 @@ import { PublishErrorCard } from "@/components/portal/publish-error-card";
 import { explainPublishError } from "@/lib/portal-publish-error";
 import { reviewNext } from "@/lib/portal-review";
 import { isInstagramBlocked } from "@/lib/portal-instagram";
-import { IconChevronLeft, IconExternal } from "@/components/portal/icons";
+import { IconChevronLeft, IconClock, IconExternal, IconHourglass } from "@/components/portal/icons";
+import { calendarDaysUntil, deletionLabel, videoStaysLabel } from "@/lib/retention-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,22 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
   const captionBusy = detail.captionStatus === "pending" || detail.captionStatus === "generating";
   const publishError =
     detail.publishStatus === "failed" ? explainPublishError(detail.publishError) : null;
+  // V9 saklama sayaçları — müşterinin saat diliminde takvim günü.
+  const deleteDays = detail.deletesAt ? calendarDaysUntil(detail.deletesAt, now, timezone) : null;
+  const staysDays = detail.videoKeptUntil ? calendarDaysUntil(detail.videoKeptUntil, now, timezone) : null;
+  const expiry =
+    deleteDays === null ? null : (
+      <div className="p-expiry-row">
+        <IconHourglass size={16} />
+        <div>
+          <strong>{deletionLabel(deleteDays)}</strong>
+          <span>
+            Video, caption&apos;ı ve kareleri kalıcı olarak silinir. Yayınlamak istersen önce kuyruğa geri
+            al.
+          </span>
+        </div>
+      </div>
+    );
 
   let kicker = "YAYIN";
   let when: string;
@@ -89,6 +106,22 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
 
       <div className="p-detail-body">
         <h1 className="sr-only">Video detayı</h1>
+        {detail.videoArchived ? (
+          // Yayından 2 gün sonra dosya R2'den kalktı (V9); kapak kaldı, video Instagram'da.
+          <div className="p-player p-player--archived">
+            {detail.coverUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={detail.coverUrl} alt="" />
+            )}
+            <div className="p-archive-text">
+              <span className="p-archive-kicker">KAPAK</span>
+              <span className="p-archive-title">Video artık Instagram&apos;da duruyor</span>
+              <span className="p-archive-body">
+                Yer açmak için yayından 2 gün sonra buradan kaldırıldı. İzlemek için Instagram&apos;da aç.
+              </span>
+            </div>
+          </div>
+        ) : (
         <div className="p-player">
           {detail.videoUrl ? (
             // `autoPlay` yok: sayfa açılır açılmaz ses çalmasın (onay sayfasıyla aynı karar).
@@ -104,6 +137,13 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
             <p className="p-player-empty">Video şu an gösterilemiyor (depolama bağlantısı yok).</p>
           )}
         </div>
+        )}
+        {staysDays !== null && (
+          <p className="p-hcard-stays">
+            <IconClock size={14} />
+            {videoStaysLabel(staysDays)}, sonra yalnızca Instagram&apos;da.
+          </p>
+        )}
 
         <div className="p-when">
           <div className="p-when-text">
@@ -113,8 +153,18 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
           {position >= 0 && <span className="p-when-side">Sırada {position + 1}.</span>}
         </div>
 
-        {detail.status === "rejected" && detail.rejectionReason && (
-          <p className="p-note p-note--danger">Red nedeni: {detail.rejectionReason}</p>
+        {detail.status === "rejected" && detail.rejectionReason ? (
+          <div className="p-note p-note--danger p-expiry-note">
+            <span>Red nedeni: {detail.rejectionReason}</span>
+            {expiry && (
+              <>
+                <hr />
+                {expiry}
+              </>
+            )}
+          </div>
+        ) : (
+          expiry && <div className="p-note p-note--danger">{expiry}</div>
         )}
         {publishError && <PublishErrorCard error={publishError} />}
         {detail.captionStatus === "failed" && detail.captionError && (

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { authenticateApiKey } from "@/lib/api-key";
 import { deletePostImages, InvalidImageError, uploadPostImage } from "@/lib/blob";
 import { checkOrigin } from "@/lib/origin";
+import { deleteOwnedObjects } from "@/lib/r2-cleanup";
 import { getScopedDb } from "@/lib/scoped-db";
 import { MAX_IMAGES_PER_POST, validateCaption } from "@/lib/validation";
 
@@ -251,8 +252,11 @@ export async function DELETE(request: Request, { params }: RouteParams) {
   }
 
   // Blob temizliği DB silmesinden SONRA ve best-effort: dosya kalsa bile post
-  // gerçekten silindi, isteğe hata döndürmek yanıltıcı olurdu.
+  // gerçekten silindi, isteğe hata döndürmek yanıltıcı olurdu. Portal videosu
+  // panelden silinirse R2 nesneleri de aynı kuralla gider (V9) — yoksa
+  // bucket'ta kimsenin göremediği çöp kalırdı.
   await deletePostImages(result.imageUrls);
+  await deleteOwnedObjects(result.r2.clientId, result.r2.keys, "posts:delete");
 
   return NextResponse.json({ ok: true });
 }

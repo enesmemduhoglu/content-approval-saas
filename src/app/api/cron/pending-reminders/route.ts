@@ -7,6 +7,7 @@ import { sendApprovalReminderEmail } from "@/lib/email";
 import { REMINDER_AFTER_DAYS, daysPending, reminderDecision } from "@/lib/reminders";
 import { runQueueDigest, type QueueDigestStats } from "@/lib/queue-digest";
 import { cleanupStaleDrafts } from "@/lib/draft-cleanup";
+import { runMediaRetention } from "@/lib/media-retention";
 
 /**
  * Bekleyen postlar için günlük hatırlatma (F3).
@@ -183,6 +184,10 @@ export async function GET(request: Request) {
   // etmez, kendi uyarısını kendisi atar.
   const draftCleanup = await cleanupStaleDrafts(now);
 
+  // V9 depolama temizliği. Asıl koşusu saatlik kuyruk tick'inde; burası
+  // QStash durursa diye emniyet ağı. Throw etmez, uyarısını kendisi atar.
+  const mediaRetention = await runMediaRetention(now);
+
   // Yanıt yalnızca SAYI taşır — müşteri adı, e-posta, caption hiçbiri geçmez.
   // Bu çıktı Vercel cron loglarına düşüyor.
   return NextResponse.json({
@@ -195,6 +200,7 @@ export async function GET(request: Request) {
     failed,
     queueDigest,
     draftCleanup,
+    mediaRetention,
   });
   } catch (error) {
     console.error("[cron:reminders] cron çöktü:", error);
