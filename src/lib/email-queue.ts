@@ -229,6 +229,17 @@ export type DigestUpcoming = {
   coverUrl: string | null;
 };
 
+/**
+ * "Kuyruk azalıyor" (2026-09-28 analizi): onaylı videolar en fazla
+ * `RUNWAY_LOW_DAYS` gün yetiyorsa dolu. `days` portaldaki göstergeyle aynı
+ * tanım (`queueRunway`: bugün dahil yerel takvim günü); 1 = son yayın bugün.
+ */
+export type DigestRunway = {
+  days: number;
+  /** Video eklenmezse boş geçecek ilk slot. */
+  emptyFrom: Date;
+};
+
 export type QueueDigestInput = {
   to: string;
   clientName: string;
@@ -237,10 +248,22 @@ export type QueueDigestInput = {
   pendingCount: number | null;
   /** Yarın yayınlanacaklar (`projectSchedule`). */
   upcoming: DigestUpcoming[];
+  /** Kuyruk azalıyorsa; değilse yok. */
+  runwayLow?: DigestRunway | null;
   portalUrl: string | null;
 };
 
-export function queueDigestSubject(input: Pick<QueueDigestInput, "upcoming" | "pendingCount">): string {
+/** "Kuyruk bugün/yarın bitiyor" — konu satırı ve bildirim başlığı ortak. */
+export function runwayLowTitle(runway: DigestRunway): string {
+  return runway.days <= 1 ? "Kuyruk bugün bitiyor" : "Kuyruk yarın bitiyor";
+}
+
+export function queueDigestSubject(
+  input: Pick<QueueDigestInput, "upcoming" | "pendingCount" | "runwayLow">
+): string {
+  // Yarının videosu varsa konu o kalır (günlük özetin asıl işi); kuyruğun
+  // bittiği gövdede. Yarın bir şey yoksa ve kuyruk bitiyorsa konu bu.
+  if (input.upcoming.length === 0 && input.runwayLow) return runwayLowTitle(input.runwayLow);
   if (input.upcoming.length > 0) {
     return input.upcoming.length === 1
       ? "Yarın 1 video yayınlanacak"
@@ -258,9 +281,17 @@ function digestLines(input: QueueDigestInput): string[] {
     // Onay kapalıyken kullanıcının son görme şansı bu e-posta (K4).
     lines.push("İstemediğin bir video varsa portaldan sırasını değiştirebilirsin.");
   }
+  if (input.runwayLow) {
+    lines.push(
+      `${runwayLowTitle(input.runwayLow)}: yeni video yüklemezsen ${formatSlot(
+        input.runwayLow.emptyFrom,
+        input.timezone
+      )} yayını boş geçer.`
+    );
+  }
   if (input.pendingCount !== null && input.pendingCount > 0) {
     lines.push(`${input.pendingCount} video onayını bekliyor.`);
-    if (input.upcoming.length === 0) {
+    if (input.upcoming.length === 0 && !input.runwayLow) {
       lines.push("Onaylı video olmadığı için yarın yayın yapılmayacak.");
     }
   }

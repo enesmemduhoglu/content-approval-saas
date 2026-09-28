@@ -1,4 +1,4 @@
-import { captionHead, type SlotEmptyReason } from "@/lib/email-queue";
+import { captionHead, runwayLowTitle, type DigestRunway, type SlotEmptyReason } from "@/lib/email-queue";
 import type { PushPayload } from "@/lib/push";
 
 /**
@@ -73,7 +73,20 @@ export function digestPush(input: {
   timezone: string;
   pendingCount: number | null;
   upcoming: { slotAt: Date; caption: string }[];
+  runwayLow?: DigestRunway | null;
 }): PushPayload | null {
+  // Kuyruk bitiyorsa bildirim onu söyler: kilit ekranındaki iki satırın en
+  // işe yarar kullanımı "video yükle" (yarının videosu e-postada).
+  if (input.runwayLow) {
+    const empty = input.runwayLow.emptyFrom;
+    const day = empty.toLocaleDateString("tr-TR", { timeZone: input.timezone, weekday: "long" });
+    return {
+      title: runwayLowTitle(input.runwayLow),
+      body: `Yeni video yüklemezsen ${day} ${formatTime(empty, input.timezone)} yayını boş geçer.`,
+      url: "/portal/yukle",
+      tag: "gunluk-ozet",
+    };
+  }
   const [first] = input.upcoming;
   if (first) {
     const more = input.upcoming.length - 1;
