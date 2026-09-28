@@ -151,7 +151,9 @@ export function getClientScopedDb(session: ClientSession) {
        * ve "kuyruktan çıkarılmış" videodan ayırt edilebilir (ikisinin de
        * `queuePosition`'ı null). `complete` onu `pending`e çevirir.
        */
-      createDrafts: (files: { ext: string }[]): Promise<{ id: string; videoKey: string }[]> =>
+      createDrafts: (
+        files: { ext: string; size?: number; name?: string }[]
+      ): Promise<{ id: string; videoKey: string }[]> =>
         db.$transaction(async (tx) => {
           const client = await tx.client.findUnique({
             where: { id: clientId },
@@ -169,6 +171,9 @@ export function getClientScopedDb(session: ClientSession) {
                 caption: "",
                 captionStatus: "pending",
                 queuePosition: null,
+                // "Aynı video" uyarısı için (bkz. schema.prisma Post.sourceSize).
+                sourceSize: file.size ?? null,
+                sourceName: file.name ?? null,
               },
               select: { id: true },
             });
@@ -178,6 +183,27 @@ export function getClientScopedDb(session: ClientSession) {
             out.push({ id: post.id, videoKey: key });
           }
           return out;
+        }),
+
+      /**
+       * "Aynı video" kontrolü (2026-09-28 analizi): verilen boyutlardan biriyle
+       * yüklenmiş, taslak OLMAYAN portal videoları. Taslak sayılmaz — yarım
+       * kalmış yüklemenin devamı ayrı yol (IndexedDB kaydı); silinen video
+       * zaten satır olarak yok.
+       */
+      findBySourceSize: (sizes: number[]) =>
+        db.post.findMany({
+          where: { ...scope, status: { not: "draft" }, sourceSize: { in: sizes } },
+          select: {
+            id: true,
+            sourceSize: true,
+            sourceName: true,
+            createdAt: true,
+            status: true,
+            queuePosition: true,
+            publishStatus: true,
+          },
+          orderBy: { createdAt: "desc" },
         }),
 
       /**

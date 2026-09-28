@@ -9,11 +9,14 @@ import {
   type ItemPhase,
   type ItemState,
 } from "@/components/portal/use-video-upload";
-import { IconAlert, IconCheck, IconUpload } from "@/components/portal/icons";
+import { IconAlert, IconCheck, IconCopy, IconUpload } from "@/components/portal/icons";
+import { duplicatePlace, duplicateSentence, skippedText } from "@/lib/portal-duplicate";
 
 const PHASE_LABEL: Record<ItemPhase, string> = {
   bekliyor: "Sırada",
   hazırlanıyor: "Kareler çıkarılıyor…",
+  soruluyor: "Kararını bekliyor",
+  atlandı: "Yüklenmedi",
   yükleniyor: "Yükleniyor…",
   tamamlanıyor: "Kuyruğa ekleniyor…",
   bitti: "Kuyruğa eklendi · caption hazırlanıyor",
@@ -39,6 +42,66 @@ function Thumb({ item, className }: { item: ItemState; className: string }) {
     <img src={item.thumb} alt="" className={`${className} p-ucard-thumb--img`} />
   ) : (
     <span className={className} aria-hidden="true" />
+  );
+}
+
+type Decide = (key: string, upload: boolean) => void;
+
+/**
+ * "Aynı video" (V7 tasarımı, 28 Eyl (3)): dosya daha önce yüklenmiş
+ * görünüyor; yüklenmeden önce sorulur. Diğer dosyalar bu arada yüklenir.
+ */
+function DuplicateCard({ item, decide }: { item: ItemState; decide: Decide }) {
+  const match = item.duplicate!;
+  return (
+    <li className="p-ucard p-ucard--waiting">
+      <div className="p-ucard-row">
+        <Thumb item={item} className="p-ucard-thumb" />
+        <span className="p-ucard-text">
+          <span className="p-ucard-name">{item.name}</span>
+          <span className="p-ucard-meta">
+            {fileSize(item.size)} · {PHASE_LABEL.soruluyor.toLocaleLowerCase("tr")}
+          </span>
+        </span>
+      </div>
+      <div className="p-dup" role="status">
+        <IconCopy size={18} />
+        <span className="p-dup-text">
+          <strong>Bu video zaten yüklenmiş olabilir</strong>
+          <span>
+            {duplicateSentence(match)} ·{" "}
+            <Link href={`/portal/video/${match.id}`}>{duplicatePlace(match)}</Link>
+          </span>
+        </span>
+      </div>
+      <div className="p-dup-actions">
+        <button type="button" className="p-btn p-btn--outline" onClick={() => decide(item.key, false)}>
+          Yükleme
+        </button>
+        <button type="button" className="p-btn p-btn--primary" onClick={() => decide(item.key, true)}>
+          Yine de yükle
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function SkippedCard({ item, undoSkip }: { item: ItemState; undoSkip: (key: string) => void }) {
+  return (
+    <li className="p-ucard p-ucard--skipped">
+      <div className="p-ucard-row">
+        <Thumb item={item} className="p-ucard-thumb" />
+        <span className="p-ucard-text">
+          <span className="p-ucard-name">{item.name}</span>
+          <span className="p-ucard-meta" role="status">
+            {item.duplicate ? skippedText(item.duplicate) : PHASE_LABEL.atlandı}
+          </span>
+        </span>
+        <button type="button" className="p-textbtn" onClick={() => undoSkip(item.key)}>
+          Geri al
+        </button>
+      </div>
+    </li>
   );
 }
 
@@ -121,7 +184,7 @@ export function UploadForm() {
   const router = useRouter();
   // Seçim yüklemeyi hemen başlatır (ayrı "Yükle" düğmesi yok). Hata alanlar
   // yeniden seçerek devam eder (hook'un kaldığı yerden devamı).
-  const { items, running, error, doneCount, pick } = useVideoUpload({
+  const { items, running, error, doneCount, pick, decide, undoSkip } = useVideoUpload({
     onFinished: () => router.refresh(),
   });
 
@@ -166,9 +229,15 @@ export function UploadForm() {
 
       {items.length > 0 && (
         <ul className="p-list" aria-label="Yüklemeler">
-          {items.map((item) => (
-            <UploadCard key={item.key} item={item} />
-          ))}
+          {items.map((item) =>
+            item.phase === "soruluyor" && item.duplicate ? (
+              <DuplicateCard key={item.key} item={item} decide={decide} />
+            ) : item.phase === "atlandı" ? (
+              <SkippedCard key={item.key} item={item} undoSkip={undoSkip} />
+            ) : (
+              <UploadCard key={item.key} item={item} />
+            )
+          )}
         </ul>
       )}
 

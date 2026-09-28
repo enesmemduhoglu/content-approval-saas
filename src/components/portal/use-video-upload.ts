@@ -26,6 +26,7 @@ import {
 } from "@/lib/multipart-client";
 import { deleteResume, loadResume, pruneResume, saveResume } from "@/lib/upload-resume-store";
 import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/validation";
+import type { DuplicateMatch } from "@/lib/portal-duplicate";
 
 /**
  * Video kuyruğu — yükleme akışının MANTIĞI (README §7, V7b). Görünüm
@@ -34,8 +35,10 @@ import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/validation";
  *
  *   1. Her dosya tarayıcıda ölçülür (≤ 90 sn, dikey) ve 6 kare çıkarılır.
  *   2. Aynı dosya için yarım kalmış bir çok parçalı yükleme kaydı varsa
- *      (IndexedDB) o taslaktan devam edilir; yoksa geçen dosyalar için TEK
- *      istekte taslak + yükleme bilgisi alınır.
+ *      (IndexedDB) o taslaktan devam edilir. Diğerleri için önce "aynı video"
+ *      kontrolü: daha önce yüklenmiş görünen dosya kullanıcıya sorulur ve
+ *      kararını beklerken ötekiler yüklenir. Geçen dosyalar için TEK istekte
+ *      taslak + yükleme bilgisi alınır.
  *   3. Küçük video tek PUT'la, büyük video parça parça R2'ye gider.
  *   4. `complete` dosyanın gerçekten yüklendiğini doğrular ve kuyruğa ekler;
  *      gövdesindeki kare raporu karesiz kalan videonun NEDENİNİ sunucuya taşır.
@@ -45,7 +48,15 @@ import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/validation";
  * bittiği belirsizleşir. (Parçalar ise video İÇİNDE 3'erli paralel.)
  */
 
-export type ItemPhase = "bekliyor" | "hazırlanıyor" | "yükleniyor" | "tamamlanıyor" | "bitti" | "hata";
+export type ItemPhase =
+  | "bekliyor"
+  | "hazırlanıyor"
+  | "soruluyor"
+  | "atlandı"
+  | "yükleniyor"
+  | "tamamlanıyor"
+  | "bitti"
+  | "hata";
 
 export type ItemState = {
   key: string;
@@ -59,6 +70,8 @@ export type ItemState = {
   status?: string;
   /** İlk karenin `data:` adresi — kartta doğru videonun seçildiği görülsün. */
   thumb?: string;
+  /** "soruluyor"/"atlandı": daha önce yüklenmiş eşi. */
+  duplicate?: DuplicateMatch;
 };
 
 /**
@@ -149,7 +162,7 @@ async function requestUploads(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        files: files.map((file) => ({ contentType: videoType(file), size: file.size })),
+        files: files.map((file) => ({ contentType: videoType(file), size: file.size, name: file.name })),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -157,6 +170,27 @@ async function requestUploads(
     return { ok: true, items: data.items as UploadTarget[], issuedAt: Date.now() };
   } catch {
     return { ok: false, error: "Bağlantı yok, yükleme başlatılamadı" };
+  }
+}
+
+/**
+ * "Aynı video" kontrolü. Başarısız olursa (ağ, eski sunucu) yükleme
+ * DURMAZ: uyarı bir kolaylık, kapı değil — hepsi eşsiz sayılır.
+ */
+async function checkDuplicates(files: File[]): Promise<(DuplicateMatch | null)[]> {
+  const none = () => files.map(() => null);
+  try {
+    const res = await fetch("/api/portal/upload/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files: files.map((file) => ({ size: file.size, name: file.name })) }),
+    });
+    if (!res.ok) return none();
+    const data = (await res.json().catch(() => ({}))) as { matches?: unknown };
+    if (!Array.isArray(data.matches) || data.matches.length !== files.length) return none();
+    return data.matches as (DuplicateMatch | null)[];
+  } catch {
+    return none();
   }
 }
 
@@ -246,12 +280,20 @@ function useUploadGuards(active: boolean) {
   }, [active]);
 }
 
+type Work = { p: Prepared; entry?: { target: UploadTarget; issuedAt: number } };
+
 export function useVideoUpload(options: { onFinished?: () => void } = {}) {
   const [items, setItems] = useState<ItemState[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onFinished = useRef(options.onFinished);
   onFinished.current = options.onFinished;
+  /** Sırayla yüklenecekler; "aynı video"da "Yine de yükle" de buraya eklenir. */
+  const workRef = useRef<Work[]>([]);
+  /** Kararı sorulan (ya da atlanan) dosyalar — "Geri al" için atlananlar da kalır. */
+  const heldRef = useRef(new Map<string, Prepared>());
+  /** Hazırlık ya da yükleme sürüyor: karar yalnızca sıraya ekler, sonra işlenir. */
+  const busyRef = useRef(false);
 
   useUploadGuards(running);
   useEffect(() => {
@@ -276,6 +318,7 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
       setError(`Tek seferde en fazla ${MAX_FILES} video seçebilirsin`);
       return;
     }
+    heldRef.current.clear();
     const pickedItems: ItemState[] = picked.map((file, i) => ({
       key: `${i}-${file.name}`,
       name: file.name,
@@ -445,7 +488,73 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
     await uploadMultipart(p, record, initialUrls, false, frames);
   }
 
+  /** Tek dosyanın yüklemesi: devam ya da taze taslak, sonra `complete`. */
+  async function uploadOne({ p, entry }: Work): Promise<void> {
+    try {
+      let target = entry;
+      if (p.resume) {
+        const outcome = await resume(p, p.resume);
+        if (outcome === "done") {
+          patch(p.key, { phase: "bitti", status: undefined });
+          return;
+        }
+        // Sunucudaki taslak gitmiş: bu dosya için temiz bir taslak.
+        target = undefined;
+      }
+      if (!target) {
+        const started = await requestUploads([p.file]);
+        if (!started.ok) throw new Error(started.error);
+        target = { target: started.items[0], issuedAt: started.issuedAt };
+      }
+      await uploadFresh(p, target.target, target.issuedAt);
+      patch(p.key, { phase: "bitti", status: undefined });
+    } catch (err) {
+      patch(p.key, { phase: "hata", status: undefined, error: (err as Error).message });
+    }
+  }
+
+  /** İş listesini sırayla boşaltır; bu arada eklenenler de aynı turda işlenir. */
+  async function drain(): Promise<void> {
+    busyRef.current = true;
+    setRunning(true);
+    let uploaded = false;
+    try {
+      for (let work = workRef.current.shift(); work; work = workRef.current.shift()) {
+        await uploadOne(work);
+        uploaded = true;
+      }
+      if (uploaded) onFinished.current?.();
+    } finally {
+      busyRef.current = false;
+      setRunning(false);
+    }
+  }
+
+  /**
+   * "Aynı video" kararı. Yüklenecekse sıraya girer; o an başka yükleme
+   * sürüyorsa onun ardından, sürmüyorsa hemen.
+   */
+  function decide(key: string, upload: boolean) {
+    const p = heldRef.current.get(key);
+    if (!p) return;
+    if (!upload) {
+      patch(key, { phase: "atlandı" });
+      return;
+    }
+    heldRef.current.delete(key);
+    patch(key, { phase: "bekliyor", duplicate: undefined });
+    workRef.current.push({ p });
+    if (!busyRef.current) void drain();
+  }
+
+  /** Atlanan dosyayı yeniden soruya döndürür. */
+  function undoSkip(key: string) {
+    if (!heldRef.current.has(key)) return;
+    patch(key, { phase: "soruluyor" });
+  }
+
   async function start(picked: { file: File; key: string }[]) {
+    busyRef.current = true;
     setRunning(true);
     setError(null);
     try {
@@ -490,49 +599,39 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
       }
       if (prepared.length === 0) return;
 
-      // 2) Devam edilmeyecek dosyalar için taslaklar, tek istekte.
+      // 2) "Aynı video" kontrolü — yarım kalanın devamı sorulmaz (o zaten
+      //    bu dosyanın kendi taslağı).
       const fresh = prepared.filter((p) => !p.resume);
-      const targets = new Map<string, { target: UploadTarget; issuedAt: number }>();
-      if (fresh.length > 0) {
-        const started = await requestUploads(fresh.map((p) => p.file));
+      const matches = fresh.length > 0 ? await checkDuplicates(fresh.map((p) => p.file)) : [];
+      fresh.forEach((p, i) => {
+        const match = matches[i];
+        if (!match) return;
+        heldRef.current.set(p.key, p);
+        patch(p.key, { phase: "soruluyor", duplicate: match, status: undefined });
+      });
+
+      // 3) Kalanların taslakları, tek istekte.
+      const go = fresh.filter((p) => !heldRef.current.has(p.key));
+      const targets = new Map<string, Work["entry"]>();
+      if (go.length > 0) {
+        const started = await requestUploads(go.map((p) => p.file));
         if (!started.ok) {
           setError(started.error);
-          for (const p of fresh) patch(p.key, { phase: "hata", error: "Başlatılamadı" });
+          for (const p of go) patch(p.key, { phase: "hata", error: "Başlatılamadı" });
         } else {
-          fresh.forEach((p, i) =>
-            targets.set(p.key, { target: started.items[i], issuedAt: started.issuedAt })
-          );
+          go.forEach((p, i) => targets.set(p.key, { target: started.items[i], issuedAt: started.issuedAt }));
         }
       }
-
-      // 3–4) Sırayla yükle + tamamla.
       for (const p of prepared) {
-        try {
-          if (p.resume) {
-            const outcome = await resume(p, p.resume);
-            if (outcome === "done") {
-              patch(p.key, { phase: "bitti", status: undefined });
-              continue;
-            }
-            // Sunucudaki taslak gitmiş: bu dosya için temiz bir taslak.
-            const started = await requestUploads([p.file]);
-            if (!started.ok) throw new Error(started.error);
-            targets.set(p.key, { target: started.items[0], issuedAt: started.issuedAt });
-          }
-          const entry = targets.get(p.key);
-          if (!entry) continue;
-          await uploadFresh(p, entry.target, entry.issuedAt);
-          patch(p.key, { phase: "bitti", status: undefined });
-        } catch (err) {
-          patch(p.key, { phase: "hata", status: undefined, error: (err as Error).message });
-        }
+        if (p.resume) workRef.current.push({ p });
+        else if (targets.has(p.key)) workRef.current.push({ p, entry: targets.get(p.key) });
       }
-      onFinished.current?.();
     } finally {
-      setRunning(false);
+      // 4) Sırayla yükle + tamamla (`decide` ile eklenenler dahil).
+      await drain();
     }
   }
 
   const doneCount = items.filter((i) => i.phase === "bitti").length;
-  return { items, running, error, doneCount, pick };
+  return { items, running, error, doneCount, pick, decide, undoSkip };
 }

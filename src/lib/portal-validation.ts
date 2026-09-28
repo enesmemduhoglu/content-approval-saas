@@ -134,7 +134,21 @@ export const FRAME_COUNT = 6;
 /** Tarayıcının çıkardığı JPEG kare için üst sınır; daha büyüğü kareye benzemiyor. */
 export const MAX_FRAME_BYTES = 2 * 1024 * 1024;
 
-export type UploadFileInput = { contentType: string; size: number; ext: string };
+/**
+ * `name` kaynak dosyanın adı — yalnızca "aynı video" uyarısında bilgi
+ * (`Post.sourceName`). İsteğe bağlı: eski istemci göndermez, geçersizse
+ * (metin değil) yok sayılır, yüklemeyi hiçbir zaman düşürmez.
+ */
+export type UploadFileInput = { contentType: string; size: number; ext: string; name?: string };
+
+/** Kaynak dosya adı için üst sınır; iOS adları kısa, sınır kötüye kullanıma karşı. */
+export const MAX_SOURCE_NAME = 200;
+
+export function sourceName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const name = value.trim().slice(0, MAX_SOURCE_NAME);
+  return name || undefined;
+}
 
 export function validateUploadFiles(
   body: unknown
@@ -152,14 +166,44 @@ export function validateUploadFiles(
   }
   const out: UploadFileInput[] = [];
   for (const file of files) {
-    const { contentType, size } = (file ?? {}) as { contentType?: unknown; size?: unknown };
+    const { contentType, size, name } = (file ?? {}) as {
+      contentType?: unknown;
+      size?: unknown;
+      name?: unknown;
+    };
     const error = validateVideoUpload(contentType, size);
     if (error) return { ok: false, field: "files", error };
+    const source = sourceName(name);
     out.push({
       contentType: contentType as string,
       size: size as number,
       ext: ALLOWED_VIDEO_TYPES[contentType as string],
+      ...(source ? { name: source } : {}),
     });
+  }
+  return { ok: true, files: out };
+}
+
+/**
+ * "Aynı video" kontrolünün girdisi: `[{ size, name? }]`. Boyut kuralı yükleme
+ * kuralıyla aynı değil, daha gevşek — kontrol yalnızca eşleşme arar; geçersiz
+ * dosya zaten yükleme isteğinde reddedilecek. Sayı sınırı aynı.
+ */
+export function validateDuplicateCheck(
+  body: unknown
+): { ok: true; files: { size: number; name?: string }[] } | ({ ok: false } & FieldError) {
+  const files = (body as { files?: unknown } | null)?.files;
+  if (!Array.isArray(files) || files.length === 0 || files.length > MAX_FILES_PER_UPLOAD) {
+    return { ok: false, field: "files", error: "Geçersiz dosya listesi" };
+  }
+  const out: { size: number; name?: string }[] = [];
+  for (const file of files) {
+    const { size, name } = (file ?? {}) as { size?: unknown; name?: unknown };
+    if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) {
+      return { ok: false, field: "files", error: "Geçersiz dosya boyutu" };
+    }
+    const source = sourceName(name);
+    out.push({ size, ...(source ? { name: source } : {}) });
   }
   return { ok: true, files: out };
 }

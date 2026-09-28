@@ -2488,3 +2488,56 @@ body:has(.portal-root) {
 .portal-root .p-notechip:disabled {
   opacity: 0.5;
 }
+
+/* ─── Yükle: "aynı video" uyarısı (28 Eyl (3)) ───────────────────────────── */
+
+.p-dup {
+  background: var(--p-peach-soft);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: #6b2410;
+}
+
+.p-dup > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--p-accent-deep);
+}
+
+.p-dup-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.p-dup-text strong {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.portal-root .p-dup-text a {
+  color: #6b2410;
+  font-weight: 700;
+  text-underline-offset: 3px;
+}
+
+.p-dup-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.portal-root .p-dup-actions .p-btn {
+  height: 44px;
+  font-size: 14px;
+}
+
+.p-ucard--skipped .p-ucard-thumb,
+.p-ucard--skipped .p-ucard-name {
+  opacity: 0.55;
+}

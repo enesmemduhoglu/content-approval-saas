@@ -108,7 +108,7 @@ describe("UploadForm — dosya türü ve toplu seçim", () => {
     ]);
     await screen.findByText("Kuyruğa eklendi · caption hazırlanıyor");
     expect(screen.getByText(/Yüklenemedi: Bu dosya yüklenemiyor/)).toBeTruthy();
-    expect(uploadBody().files).toEqual([{ contentType: "video/mp4", size: 1 }]);
+    expect(uploadBody().files).toEqual([{ contentType: "video/mp4", size: 1, name: "ders.mp4" }]);
     // Uygunsuz dosya için kare çıkarılmaya bile çalışılmaz.
     expect(extractFrames).toHaveBeenCalledTimes(1);
   });
@@ -250,5 +250,94 @@ describe("UploadForm — kare raporu", () => {
     // 6 kare + 1 yeniden deneme + video
     expect(putWithProgress).toHaveBeenCalledTimes(8);
     expect(completeBody()).toEqual({ frames: { extracted: 6, uploadFailed: 1 } });
+  });
+});
+
+describe("UploadForm — aynı video uyarısı", () => {
+  const twin = { id: "eski1", createdAt: "2026-09-26T10:00:00.000Z", where: "queue", position: 3 };
+  let uploadCalls: { files: { name?: string }[] }[];
+
+  function mockServer(matches: unknown[] | "fail") {
+    uploadCalls = [];
+    let seq = 0;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/portal/upload/check") {
+        return matches === "fail" ? new Response("{}", { status: 500 }) : Response.json({ matches });
+      }
+      if (url === "/api/portal/upload") {
+        const body = JSON.parse(init!.body as string);
+        uploadCalls.push(body);
+        return Response.json({
+          items: body.files.map(() => ({
+            postId: `p${++seq}`,
+            multipart: false,
+            videoPutUrl: "https://r2/put",
+            framePutUrls: [],
+          })),
+        });
+      }
+      return Response.json({ ok: true });
+    });
+  }
+
+  const two = () => [
+    new File(["aaaa"], "IMG_2041.MOV", { type: "video/quicktime" }),
+    new File(["bb"], "IMG_2044.MOV", { type: "video/quicktime" }),
+  ];
+
+  it("eşi olan dosya sorulur, diğeri beklemeden yüklenir", async () => {
+    mockServer([twin, null]);
+    render(<UploadForm />);
+    pickFiles(two());
+
+    await screen.findByText("Kuyruğa eklendi · caption hazırlanıyor");
+    const checkCall = fetchMock.mock.calls.find(([url]) => url === "/api/portal/upload/check")!;
+    expect(JSON.parse((checkCall[1] as RequestInit).body as string)).toEqual({
+      files: [
+        { size: 4, name: "IMG_2041.MOV" },
+        { size: 2, name: "IMG_2044.MOV" },
+      ],
+    });
+    expect(uploadCalls.map((c) => c.files.map((f) => f.name))).toEqual([["IMG_2044.MOV"]]);
+    expect(screen.getByText("Bu video zaten yüklenmiş olabilir")).toBeTruthy();
+    expect(screen.getByText(/26 Eylül tarihinde yüklenmiş/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Kuyrukta 3." }).getAttribute("href")).toBe("/portal/video/eski1");
+  });
+
+  it("'Yine de yükle' dosyayı sıraya koyar ve yükler", async () => {
+    mockServer([twin, null]);
+    render(<UploadForm />);
+    pickFiles(two());
+    await screen.findByText("Kuyruğa eklendi · caption hazırlanıyor");
+
+    fireEvent.click(screen.getByRole("button", { name: "Yine de yükle" }));
+    await waitFor(() => expect(screen.getAllByText("Kuyruğa eklendi · caption hazırlanıyor")).toHaveLength(2));
+    expect(uploadCalls.map((c) => c.files.map((f) => f.name))).toEqual([["IMG_2044.MOV"], ["IMG_2041.MOV"]]);
+    expect(screen.queryByText("Bu video zaten yüklenmiş olabilir")).toBeNull();
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("'Yükleme' atlar (istek yok); 'Geri al' yeniden sorar", async () => {
+    mockServer([twin]);
+    render(<UploadForm />);
+    pickFiles([two()[0]]);
+    await screen.findByText("Bu video zaten yüklenmiş olabilir");
+
+    fireEvent.click(screen.getByRole("button", { name: "Yükleme" }));
+    expect(screen.getByText("Yüklenmedi · zaten kuyrukta")).toBeTruthy();
+    expect(uploadCalls).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Geri al" }));
+    expect(screen.getByText("Bu video zaten yüklenmiş olabilir")).toBeTruthy();
+    // Karar beklerken yükleme "sürüyor" sayılmaz: yeni seçim yapılabilir.
+    expect(document.querySelector<HTMLInputElement>('input[type="file"]')!.disabled).toBe(false);
+  });
+
+  it("kontrol başarısızsa yükleme durmaz (uyarı bir kolaylık, kapı değil)", async () => {
+    mockServer("fail");
+    render(<UploadForm />);
+    pickFiles(two());
+    await waitFor(() => expect(screen.getAllByText("Kuyruğa eklendi · caption hazırlanıyor")).toHaveLength(2));
+    expect(uploadCalls[0].files).toHaveLength(2);
   });
 });
