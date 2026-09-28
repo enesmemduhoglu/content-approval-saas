@@ -15,7 +15,14 @@ vi.mock("@/lib/blob", () => ({
   InvalidImageError: class InvalidImageError extends Error {},
 }));
 
+// R2 ağ istemesin; panelden silinen portal videosunun nesneleri (V9).
+vi.mock("@/lib/r2-cleanup", () => ({
+  deleteOwnedObjects: vi.fn(async () => ({ deleted: 0, failed: 0 })),
+}));
+
 import { DELETE, GET, PATCH } from "./route";
+import { deleteOwnedObjects } from "@/lib/r2-cleanup";
+import { createPortalPost } from "@tests/helpers/portal";
 import { auth } from "@/lib/auth";
 import { deletePostImages, uploadPostImage } from "@/lib/blob";
 import { db } from "@/lib/db";
@@ -226,6 +233,21 @@ describe("DELETE /api/posts/[id]", () => {
     expect(await db.approvalLink.count({ where: { postId: post.id } })).toBe(0);
     // ApprovalAudit'in Post'a FK'sı yok — elle silinmezse öksüz kalırdı.
     expect(await db.approvalAudit.count({ where: { postId: post.id } })).toBe(0);
+  });
+
+  it("panelden silinen portal videosunun R2 nesneleri de silinir", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const post = await createPortalPost(agency.id, client.id, { queuePosition: null });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await DELETE(deleteRequest(), params(post.id));
+    expect(res.status).toBe(200);
+    expect(deleteOwnedObjects).toHaveBeenCalledWith(
+      client.id,
+      [post.videoKey, ...post.frameKeys],
+      "posts:delete"
+    );
   });
 
   it("yayınlanmış postu SİLMEZ (409)", async () => {

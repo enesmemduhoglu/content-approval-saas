@@ -29,9 +29,16 @@ vi.mock("@/lib/email", async (importOriginal) => {
 vi.mock("@/lib/push", () => ({
   notifyClientUsers: vi.fn(async () => ({ sent: 1, removed: 0, failed: 0 })),
 }));
+// V9 temizliği kendi dosyasında sınanıyor; burada yalnızca "saatte bir,
+// yayından sonra çağrılıyor mu". Gerçek saate bağlı kalmasın diye mock.
+vi.mock("@/lib/media-retention", () => ({
+  retentionDue: vi.fn(() => false),
+  runMediaRetention: vi.fn(async () => ({ archived: 1, purged: 2, failed: 0 })),
+}));
 
 import { GET, POST } from "./route";
 import { notifyClientUsers } from "@/lib/push";
+import { retentionDue, runMediaRetention } from "@/lib/media-retention";
 import { db } from "@/lib/db";
 import { sendAgencyNoticeEmail, sendRawEmail } from "@/lib/email";
 import { IGError, createReelContainer, finalizeContainer } from "@/lib/instagram";
@@ -104,6 +111,22 @@ async function seed(
   });
   return { agency, client, slotAts: slots.map((s) => s.slotAt) };
 }
+
+describe("depolama temizliği (V9)", () => {
+  it("saatin ilk tick'inde koşar, sayıları yanıta ekler", async () => {
+    vi.mocked(retentionDue).mockReturnValueOnce(true);
+    const res = await POST(tickRequest());
+    expect(res.status).toBe(200);
+    expect(runMediaRetention).toHaveBeenCalledTimes(1);
+    expect((await res.json()).retention).toEqual({ archived: 1, purged: 2, failed: 0 });
+  });
+
+  it("diğer tick'lerde koşmaz", async () => {
+    const res = await POST(tickRequest());
+    expect(runMediaRetention).not.toHaveBeenCalled();
+    expect((await res.json()).retention).toBeUndefined();
+  });
+});
 
 describe("yetkilendirme", () => {
   it("imzasız istek 401", async () => {

@@ -142,6 +142,20 @@ ve saatleri" kartı (gün çipleri, hazır seçimler, canlı özet + sıradaki 3
 yayın), kuyrukta "Perşembe · 19:00". Merge = prod göçü (toplayıcı; Furkan'ın
 ayarı "her gün" kalır, günleri portaldan kendisi seçer).
 
+### V9 — R2 depolama temizliği ✅ (PR bekliyor) · K30
+Yayınlanan videonun mp4'ü + 5 karesi yayından 2 gün sonra silinir, kapak
+(ilk kare) kalır; kuyruk dışı (reddedilen/çıkarılan) video 3 gün sonra
+tamamen silinir. `src/lib/retention-rules.ts` (saf kurallar + metinler),
+`src/lib/media-retention.ts` (iş; saatte bir tick, günlük cron emniyet ağı),
+`src/lib/r2-cleanup.ts` (`deleteOwnedObjects`, portal silme + panel silme +
+temizlik ortak), göç `20260928140000_kuyruk_disi_zamani` (`Post.outsideAt`,
+toplayıcı; kuyruk dışındakilere `NOW()` backfill — eski veriyle sınandı).
+Portal: kuyruk dışı kartta ve detayda kum saatli sayaç, geçmişte "Video N gün
+daha burada", arşivlenen yayının detayında kapak + "Video artık Instagram'da".
+Ajans panelinden silinen portal postunun R2 nesneleri de silinir.
+`scripts/r2-denetim.mjs`: kullanım + sahipsiz nesne raporu (`--sil` ile siler).
+Tasarım: V7 kanvası "Güncelleme 28 Eyl (4)".
+
 ## Uçtan uca doğrulama senaryosu (V5)
 
 1. Portaldan 3 video yükle → caption'lar birkaç dakikada hazır.

@@ -6,7 +6,8 @@ import { historyGroup, shortDateTime } from "@/lib/portal-format";
 import { explainPublishError } from "@/lib/portal-publish-error";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { HistoryTabs } from "@/components/portal/history-tabs";
-import { IconChevronRight, IconExternal, IconVideo } from "@/components/portal/icons";
+import { IconChevronRight, IconClock, IconExternal, IconVideo } from "@/components/portal/icons";
+import { calendarDaysUntil, videoStaysLabel } from "@/lib/retention-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,13 @@ export default async function PortalHistoryPage() {
                     <span className="p-hcard-date">{shortDateTime(card.publishedAt, timezone)}</span>
                   )}
                   <span className="p-hcard-caption">{card.caption || "Caption yok"}</span>
+                  {card.videoKeptUntil && (
+                    // V9: video yayından 2 gün sonra R2'den kalkar; kapak kalır.
+                    <span className="p-hcard-stays">
+                      <IconClock size={12} />
+                      {videoStaysLabel(calendarDaysUntil(card.videoKeptUntil, now, timezone))}
+                    </span>
+                  )}
                 </div>
                 {card.igPermalink && (
                   // Ana ekran uygulamasında `_blank` Instagram'a çıkar, portal yerinde kalır.

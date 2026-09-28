@@ -49,6 +49,13 @@ export const IconClock = (p: IconProps) => (
   </Svg>
 );
 
+/** Kum saati — kuyruk dışı videonun silme sayacı (V9). */
+export const IconHourglass = (p: IconProps) => (
+  <Svg strokeWidth={2.2} {...p}>
+    <path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9" />
+  </Svg>
+);
+
 export const IconGear = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="3" />

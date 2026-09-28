@@ -1,5 +1,6 @@
 import { keyBelongsToClient, r2Configured, signDisplayUrl } from "@/lib/storage-r2";
 import type { PortalVideo } from "@/lib/client-scoped-db";
+import { outsideDeletesAt, videoArchivesAt } from "@/lib/retention-rules";
 
 /**
  * Video kuyruğu (V3) — portal yanıtlarına giden imzalı GET URL'leri.
@@ -26,15 +27,30 @@ async function signIfOwned(key: string | null | undefined, clientId: string): Pr
   }
 }
 
-/** Kart görünümü: kapak karesi (ilk kare) + ham anahtarlar DIŞARI ÇIKMAZ. */
+/**
+ * Kart görünümü: kapak karesi (ilk kare) + ham anahtarlar DIŞARI ÇIKMAZ.
+ * V9 saklama alanları (`retention-rules.ts`):
+ *   • `deletesAt` — kuyruk dışı videonun kendiliğinden silineceği an,
+ *   • `videoKeptUntil` — yayınlanan videonun dosyası hâlâ duruyorsa kaldırılacağı an,
+ *   • `videoArchived` — yayınlanan videonun dosyası kaldırıldı, yalnızca kapak var.
+ */
 export type PortalVideoCard = Omit<PortalVideo, "videoKey" | "frameKeys"> & {
   coverUrl: string | null;
+  deletesAt: Date | null;
+  videoKeptUntil: Date | null;
+  videoArchived: boolean;
 };
 
 export async function toCard(video: PortalVideo, clientId: string): Promise<PortalVideoCard> {
-  const { videoKey: _videoKey, frameKeys, ...rest } = video;
-  void _videoKey;
-  return { ...rest, coverUrl: await signIfOwned(frameKeys[0], clientId) };
+  const { videoKey, frameKeys, ...rest } = video;
+  const done = video.publishStatus === "published" || video.publishStatus === "duplicate";
+  return {
+    ...rest,
+    coverUrl: await signIfOwned(frameKeys[0], clientId),
+    deletesAt: done ? null : outsideDeletesAt(video.outsideAt),
+    videoKeptUntil: done && videoKey ? videoArchivesAt(video.publishedAt, video.updatedAt) : null,
+    videoArchived: done && !videoKey,
+  };
 }
 
 export type PortalVideoDetail = PortalVideoCard & {

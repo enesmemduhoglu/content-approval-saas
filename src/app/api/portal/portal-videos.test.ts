@@ -370,6 +370,39 @@ describe("GET liste ve detay", () => {
     expect(video.videoUrl).toContain(`clients/${clientId}/videos/${v.id}.mp4`);
     expect(video.frameUrls).toHaveLength(1);
   });
+
+  it("V9 saklama alanları: sayaç, videonun kalma süresi ve arşiv", async () => {
+    const outsideAt = new Date("2026-09-28T12:00:00Z");
+    const publishedAt = new Date("2026-09-27T16:00:00Z");
+    const removed = await createPortalPost(agencyId, clientId, { queuePosition: null });
+    await db.post.update({ where: { id: removed.id }, data: { outsideAt } });
+    const live = await createPortalPost(agencyId, clientId, { status: "approved", publishStatus: "published" });
+    await db.post.update({ where: { id: live.id }, data: { publishedAt } });
+    const archived = await createPortalPost(agencyId, clientId, {
+      status: "approved",
+      publishStatus: "published",
+      videoKey: null,
+    });
+
+    const detail = async (id: string) =>
+      (await (await getVideo(portalRequest(`/api/portal/videos/${id}`, { cookie }), idParams(id))).json()).video;
+
+    const r = await detail(removed.id);
+    expect(r.deletesAt).toBe("2026-10-01T12:00:00.000Z");
+    expect(r.videoArchived).toBe(false);
+
+    const l = await detail(live.id);
+    expect(l.deletesAt).toBeNull();
+    expect(l.videoKeptUntil).toBe("2026-09-29T16:00:00.000Z");
+    expect(l.videoArchived).toBe(false);
+
+    const a = await detail(archived.id);
+    expect(a.videoArchived).toBe(true);
+    expect(a.videoKeptUntil).toBeNull();
+    expect(a.videoUrl).toBeNull();
+    // Kapak kalır: geçmişte ve arşiv görünümünde gösterilen tek görsel.
+    expect(a.coverUrl).toContain(`clients/${clientId}/frames/`);
+  });
 });
 
 // ─── Caption ──────────────────────────────────────────────────────────────

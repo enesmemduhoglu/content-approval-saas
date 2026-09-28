@@ -669,11 +669,24 @@ export function getScopedDb(session: ScopedSession) {
       deleteById: async (
         id: string
       ): Promise<
-        { ok: true; imageUrls: string[] } | { ok: false; reason: "not_found" | "published" }
+        | {
+            ok: true;
+            imageUrls: string[];
+            /** Portal videosunun R2 nesneleri (V9): route commit'ten sonra siler. */
+            r2: { clientId: string; keys: string[] };
+          }
+        | { ok: false; reason: "not_found" | "published" }
       > => {
         const post = await db.post.findFirst({
           where: { id, agencyId },
-          select: { id: true, publishStatus: true, images: { select: { url: true } } },
+          select: {
+            id: true,
+            clientId: true,
+            publishStatus: true,
+            videoKey: true,
+            frameKeys: true,
+            images: { select: { url: true } },
+          },
         });
         if (!post) return { ok: false, reason: "not_found" };
         if (post.publishStatus === "published") return { ok: false, reason: "published" };
@@ -689,7 +702,14 @@ export function getScopedDb(session: ScopedSession) {
           // Kapsam son adımda da tekrarlanır — transaction içinde bile.
           await tx.post.deleteMany({ where: { id: post.id, agencyId } });
         });
-        return { ok: true, imageUrls };
+        return {
+          ok: true,
+          imageUrls,
+          r2: {
+            clientId: post.clientId,
+            keys: [post.videoKey, ...post.frameKeys].filter((key): key is string => !!key),
+          },
+        };
       },
       /**
        * Post + görseller + ApprovalLink'i tek transaction'da oluşturur — herhangi

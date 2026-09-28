@@ -18,16 +18,24 @@ import { OutsideList } from "@/components/portal/outside-list";
 import { InstallHint } from "@/components/portal/install-hint";
 import { IconClock, IconPlay } from "@/components/portal/icons";
 import { isInstagramBlocked } from "@/lib/portal-instagram";
+import { calendarDaysUntil, deletionLabel } from "@/lib/retention-rules";
 
 export const dynamic = "force-dynamic";
 
 async function cardsFor(
   videos: PortalVideo[],
-  clientId: string
-): Promise<(QueueCard & { rejectionReason: string | null })[]> {
+  clientId: string,
+  timezone: string,
+  now: Date
+): Promise<(QueueCard & OutsideExtras)[]> {
   const cards = await Promise.all(videos.map((v) => toCard(v, clientId)));
-  // İstemci bileşenine yalnızca kartın ihtiyacı olan alanlar geçer.
-  return cards.map((c) => ({
+  // İstemci bileşenine yalnızca kartın ihtiyacı olan alanlar geçer. Silme
+  // sayacı (V9) burada, müşterinin saat diliminde metne çevrilir: istemci
+  // bileşeni saat dilimini bilmiyor ve "yarın"ı telefonun saatine göre
+  // hesaplamamalı.
+  return cards.map((c) => {
+    const days = c.deletesAt ? calendarDaysUntil(c.deletesAt, now, timezone) : null;
+    return {
     id: c.id,
     caption: c.caption,
     status: c.status,
@@ -36,8 +44,19 @@ async function cardsFor(
     publishError: c.publishError,
     coverUrl: c.coverUrl,
     rejectionReason: c.rejectionReason,
-  }));
+    deleteLabel: days === null ? null : deletionLabel(days),
+    deleteSoon: days !== null && days <= 1,
+    };
+  });
 }
+
+type OutsideExtras = {
+  rejectionReason: string | null;
+  /** "3 gün sonra silinecek" — yalnızca kuyruk dışı kartta dolu. */
+  deleteLabel: string | null;
+  /** Son gün (yarın/bugün): sayaç koyulaşır. */
+  deleteSoon: boolean;
+};
 
 /**
  * "Sıradaki yayın" kartı. Tahmin yoksa kart boş kalmıyor, NEDENİNİ söylüyor
@@ -134,14 +153,14 @@ export default async function PortalQueuePage() {
   ]);
   const blocked = isInstagramBlocked(instagram);
   const requireApproval = settings?.requireApproval ?? true;
+  const timezone = settings?.timezone ?? "Europe/Istanbul";
   const [queueCards, outsideCards] = await Promise.all([
-    cardsFor(queue, session.clientId),
-    cardsFor(outside, session.clientId),
+    cardsFor(queue, session.clientId, timezone, now),
+    cardsFor(outside, session.clientId, timezone, now),
   ]);
   // Tahmin, tick'in kurallarıyla (V4 `projectSchedule`): takvimde olmayan
   // kartta hiçbir şey yazmaz — onay bekleyen video "yayınlanacak" görünmesin.
   // Instagram bağlantısı yoksa tick slotları boş geçiyor: saat yazmak yalan olur.
-  const timezone = settings?.timezone ?? "Europe/Istanbul";
   const etaTimes = blocked ? new Map<string, Date>() : estimatePublishTimes(queue, settings, now);
   const etas = Object.fromEntries(
     [...etaTimes].map(([id, at]) => [id, `${slotDayLabel(at, timezone, now)} ${formatTime(at, timezone)}`])

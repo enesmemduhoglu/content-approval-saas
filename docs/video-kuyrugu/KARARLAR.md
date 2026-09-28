@@ -222,6 +222,24 @@ durdukça markayı göstermeye devam eder — bilinen, kabul edilmiş sınır.
 Bu değişiklikten önce giriş yapmış cihaz izi ilk yeniden girişte ya da oturum
 yenilemesinde alır.
 
+### K30 · 2026-09-28 · R2 saklama süreleri: yayın 2 gün, kuyruk dışı 3 gün (V9)
+Kullanıcı kararı. R2'nin ücretsiz katmanı 10 GB; video ~50 MB, günde bir
+video temizliksiz birkaç ayda doldurur. **Yayınlanan** (`published`/`duplicate`)
+videonun mp4'ü ve ilk kare dışındaki 5 kare yayından **2 gün** sonra silinir;
+satır ve ilk kare (kapak) kalır — geçmiş listesi ve mükerrer yayın koruması
+satıra bakıyor, Instagram'da kopyası var. **Kuyruk dışı** video (reddedilen
+ya da kuyruktan çıkarılan) `Post.outsideAt`ten **3 gün** sonra tamamen silinir
+(satır + tüm nesneler, portalın "Sil" yoluyla aynı: `deleteOutsideVideo`);
+kartta ve detayda "3 gün sonra / Yarın / Bugün silinecek" sayacı, takvim günü,
+müşterinin saat diliminde. `outsideAt` red ve "kuyruktan çıkar"da yazılır,
+geri almada ve "sona at"ta sıfırlanır; `updatedAt` yetmezdi (caption üretimi
+sayacı sıfırlardı). Göç anında zaten kuyruk dışında olanlara `NOW()`: merge'le
+hiçbiri hemen silinmez. Temizlik **saatte bir** kuyruk tick'inde (saatin ilk
+tick'i, yayından sonra) ve günlük cron'da emniyet ağı olarak; sıra her yerde
+DB önce, R2 sonra — R2 hatası öksüz nesne bırakır, kırık video değil;
+artıkları `scripts/r2-denetim.mjs` raporlar/siler. Panelden silinen portal
+postunun nesneleri de artık silinir. Tasarım: V7 kanvası "Güncelleme 28 Eyl (4)".
+
 ---
 
 ## Açık sorular
@@ -230,9 +248,8 @@ yenilemesinde alır.
   Blob mu — V7a'da karar.
 - **Preview'da test:** R2 CORS preview adreslerini kapsamıyor — V7'de karar.
 
-- **R2 10 GB'a yaklaşınca?** Yayınlanmış videoları silmek mi (Instagram'da
-  kopyası var), ücretli katmana geçmek mi — kullanıcı karar verecek. Bugün
-  20 video × ~50 MB ≈ 1 GB.
+- ~~**R2 10 GB'a yaklaşınca?**~~ Kapandı → K30 (yayınlanan video 2 gün,
+  kuyruk dışı 3 gün sonra silinir).
 - **Müşteri caption'ı düzenledikten sonra "yeniden üret" basarsa** elle
   yapılan düzenleme kaybolur — onay diyaloğu yeterli mi, eski sürüm mü
   saklanmalı? V3'te karar.
