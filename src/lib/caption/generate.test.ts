@@ -29,7 +29,10 @@ function reply(payload: unknown, stop_reason = "end_turn") {
 }
 
 const input = {
-  frameUrls: ["https://r2.test/kare-0.jpg", "https://r2.test/kare-1.jpg"],
+  frames: [
+    { mediaType: "image/jpeg" as const, data: "a2FyZS0w" },
+    { mediaType: "image/jpeg" as const, data: "a2FyZS0x" },
+  ],
   transcript: "Bugün present perfect öğreniyoruz.",
   captionStyle: "Samimi bir öğretmen sesi.",
 };
@@ -63,7 +66,7 @@ afterEach(() => {
 });
 
 describe("generateCaption — istek", () => {
-  it("kareleri görsel blok, transkripti metin olarak doğru modele yollar", async () => {
+  it("kareleri base64 görsel blok (adres DEĞİL), transkripti metin olarak doğru modele yollar", async () => {
     create.mockResolvedValue(reply({ aciklama: "a", hashtagler: [], altText: "b" }));
     await generateCaption(input);
 
@@ -71,9 +74,10 @@ describe("generateCaption — istek", () => {
     expect(body.model).toBe(CAPTION_MODEL);
     expect(body.output_config.format.type).toBe("json_schema");
     expect(content.filter((b) => b.type === "image")).toEqual([
-      { type: "image", source: { type: "url", url: input.frameUrls[0] } },
-      { type: "image", source: { type: "url", url: input.frameUrls[1] } },
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "a2FyZS0w" } },
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "a2FyZS0x" } },
     ]);
+    expect(text).toContain("2 kare var");
     expect(text).toContain(input.transcript);
   });
 

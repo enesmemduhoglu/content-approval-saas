@@ -63,9 +63,16 @@ const OUTPUT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+/**
+ * Claude'a İÇERİK olarak giden kare. Eskiden imzalı R2 adresi gidiyordu ve
+ * Claude indiriyordu; o indirme ara sıra geçici bir 400'le düşüyor, hata
+ * kalıcı sayılıp caption "üretilemedi"de kalıyordu (2026-09-28 analizi).
+ */
+export type FrameImage = { mediaType: "image/jpeg"; data: string };
+
 export type GenerateInput = {
-  /** Karelerin imzalı GET URL'leri; Claude bunları kendisi indiriyor. */
-  frameUrls: string[];
+  /** Kareler, zaman sırasıyla (base64). */
+  frames: FrameImage[];
   /** Boş dize geçerli: konuşmasız video. */
   transcript: string;
   captionStyle: string | null;
@@ -109,15 +116,15 @@ export function buildSystemPrompt(captionStyle: string | null): string {
 }
 
 export function buildUserContent(input: GenerateInput): Anthropic.ContentBlockParam[] {
-  const content: Anthropic.ContentBlockParam[] = input.frameUrls.map((url) => ({
+  const content: Anthropic.ContentBlockParam[] = input.frames.map((frame) => ({
     type: "image",
-    source: { type: "url", url },
+    source: { type: "base64", media_type: frame.mediaType, data: frame.data },
   }));
 
   const parts: string[] = [];
   parts.push(
-    input.frameUrls.length > 0
-      ? `Yukarıda videodan zaman sırasıyla alınmış ${input.frameUrls.length} kare var.`
+    input.frames.length > 0
+      ? `Yukarıda videodan zaman sırasıyla alınmış ${input.frames.length} kare var.`
       : "Bu video için kare yok; yalnızca transkripte dayan."
   );
   const transcript = input.transcript.trim();
@@ -182,6 +189,7 @@ export async function generateCaption(input: GenerateInput): Promise<unknown> {
           ? "Caption servisine ulaşılamadı ya da zaman aşımına uğradı"
           : `Caption servisi hata verdi (${status})`,
       detail: safeDetail(error),
+      status,
     });
   }
 

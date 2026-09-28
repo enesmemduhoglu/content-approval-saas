@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createFalClient } from "@fal-ai/client";
 import { transcribe } from "@/lib/caption/transcribe";
-import { CAPTION_MODEL, generateCaption } from "@/lib/caption/generate";
+import { CAPTION_MODEL, generateCaption, type FrameImage } from "@/lib/caption/generate";
 import { InvalidModelOutputError } from "@/lib/caption/errors";
 import { validateDraft } from "@/lib/caption/validate";
 
@@ -128,13 +128,17 @@ async function main() {
   const videoUrl = await upload(args.video);
   console.log(`  yüklendi (${since()})`);
 
-  let frameUrls: string[] = [];
+  // Kareler Claude'a içerik olarak gidiyor (uygulamadaki `run.ts` ile aynı yol).
+  let frames: FrameImage[] = [];
   if (args.frames > 0 && hasFfmpeg()) {
     const dir = mkdtempSync(path.join(tmpdir(), "caption-dene-"));
     try {
       const files = extractFrames(args.video, args.frames, dir);
-      frameUrls = await Promise.all(files.map(upload));
-      console.log(`  ${frameUrls.length} kare yüklendi (${since()})`);
+      frames = files.map((file) => ({
+        mediaType: "image/jpeg" as const,
+        data: readFileSync(file).toString("base64"),
+      }));
+      console.log(`  ${frames.length} kare hazır (${since()})`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -156,7 +160,7 @@ async function main() {
     let raw: unknown;
     try {
       raw = await generateCaption({
-        frameUrls,
+        frames,
         transcript: transcript.text,
         captionStyle,
         note: args.note,

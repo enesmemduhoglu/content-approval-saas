@@ -165,6 +165,27 @@ export async function headObject(key: string): Promise<ObjectInfo | null> {
   }
 }
 
+/**
+ * Küçük bir nesnenin (kare) baytları; yoksa `null`. Caption'da kareler
+ * Claude'a adres değil İÇERİK olarak gidiyor: imzalı adresi Claude'un kendisinin
+ * indirmesi zaman zaman geçici bir 400'le düşüyordu (2026-09-28 analizi) ve
+ * hata kalıcı sayılıp caption "üretilemedi"de kalıyordu. Büyük nesneler
+ * (video) için KULLANMA — tamamı belleğe alınıyor.
+ */
+export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
+  const { client, bucket } = r2();
+  try {
+    const out = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    if (!out.Body) return null;
+    return await out.Body.transformToByteArray();
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata
+      ?.httpStatusCode;
+    if (status === 404) return null;
+    throw error;
+  }
+}
+
 /** Best-effort; silinemeyen nesne akışı düşürmez (post silme yolundaki Blob deseni). */
 export async function deleteObject(key: string): Promise<boolean> {
   try {
