@@ -17,7 +17,7 @@ vi.mock("@/lib/qstash", () => ({
 
 import { db } from "@/lib/db";
 import { resetRateLimiter } from "@/lib/rate-limit";
-import { signGetUrl, signPutUrl } from "@/lib/storage-r2";
+import { deleteObject, signGetUrl, signPutUrl } from "@/lib/storage-r2";
 import { enqueueCaption } from "@/lib/qstash";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
 import {
@@ -29,7 +29,7 @@ import {
 } from "@tests/helpers/portal";
 
 import { GET as listVideos } from "./videos/route";
-import { GET as getVideo, PATCH as patchVideo } from "./videos/[id]/route";
+import { DELETE as deleteVideo, GET as getVideo, PATCH as patchVideo } from "./videos/[id]/route";
 import { POST as completeVideo } from "./videos/[id]/complete/route";
 import { POST as moveVideo } from "./videos/[id]/move/route";
 import { POST as decideVideo } from "./videos/[id]/decision/route";
@@ -78,6 +78,7 @@ beforeEach(async () => {
   resetRateLimiter();
   vi.mocked(signGetUrl).mockClear();
   vi.mocked(signPutUrl).mockClear();
+  vi.mocked(deleteObject).mockClear();
   vi.mocked(enqueueCaption).mockClear();
   ctx = await setup();
 });
@@ -228,6 +229,32 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
     expect(res.status).toBe(404);
     expect((await snapshot(ctx.postB.id)).captionStatus).toBe("ready");
     expect(enqueueCaption).not.toHaveBeenCalled();
+  });
+
+  it("DELETE: B'nin kuyruk dışı videosu silinemez — 404, satır ve R2 nesnesi yerinde", async () => {
+    // Silinebilir durumda (kuyruk dışı, idle): 404'ün tek sebebi kapsam olsun.
+    const outsideB = await createPortalPost(ctx.agencyB.id, ctx.clientB.id, { queuePosition: null });
+    await db.approvalAudit.create({ data: { postId: outsideB.id, action: "rejected", ip: "1.1.1.1" } });
+    const res = await deleteVideo(
+      portalRequest(`/api/portal/videos/${outsideB.id}`, { method: "DELETE", cookie: ctx.cookieA }),
+      idParams(outsideB.id)
+    );
+    expect(res.status).toBe(404);
+    expect(await snapshot(outsideB.id)).toBeTruthy();
+    expect(await db.approvalAudit.count({ where: { postId: outsideB.id } })).toBe(1);
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("DELETE: ajansın aynı müşteri için hazırladığı (source: agency) post portaldan silinemez", async () => {
+    const agencyPost = await db.post.create({
+      data: { agencyId: ctx.agencyA.id, clientId: ctx.clientA.id, caption: "Ajans postu", status: "rejected" },
+    });
+    const res = await deleteVideo(
+      portalRequest(`/api/portal/videos/${agencyPost.id}`, { method: "DELETE", cookie: ctx.cookieA }),
+      idParams(agencyPost.id)
+    );
+    expect(res.status).toBe(404);
+    expect(await snapshot(agencyPost.id)).toBeTruthy();
   });
 
   it("settings: A'nın kaydı B'nin ayarına yazılmaz, B'nin ayarı A'ya okunmaz", async () => {

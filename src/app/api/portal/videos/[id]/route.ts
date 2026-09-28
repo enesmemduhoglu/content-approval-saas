@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getClientScopedDb } from "@/lib/client-scoped-db";
 import { toDetail } from "@/lib/portal-media";
 import { notFound, portalMutationGuard, portalReadGuard, readJson } from "@/lib/portal-route";
+import { deleteObject, keyBelongsToClient, r2Configured } from "@/lib/storage-r2";
 import { validateCaption } from "@/lib/validation";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -49,4 +50,54 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     );
   }
   return NextResponse.json({ ok: true });
+}
+
+/**
+ * "Kuyruk dışı" videoyu kalıcı siler (çıkarılan ya da reddedilen). Kuyruktaki,
+ * yayınlanan/yayınlanmakta olan ve yüklemesi bitmemiş video 409 — koşul
+ * `posts.deleteOutside`'da, tek transaction'da.
+ */
+export async function DELETE(request: Request, { params }: RouteParams) {
+  // Kapı sırası: oturum → checkOrigin → hız sınırı (bkz. portal-route.ts).
+  const guard = await portalMutationGuard(request, { action: "delete" });
+  if (!guard.ok) return guard.response;
+  const { id } = await params;
+
+  const scoped = getClientScopedDb(guard.session);
+  const deleted = await scoped.posts.deleteOutside(id);
+  if (!deleted) {
+    const current = await scoped.posts.findById(id);
+    if (!current) return notFound();
+    return NextResponse.json(
+      {
+        error: "Yalnızca kuyruk dışındaki videolar silinebilir",
+        publishStatus: current.publishStatus,
+      },
+      { status: 409 }
+    );
+  }
+
+  // DB commit oldu; R2 artık yalnızca çöp. Hata yanıtı değiştirmez: kayıt
+  // gitti, kullanıcıya "silinemedi" demek yalan olurdu — kalan nesne loglanır.
+  await deleteVideoObjects(guard.session.clientId, deleted);
+  return NextResponse.json({ ok: true });
+}
+
+async function deleteVideoObjects(
+  clientId: string,
+  keys: { videoKey: string | null; frameKeys: string[] }
+): Promise<void> {
+  if (!r2Configured()) return;
+  const all = [keys.videoKey, ...keys.frameKeys].filter((key): key is string => !!key);
+  // Anahtar DB'den geliyor ama başka müşterinin önekini gösteren bir değer,
+  // o müşterinin nesnesini sildirmek demek olurdu (imzalı URL'deki kapının aynısı).
+  const owned = all.filter((key) => keyBelongsToClient(key, clientId));
+  if (owned.length !== all.length) {
+    console.error(`[portal:delete] müşteri önekinde olmayan ${all.length - owned.length} anahtar atlandı`);
+  }
+  const results = await Promise.allSettled(owned.map((key) => deleteObject(key)));
+  const failed = results.filter((r) => r.status === "rejected" || r.value === false).length;
+  if (failed > 0) {
+    console.error(`[portal:delete] R2'de ${failed}/${owned.length} nesne silinemedi`);
+  }
 }

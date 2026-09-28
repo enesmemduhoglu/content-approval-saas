@@ -315,3 +315,37 @@ describe("runCaption — 'onayına hazır' bildirimi (V7c)", () => {
     expect(mockReady).not.toHaveBeenCalled();
   });
 });
+
+describe("runCaption — iş sürerken video silindi (portal kalıcı silme)", () => {
+  it("Whisper beklenirken silinirse sessizce çıkar: Claude çağrılmaz, uyarı yok", async () => {
+    const { post } = await seedPortalPost();
+    subscribe.mockImplementation(async () => {
+      await db.post.delete({ where: { id: post.id } });
+      return { data: { text: "x", chunks: [] } };
+    });
+    expect(await runCaption(post.id)).toEqual({ status: "skipped", reason: "not_found" });
+    expect(create).not.toHaveBeenCalled();
+    expect(mockAlert).not.toHaveBeenCalled();
+  });
+
+  it("silinen videonun R2 nesnesi yüzünden dış servis patlarsa da uyarı ve tekrar deneme yok", async () => {
+    const { post } = await seedPortalPost();
+    subscribe.mockImplementation(async () => {
+      await db.post.delete({ where: { id: post.id } });
+      throw new ApiError({ message: "indirilemedi", status: 503 });
+    });
+    expect(await runCaption(post.id)).toEqual({ status: "skipped", reason: "not_found" });
+    expect(mockAlert).not.toHaveBeenCalled();
+  });
+
+  it("Claude beklenirken silinirse bildirim gitmez", async () => {
+    const { post } = await seedPortalPost({ transcript: "x" });
+    create.mockImplementation(async () => {
+      await db.post.delete({ where: { id: post.id } });
+      return reply(VALID);
+    });
+    expect(await runCaption(post.id)).toEqual({ status: "skipped", reason: "not_found" });
+    expect(mockReady).not.toHaveBeenCalled();
+    expect(mockAlert).not.toHaveBeenCalled();
+  });
+});
