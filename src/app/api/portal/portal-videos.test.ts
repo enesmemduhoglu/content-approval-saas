@@ -14,6 +14,7 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
 vi.mock("@/lib/qstash", () => ({
   enqueueCaption: vi.fn(async () => ({ queued: true, messageId: "m-1" })),
 }));
+vi.mock("@/lib/alerts", () => ({ sendAlert: vi.fn(async () => undefined) }));
 // Onay yayın tetiklememeli: modül mock'lanıyor ki olası bir çağrı yakalansın.
 vi.mock("@/lib/publish-post", () => ({
   publishApprovedPost: vi.fn(),
@@ -22,8 +23,9 @@ vi.mock("@/lib/publish-post", () => ({
 
 import { db } from "@/lib/db";
 import { resetRateLimiter } from "@/lib/rate-limit";
-import { headObject, r2Configured } from "@/lib/storage-r2";
+import { deleteObject, headObject, r2Configured } from "@/lib/storage-r2";
 import { enqueueCaption } from "@/lib/qstash";
+import { sendAlert } from "@/lib/alerts";
 import { publishApprovedPost } from "@/lib/publish-post";
 import { PORTAL_RATE_LIMIT_MAX } from "@/lib/portal-route";
 import { POSITION_STEP } from "@/lib/queue";
@@ -38,7 +40,7 @@ import {
 
 import { POST as upload } from "./upload/route";
 import { GET as listVideos } from "./videos/route";
-import { GET as getVideo, PATCH as patchVideo } from "./videos/[id]/route";
+import { DELETE as deleteVideo, GET as getVideo, PATCH as patchVideo } from "./videos/[id]/route";
 import { POST as completeVideo } from "./videos/[id]/complete/route";
 import { POST as moveVideo } from "./videos/[id]/move/route";
 import { POST as decideVideo } from "./videos/[id]/decision/route";
@@ -55,10 +57,13 @@ beforeEach(async () => {
   await resetDb();
   resetRateLimiter();
   vi.mocked(enqueueCaption).mockClear();
+  vi.mocked(sendAlert).mockClear();
   vi.mocked(publishApprovedPost).mockClear();
   vi.mocked(headObject).mockReset();
   vi.mocked(headObject).mockResolvedValue({ size: 1000, contentType: "video/mp4" });
   vi.mocked(r2Configured).mockReturnValue(true);
+  vi.mocked(deleteObject).mockReset();
+  vi.mocked(deleteObject).mockResolvedValue(true);
   delete process.env.PORTAL_DAILY_UPLOAD_LIMIT;
   const agency = await createAgency();
   const client = await createClient(agency.id);
@@ -242,6 +247,76 @@ describe("POST /api/portal/videos/[id]/complete", () => {
     expect((await completeVideo(post(`/api/portal/videos/${d.id}/complete`), idParams(d.id))).status).toBe(200);
     expect((await completeVideo(post(`/api/portal/videos/${d.id}/complete`), idParams(d.id))).status).toBe(409);
     expect(enqueueCaption).toHaveBeenCalledTimes(1);
+  });
+
+  // ─── Kare raporu (canlıda karesiz videoların nedeni görünmüyordu) ───────
+
+  it("kare varsa rapor kabul edilir, uyarı gitmez", async () => {
+    const d = await draft();
+    const res = await completeVideo(
+      post(`/api/portal/videos/${d.id}/complete`, { frames: { extracted: 6, uploadFailed: 0 } }),
+      idParams(d.id)
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ frameCount: 6 });
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+
+  it("hiç kare yoksa video yine kuyruğa girer, nedenle birlikte uyarı gider", async () => {
+    const d = await draft();
+    vi.mocked(headObject).mockImplementation(async (key: string) =>
+      key.includes("/videos/") ? { size: 5000, contentType: "video/mp4" } : null
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const res = await completeVideo(
+      post(`/api/portal/videos/${d.id}/complete`, {
+        frames: { extracted: 0, uploadFailed: 0, error: "seek-timeout" },
+      }),
+      idParams(d.id)
+    );
+    expect(res.status).toBe(200);
+    expect((await db.post.findUniqueOrThrow({ where: { id: d.id } })).status).toBe("pending");
+    expect(sendAlert).toHaveBeenCalledWith(
+      "portal:frames:cikarilamadi:seek-timeout",
+      expect.any(String),
+      expect.objectContaining({ postId: d.id, cikarilan: 0, hata: "seek-timeout" })
+    );
+    expect(errors.mock.calls.flat().join(" ")).toContain("kare yok");
+    errors.mockRestore();
+  });
+
+  it("kareler çıkarıldı ama yüklenemediyse neden 'yukleme-dustu'; eski istemci (rapor yok) da raporlanır", async () => {
+    vi.mocked(headObject).mockImplementation(async (key: string) =>
+      key.includes("/videos/") ? { size: 5000, contentType: "video/mp4" } : null
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const a = await draft();
+    await completeVideo(
+      post(`/api/portal/videos/${a.id}/complete`, { frames: { extracted: 6, uploadFailed: 6 } }),
+      idParams(a.id)
+    );
+    const b = await draft();
+    await completeVideo(post(`/api/portal/videos/${b.id}/complete`), idParams(b.id));
+    expect(vi.mocked(sendAlert).mock.calls.map(([key]) => key)).toEqual([
+      "portal:frames:yukleme-dustu",
+      "portal:frames:rapor-yok",
+    ]);
+    errors.mockRestore();
+  });
+
+  it.each([
+    ["dizi", []],
+    ["sayı değil", { extracted: "6", uploadFailed: 0 }],
+    ["sınır dışı", { extracted: 7, uploadFailed: 0 }],
+    ["yüklenemeyen > çıkarılan", { extracted: 2, uploadFailed: 3 }],
+    ["hata kodunda keyfi metin", { extracted: 0, uploadFailed: 0, error: "<b>hack</b>" }],
+    ["bilinmeyen alan", { extracted: 0, uploadFailed: 0, note: "x" }],
+  ])("geçersiz kare raporu (%s) 400 — taslak kalır", async (_, frames) => {
+    const d = await draft();
+    const res = await completeVideo(post(`/api/portal/videos/${d.id}/complete`, { frames }), idParams(d.id));
+    expect(res.status).toBe(400);
+    expect((await res.json()).field).toBe("frames");
+    expect((await db.post.findUniqueOrThrow({ where: { id: d.id } })).status).toBe("draft");
   });
 });
 
@@ -546,5 +621,155 @@ describe("POST regenerate", () => {
       idParams(v.id)
     );
     expect(res.status).toBe(400);
+  });
+});
+
+// ─── Kalıcı silme ─────────────────────────────────────────────────────────
+
+describe("DELETE /api/portal/videos/[id] — kuyruk dışı videoyu kalıcı siler", () => {
+  const del = (id: string, extra: { origin?: string; cookie?: string } = {}) =>
+    deleteVideo(
+      portalRequest(`/api/portal/videos/${id}`, {
+        method: "DELETE",
+        cookie: extra.cookie ?? cookie,
+        origin: extra.origin,
+      }),
+      idParams(id)
+    );
+
+  /** Şemada cascade yok: silme yolunun temizlemesi gereken bütün çocuk satırlar. */
+  async function withChildren(id: string) {
+    await db.approvalAudit.create({ data: { postId: id, action: "rejected", ip: "1.1.1.1" } });
+    await db.postRevision.create({
+      data: { postId: id, round: 1, actor: "client", event: "revision_requested", caption: "eski" },
+    });
+    await db.postImage.create({ data: { postId: id, url: "https://ornek/1.jpg" } });
+    await db.approvalLink.create({
+      data: { postId: id, token: `tok-${id}`, expiresAt: new Date(Date.now() + 86_400_000) },
+    });
+    return db.slotRun.create({
+      data: { clientId, slotAt: new Date("2026-09-20T16:00:00Z"), postId: id, outcome: "failed" },
+    });
+  }
+
+  async function childCount(id: string) {
+    return {
+      audits: await db.approvalAudit.count({ where: { postId: id } }),
+      revisions: await db.postRevision.count({ where: { postId: id } }),
+      images: await db.postImage.count({ where: { postId: id } }),
+      links: await db.approvalLink.count({ where: { postId: id } }),
+    };
+  }
+
+  it("kuyruktan çıkarılan video silinir: çocuk satırlar gider, SlotRun kalır ama bağı kopar, R2 temizlenir", async () => {
+    const v = await createPortalPost(agencyId, clientId, {
+      queuePosition: null,
+      frameKeys: [0, 1].map((i) => `clients/${clientId}/frames/pX/${i}.jpg`),
+    });
+    const run = await withChildren(v.id);
+
+    const res = await del(v.id);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(await db.post.findUnique({ where: { id: v.id } })).toBeNull();
+    expect(await childCount(v.id)).toEqual({ audits: 0, revisions: 0, images: 0, links: 0 });
+    // Slot kaydı "bu slot işlendi" demek; silinseydi tick geçmiş slotu yeniden koşardı.
+    const after = await db.slotRun.findUniqueOrThrow({ where: { id: run.id } });
+    expect(after).toMatchObject({ postId: null, outcome: "failed" });
+
+    const keys = vi.mocked(deleteObject).mock.calls.map(([key]) => key).sort();
+    expect(keys).toEqual([v.videoKey!, ...v.frameKeys].sort());
+  });
+
+  it("reddedilen video silinir", async () => {
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: null, status: "rejected" });
+    await withChildren(v.id);
+    expect((await del(v.id)).status).toBe(200);
+    expect(await db.post.findUnique({ where: { id: v.id } })).toBeNull();
+    expect(deleteObject).toHaveBeenCalledWith(v.videoKey);
+  });
+
+  it("kuyruktaki video 409 — satır, çocukları ve R2 nesnesi yerinde (transaction geri sarılır)", async () => {
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: 3 });
+    const run = await withChildren(v.id);
+    const res = await del(v.id);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("Yalnızca kuyruk dışındaki videolar silinebilir");
+    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).queuePosition).toBe(3);
+    expect(await childCount(v.id)).toEqual({ audits: 1, revisions: 1, images: 1, links: 1 });
+    expect((await db.slotRun.findUniqueOrThrow({ where: { id: run.id } })).postId).toBe(v.id);
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("yayınlanan, yayınlanmakta olan ve yüklemesi bitmemiş video silinmez (409)", async () => {
+    const published = await createPortalPost(agencyId, clientId, {
+      queuePosition: null,
+      status: "approved",
+      publishStatus: "published",
+    });
+    const publishing = await createPortalPost(agencyId, clientId, {
+      queuePosition: null,
+      status: "approved",
+      publishStatus: "publishing",
+    });
+    const draft = await createPortalPost(agencyId, clientId, { queuePosition: null, status: "draft" });
+    for (const v of [published, publishing, draft]) {
+      expect((await del(v.id)).status).toBe(409);
+      expect(await db.post.findUnique({ where: { id: v.id } })).not.toBeNull();
+    }
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("ikinci silme 404 (video artık yok)", async () => {
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: null });
+    expect((await del(v.id)).status).toBe(200);
+    expect((await del(v.id)).status).toBe(404);
+    expect(deleteObject).toHaveBeenCalledTimes(2); // ilk silmedeki video + 1 kare
+  });
+
+  it("oturum yoksa 401, yabancı Origin 403 — ikisinde de hiçbir şey silinmez", async () => {
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: null });
+    expect((await del(v.id, { cookie: "" })).status).toBe(401);
+    expect((await del(v.id, { origin: "https://kotu.example" })).status).toBe(403);
+    expect(await db.post.findUnique({ where: { id: v.id } })).not.toBeNull();
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("R2 hatası yanıtı değiştirmez: kayıt silinir, 200 döner", async () => {
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: null });
+    vi.mocked(deleteObject).mockResolvedValue(false);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await del(v.id)).status).toBe(200);
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining("nesne silinemedi"));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await db.post.findUnique({ where: { id: v.id } })).toBeNull();
+  });
+
+  it("R2 yapılandırılmamışsa nesne silme atlanır, kayıt yine silinir", async () => {
+    vi.mocked(r2Configured).mockReturnValue(false);
+    const v = await createPortalPost(agencyId, clientId, { queuePosition: null });
+    expect((await del(v.id)).status).toBe(200);
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(await db.post.findUnique({ where: { id: v.id } })).toBeNull();
+  });
+
+  it("müşteri önekinde olmayan anahtar R2'den silinmez", async () => {
+    const v = await createPortalPost(agencyId, clientId, {
+      queuePosition: null,
+      videoKey: "clients/baskaMusteri/videos/x.mp4",
+      frameKeys: [`clients/${clientId}/frames/x/0.jpg`],
+    });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await del(v.id)).status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(vi.mocked(deleteObject).mock.calls.map(([key]) => key)).toEqual([
+      `clients/${clientId}/frames/x/0.jpg`,
+    ]);
   });
 });

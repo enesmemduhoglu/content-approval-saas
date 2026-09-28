@@ -6,7 +6,34 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 
-- **Son güncelleme:** 2026-09-25
+- **Son güncelleme:** 2026-09-28
+- **Portal: silme + kuyruk süresi + kapak (`feat/portal-sil-kapak-sure`, 2026-09-28):**
+  kullanıcı isteği üç iş, tasarım önce V7 kanvasına eklendi
+  (https://claude.ai/artifact/WUckhyutaTLTtwo7V5CpYC, "Güncelleme 28 Eyl" satırı;
+  kullanıcı "kaç gün yeter" için **varyant B**'yi seçti).
+  - **Silme:** `DELETE /api/portal/videos/[id]` + `posts.deleteOutside` — yalnızca
+    kuyruk dışı (çıkarılan ya da reddedilen), yayına girmemiş video; ilişkili
+    satırlar tek transaction'da, R2 nesneleri commit'ten sonra. Kuyruk dışı
+    listesinde çöp kutusu + alttan onay sayfası; detayda Sil + Kuyruğa geri al
+    (reddedilende yalnızca Sil). Kuyruk dışındaki onay bekleyen videoda
+    Onayla/Reddet artık yok (önce kuyruğa alınır). Silinen videonun caption işi
+    `skipped/not_found` döner (alarm/yeniden deneme yok).
+  - **Kuyruk süresi:** `queueRunway` (portal-schedule.ts, `projectSchedule`
+    üstüne) + `runwaySummary`; "Sıradaki yayın" kartının alt satırı: "N gün yeter ·
+    Son yayın …", onay bekleyen varsa "Hepsini onaylarsan N gün"; ≤2 gün turuncu.
+    Gün = bugün dahil yerel takvim günü.
+  - **Kapak teşhisi:** canlıda 19 tamamlanmış videonun 4'ünde kare vardı;
+    3'lü yüklemelerde yalnızca son dosyada. Kareler tarayıcıda çıkarılamıyor
+    (URL süresi, video içeriği, yükleme dışlandı — ffprobe ile 19 video aynı tür);
+    iOS mekanizması kesin değil. `extractFrames` sağlamlaştırıldı (DOM'a görünmez
+    ekleme, play/pause ile çözücü uyandırma, `loadeddata`, seek yeniden deneme,
+    zaman aşımında yükleme sırasında ikinci deneme) ve neden kodu `complete`
+    gövdesiyle sunucuya gidiyor: kare çıkmazsa `sendAlert`
+    `portal:frames:<neden>` + log. Kapaksız kartta video ikonlu yer tutucu.
+  - **Onarım:** `scripts/kapak-onar.mjs` (ffmpeg, varsayılan dry-run) — 15
+    karesiz video listelendi; kullanıcı onayıyla `--apply` koştu (2026-09-28): 15/15 onarıldı, canlıda 19 videonun hepsinde 6 kare.
+  - **Doğrulama bekleyen:** Furkan'ın iPhone'undan tek + 3'lü yükleme → yeni
+    postlarda `frameKeys` 6 mı; değilse uyarı e-postasındaki neden koduyla ikinci tur.
 - **Son durum:** V0–V4 merge edildi (#59–#65), dış doğrulamalar tamam (#67, #68), **V5 canlıda.** İlk gerçek yayın 2026-09-25 03:10 (onaylı video, slot 03:09 → Reels ~20 sn'de yayında); 03:13 boş slotu `empty` + "onaylı video yok" e-postası (Resend kabul etti, log temiz). Yayınlanan video dikey çıktı → V6.
 - **V6 iptal (K24):** video telefonda hazırlanıp yüklenecek; portal videoya dokunmaz.
 - **Sıradaki iş: V7 (PWA)** — [`V7-pwa.md`](V7-pwa.md), sıra V7a → V7b → V7c → V7d. Kullanıcı 2026-09-25'te "şimdi halledeceğiz" dedi.
@@ -41,7 +68,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 - **Merge izni:** #79'dan sonra Claude Code'un otomatik izin denetimi
   "incelemesiz merge" diye uyardı; aşağıdaki yazılı izne rağmen yeni
   oturumlar merge'den önce kullanıcıya sormalı.
-- **Yarım kalan:** —
+- **Yarım kalan:** `feat/portal-sil-kapak-sure` PR'ı (merge kullanıcı onayıyla;
+  şema göçü yok).
 - **Kullanıcıdan beklenen:** aşağıdaki "Elle yapılacaklar" listesi (hesap ve
   anahtarlar). Bunlar gelmeden V1'in dış doğrulamaları koşamaz; şema ve saf
   fonksiyonlar beklemeden ilerleyebilir.

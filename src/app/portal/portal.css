@@ -293,9 +293,56 @@ body:has(.portal-root) {
   border-radius: 22px;
   padding: 18px 18px 18px 20px;
   display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-decoration: none;
+}
+
+.p-next-row {
+  display: flex;
   align-items: center;
   gap: 16px;
-  text-decoration: none;
+}
+
+/* "Kuyruk kaç gün yeter" — kartın alt satırı (V7 tasarımı, varyant B). */
+.p-next-runway {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid #2c3f5e;
+}
+
+.p-next-runway-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.p-next-runway-head {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.p-next-runway-sub {
+  font-size: 12.5px;
+  color: #c9cfdb;
+}
+
+.p-next-runway-extra {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #faf6e9;
+  text-align: right;
+  max-width: 45%;
+  line-height: 1.35;
+}
+
+/* 2 gün ve altı: video ekleme vakti — turuncu. */
+.p-next-runway--low .p-next-runway-head {
+  color: #ffb59a;
 }
 
 .p-next-text {
@@ -623,6 +670,18 @@ body:has(.portal-root) {
 
 .p-cover--busy {
   background: #e9e1cc;
+}
+
+/* Kapak karesi yok: lacivert boş kutu "yükleniyor" gibi duruyordu; açık zemin
+   + video ikonu "video var, karesi yok" der. */
+.p-cover--empty {
+  background: #e9e1cc;
+  border: 1px solid #ddd3ba;
+  box-sizing: border-box;
+  color: #6f6550;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .p-cover--dim {
@@ -1362,6 +1421,146 @@ body:has(.portal-root) {
   object-fit: cover;
   flex-shrink: 0;
   display: block;
+}
+
+.p-hcover.p-cover--empty {
+  display: flex;
+  background: #e9e1cc;
+}
+
+/* Kuyruk dışı kartı: link + sağda çöp kutusu (iç içe etkileşimli öğe olmasın diye kardeş). */
+.p-hcard--tool {
+  padding: 12px 6px 12px 12px;
+  gap: 6px;
+}
+
+.portal-root .p-hcard-link {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: var(--p-ink);
+  border-radius: 12px;
+}
+
+.portal-root .p-trash {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--p-danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.portal-root .p-trash:active {
+  background: var(--p-danger-soft);
+}
+
+.p-toast {
+  margin: 0;
+  background: var(--p-ink);
+  color: #faf6e9;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ─── Silme onayı (alttan açılan sayfa) ─────────────────────────────────── */
+
+.p-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.p-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(14, 32, 56, 0.5);
+}
+
+.p-sheet {
+  position: relative;
+  width: 100%;
+  max-width: var(--p-col);
+  margin: 0 auto;
+  box-sizing: border-box;
+  background: var(--p-card);
+  border-radius: 24px 24px 0 0;
+  padding: 10px max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.p-sheet-handle {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: #d9cfb6;
+  align-self: center;
+}
+
+.p-sheet-title {
+  margin: 0;
+  font-family: var(--p-font-display), Archivo, sans-serif;
+  font-stretch: 85%;
+  font-weight: 800;
+  font-size: 22px;
+}
+
+.p-sheet-video {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--p-sand);
+  border-radius: 14px;
+  padding: 10px;
+}
+
+.p-sheet-cover {
+  width: 40px;
+  height: 50px;
+  border-radius: 8px;
+  background: var(--p-ink-3);
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+}
+
+.p-sheet-caption {
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.p-sheet-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--p-body-2);
+}
+
+.p-sheet-text strong {
+  color: var(--p-ink);
 }
 
 .p-hcard-body {

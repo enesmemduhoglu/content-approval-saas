@@ -102,7 +102,9 @@ export async function runCaption(
   if (locked === 0) return { status: "skipped", reason: await skipReason(postId) };
 
   try {
-    const post = await db.post.findUniqueOrThrow({
+    // Kilitten sonra silinmiş olabilir (portal "kuyruk dışı" silme): iş
+    // sessizce biter, `findUniqueOrThrow`un istisnası uyarı + 503 üretirdi.
+    const post = await db.post.findUnique({
       where: { id: postId },
       select: {
         clientId: true,
@@ -113,6 +115,7 @@ export async function runCaption(
         client: { select: { captionStyle: true } },
       },
     });
+    if (!post) return DELETED;
 
     // İmzalı URL yalnızca kapsam doğrulandıktan sonra (storage-r2.ts). Anahtar
     // DB'den geliyor ama başka müşterinin önekine işaret eden bir değer, o
@@ -134,7 +137,10 @@ export async function runCaption(
       transcript = result.text;
       // Hemen yazılır: üretim patlarsa QStash'in tekrarı Whisper'ı yeniden
       // ödemesin, bütçenin tamamı Claude'a kalsın.
-      await db.post.update({ where: { id: postId }, data: { transcript } });
+      // `updateMany`: Whisper beklenirken (10–60 sn) video silindiyse `update`
+      // P2025 atar; silinmiş postta üretime devam etmek de boşa Claude parası.
+      const saved = await db.post.updateMany({ where: { id: postId }, data: { transcript } });
+      if (saved.count === 0) return DELETED;
     }
 
     const frameUrls = await Promise.all(frameKeys.map((key) => sign(key)));
@@ -179,6 +185,7 @@ export async function runCaption(
       // etmez. Yazım BU çağrıda olduysa: devredilmiş eski çağrının geç
       // gelen sonucu ikinci bir bildirim tetiklemesin.
       if (written.count === 1) await notifyCaptionsReady(post.clientId);
+      else if (await isGone(postId)) return DELETED;
       // altText şimdilik SAKLANMIYOR: şemada portal postu için alan yok
       // (`PostImage.altText` görsel satırına ait, Reels'te satır yok). Dönüşte
       // tutuluyor ki şema kararı verildiğinde tek satırla yazılsın.
@@ -191,6 +198,9 @@ export async function runCaption(
     const summary = (problems ?? []).slice(0, 2).join("; ");
     return await fail(postId, `Caption kurallara uygun üretilemedi: ${summary}`.slice(0, 300), false);
   } catch (error) {
+    // Silinen videonun R2 nesnesi de gitti; fal/imza hatası bundan doğmuş
+    // olabilir. Operatöre uyarı ve QStash'e tekrar deneme gereksiz.
+    if (await isGone(postId)) return DELETED;
     if (error instanceof CaptionStepError) {
       await alert(
         `caption:${error.step}`,
@@ -203,6 +213,18 @@ export async function runCaption(
     }
     await alert("caption:unexpected", "Caption üretiminde beklenmeyen hata", postId, safeDetail(error), true);
     return await fail(postId, "Beklenmeyen bir hata oluştu", true);
+  }
+}
+
+/** İş sürerken post silindi — kalıcı durum, QStash'e 200 döner. */
+const DELETED: CaptionRunOutcome = { status: "skipped", reason: "not_found" };
+
+/** Post artık yok mu? DB'ye ulaşılamıyorsa `false`: emin değilsek normal hata yolu sürsün. */
+async function isGone(postId: string): Promise<boolean> {
+  try {
+    return (await db.post.count({ where: { id: postId } })) === 0;
+  } catch {
+    return false;
   }
 }
 

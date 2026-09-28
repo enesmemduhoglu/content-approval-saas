@@ -53,6 +53,21 @@ const NOT_DONE = { notIn: ["published" as const, "duplicate" as const] };
 /** Müşterinin dokunabileceği yayın durumları — `publishing` kilitliyken hiçbir şey değişmez. */
 const EDITABLE_PUBLISH = { in: ["idle" as const, "failed" as const] };
 
+/**
+ * Kalıcı silinebilen video: kuyruk dışı (çıkarılmış ya da reddedilmiş), yüklemesi
+ * bitmiş ve yayın tarafı dokunulabilir durumda. `draft` yükleme akışının malı
+ * (temizliği `draft-cleanup`); `publishing`/`published` asla silinmez — biri şu
+ * an Instagram'a gidiyor, öteki canlıda ve geçmişte iz olarak kalmalı.
+ */
+const DELETABLE_OUTSIDE = {
+  queuePosition: null,
+  status: { in: ["pending" as const, "approved" as const, "rejected" as const] },
+  publishStatus: EDITABLE_PUBLISH,
+} satisfies Prisma.PostWhereInput;
+
+/** Transaction'ı geri sardırmak için; dışarı sızmaz (`deleteOutside` yakalar). */
+class DeleteRaceLostError extends Error {}
+
 /** Bu süreden eski `captionStatus = pending` takılmış sayılır (bkz. `requestRegenerate`). */
 export const STUCK_PENDING_MS = 10 * 60 * 1000;
 
@@ -308,6 +323,51 @@ export function getClientScopedDb(session: ClientSession) {
           });
           return true;
         }),
+
+      /**
+       * "Kuyruk dışı" videoyu kalıcı siler. Silme sırası
+       * `scripts/portal-video-temizligi.mjs` ile aynı: şemada cascade yok, çocuk
+       * satırlar önce gider. `SlotRun` silinmez, yalnızca post bağı kopar —
+       * satır "bu slot işlendi" kaydı; silinirse tick geçmiş slotu yeniden koşar.
+       *
+       * Önce kapsamlı okuma yalnızca R2 anahtarlarını almak için; karar son
+       * `deleteMany`'nin koşulunda (CLAUDE.md yarış koruması). Arada durum
+       * değiştiyse (ör. müşteri başka sekmeden sona attı) sayaç 1 değildir,
+       * throw transaction'ı geri sarar ve çocuk satırlar da yerinde kalır.
+       *
+       * `null` = silinmedi (yok, başkasının ya da silinebilir durumda değil);
+       * route ayrımı `findById` ile yapar. Başarıda R2'den silinecek anahtarlar
+       * döner — R2 transaction'ın parçası olamaz, commit'ten SONRA silinir.
+       */
+      deleteOutside: async (
+        id: string
+      ): Promise<{ videoKey: string | null; frameKeys: string[] } | null> => {
+        try {
+          return await db.$transaction(async (tx) => {
+            const row = await tx.post.findFirst({
+              where: { id, ...scope, ...DELETABLE_OUTSIDE },
+              select: { videoKey: true, frameKeys: true },
+            });
+            if (!row) return null;
+            await tx.slotRun.updateMany({ where: { postId: id, clientId }, data: { postId: null } });
+            await tx.postRevision.deleteMany({ where: { postId: id } });
+            await tx.approvalAudit.deleteMany({ where: { postId: id } });
+            await tx.postImage.deleteMany({ where: { postId: id } });
+            await tx.approvalLink.deleteMany({ where: { postId: id } });
+            const result = await tx.post.deleteMany({
+              where: { id, ...scope, ...DELETABLE_OUTSIDE },
+            });
+            if (result.count !== 1) throw new DeleteRaceLostError();
+            return row;
+          });
+        } catch (error) {
+          if (error instanceof DeleteRaceLostError) return null;
+          // P2003: yarışan bir karar (ör. red) araya çocuk satır (audit) soktu
+          // ve FK silmeyi durdurdu. Post yerinde; route bunu 409'a çevirir.
+          if ((error as { code?: string }).code === "P2003") return null;
+          throw error;
+        }
+      },
 
       removeFromQueue: async (id: string): Promise<boolean> => {
         const result = await db.post.updateMany({

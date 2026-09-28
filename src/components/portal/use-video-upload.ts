@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { extractFrames, probeError, putWithProgress } from "@/lib/frames-client";
+import {
+  extractFrames,
+  isRetryableFrameError,
+  probeError,
+  putWithProgress,
+  uploadFrameBlobs,
+  type FrameErrorCode,
+  type FramesReport,
+} from "@/lib/frames-client";
 import {
   planParts,
   remainingParts,
@@ -10,6 +18,7 @@ import {
   resumeKey,
   runMultipartUpload,
   browserMultipartDeps,
+  URL_MAX_AGE_MS,
   UploadGoneError,
   type MultipartStatus,
   type ResumeRecord,
@@ -27,7 +36,8 @@ import { deleteResume, loadResume, pruneResume, saveResume } from "@/lib/upload-
  *      (IndexedDB) o taslaktan devam edilir; yoksa geçen dosyalar için TEK
  *      istekte taslak + yükleme bilgisi alınır.
  *   3. Küçük video tek PUT'la, büyük video parça parça R2'ye gider.
- *   4. `complete` dosyanın gerçekten yüklendiğini doğrular ve kuyruğa ekler.
+ *   4. `complete` dosyanın gerçekten yüklendiğini doğrular ve kuyruğa ekler;
+ *      gövdesindeki kare raporu karesiz kalan videonun NEDENİNİ sunucuya taşır.
  *
  * Videolar SIRAYLA yüklenir: telefonda paralel 300 MB'lık yüklemeler bant
  * genişliğini bölüp hepsini yavaşlatır, biri koptuğunda da hangisinin
@@ -52,7 +62,13 @@ type UploadTarget =
   | { postId: string; multipart: false; videoPutUrl: string; framePutUrls: string[] }
   | { postId: string; multipart: true; partSize: number; framePutUrls: string[] };
 
-type Prepared = { file: File; key: string; frames: Blob[]; resume: ResumeRecord | null };
+type Prepared = {
+  file: File;
+  key: string;
+  frames: Blob[];
+  frameError?: FrameErrorCode;
+  resume: ResumeRecord | null;
+};
 
 export const MAX_FILES = 20;
 
@@ -64,6 +80,7 @@ export const STATUS_TEXT: Record<Exclude<MultipartStatus, "uploading">, string> 
 };
 const RESUMED_TEXT = "Devam ediyor…";
 const RESUME_HINT = "Aynı videoyu yeniden seçersen kaldığı yerden devam eder";
+const NO_FRAMES_NOTE = "Kare çıkarılamadı; caption yalnızca sesten üretilecek";
 
 /**
  * Bazı tarayıcılar (.mov'da Windows Chrome'u gibi) `file.type`'ı boş verir.
@@ -80,7 +97,7 @@ export function videoType(file: File): string {
 
 async function requestUploads(
   files: File[]
-): Promise<{ ok: true; items: UploadTarget[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; items: UploadTarget[]; issuedAt: number } | { ok: false; error: string }> {
   try {
     const res = await fetch("/api/portal/upload", {
       method: "POST",
@@ -91,30 +108,47 @@ async function requestUploads(
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: data.error ?? "Yükleme başlatılamadı" };
-    return { ok: true, items: data.items as UploadTarget[] };
+    return { ok: true, items: data.items as UploadTarget[], issuedAt: Date.now() };
   } catch {
     return { ok: false, error: "Bağlantı yok, yükleme başlatılamadı" };
   }
 }
 
-/** Kare yüklemesi başarısız olabilir; video yine kuyruğa girer. */
-async function uploadFrames(frames: Blob[], urls: string[]): Promise<void> {
-  await Promise.all(
-    frames.map((frame, n) =>
-      urls[n] ? putWithProgress(urls[n], frame, "image/jpeg").catch(() => undefined) : undefined
-    )
+/**
+ * Kare yüklemesi başarısız olabilir; video yine kuyruğa girer. Ama artık
+ * sessizce değil: kaç karenin düştüğü `complete` raporuna yazılır. Çok
+ * parçalı yolda (`postId` verilince) yeniden deneme taze imzalarla — `parts`
+ * route'u `includeFrames` ile aynı kapsam kontrolünden geçmiş URL veriyor.
+ */
+async function uploadFrames(p: Prepared, urls: string[], multipartPostId?: string): Promise<FramesReport> {
+  const freshUrls = multipartPostId
+    ? async () => (await requestPartUrls(multipartPostId, [1], { includeFrames: true })).framePutUrls
+    : undefined;
+  const { failed } = await uploadFrameBlobs(
+    p.frames,
+    urls,
+    (url, body) => putWithProgress(url, body, "image/jpeg"),
+    { freshUrls }
   );
+  return framesReport(p, failed);
+}
+
+function framesReport(p: Prepared, uploadFailed: number): FramesReport {
+  const report: FramesReport = { extracted: p.frames.length, uploadFailed };
+  if (p.frameError) report.error = p.frameError;
+  return report;
 }
 
 async function complete(
   postId: string,
+  frames: FramesReport,
   parts?: UploadedPart[]
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   try {
     const res = await fetch(`/api/portal/videos/${postId}/complete`, {
       method: "POST",
-      headers: parts ? { "Content-Type": "application/json" } : undefined,
-      body: parts ? JSON.stringify({ parts }) : undefined,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(parts ? { parts, frames } : { frames }),
     });
     if (res.ok) return { ok: true };
     const body = await res.json().catch(() => ({}));
@@ -216,7 +250,8 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
     p: Prepared,
     record: ResumeRecord,
     initialUrls: Map<number, string> | undefined,
-    resumed: boolean
+    resumed: boolean,
+    frames: FramesReport
   ): Promise<void> {
     patch(p.key, { phase: "yükleniyor", status: resumed ? RESUMED_TEXT : undefined });
     let parts: UploadedPart[];
@@ -250,7 +285,7 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
     }
 
     patch(p.key, { phase: "tamamlanıyor", progress: 1, status: undefined });
-    const done = await complete(record.postId, parts);
+    const done = await complete(record.postId, frames, parts);
     // 409: taslak zaten tamamlanmış (önceki denemenin yanıtı kaybolmuş) — video kuyrukta.
     if (done.ok || done.status === 409) {
       await deleteResume(record.key);
@@ -282,24 +317,53 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
       }
       throw new Error(`${(err as Error).message}. ${RESUME_HINT}`);
     }
+    // Kareler önceki oturumda yüklendiyse sonuçları bilinmiyor: düşen yok sayılır.
+    let frames = framesReport(p, 0);
     if (!record.framesDone) {
-      if (check.framePutUrls) await uploadFrames(p.frames, check.framePutUrls);
+      await retryExtraction(p);
+      frames = await uploadFrames(p, check.framePutUrls ?? [], record.postId);
       record.framesDone = true;
       await saveResume(record);
     }
-    await uploadMultipart(p, record, left.length ? check.urls : undefined, true);
+    await uploadMultipart(p, record, left.length ? check.urls : undefined, true, frames);
     return "done";
   }
 
-  async function uploadFresh(p: Prepared, target: UploadTarget): Promise<void> {
+  /**
+   * Seçimde kare çıkarılamadıysa ve neden bir zaman aşımıysa, dosyanın
+   * yükleme sırası geldiğinde BİR KEZ daha denenir. Canlıdaki desen: toplu
+   * yüklemede yalnızca en son çıkarılan dosyanın karesi vardı, tek başına
+   * yüklenen videonun hiç yoktu — çıkarma seçimden bir süre sonra tutuyor
+   * gibi. Bu noktada seçici çoktan kapanmış ve sayfa oturmuş olur.
+   */
+  async function retryExtraction(p: Prepared): Promise<void> {
+    if (p.frames.length > 0 || !isRetryableFrameError(p.frameError)) return;
+    patch(p.key, { status: "Kareler yeniden deneniyor…" });
+    const again = await extractFrames(p.file);
+    if (again.frames.length > 0) {
+      p.frames = again.frames;
+      p.frameError = again.error;
+      patch(p.key, { note: undefined, status: undefined });
+    } else {
+      p.frameError = again.error ?? p.frameError;
+      patch(p.key, { status: undefined });
+    }
+  }
+
+  async function uploadFresh(p: Prepared, target: UploadTarget, issuedAt: number): Promise<void> {
+    await retryExtraction(p);
     patch(p.key, { phase: "yükleniyor", progress: 0, status: undefined });
     if (!target.multipart) {
+      // Kareler videodan ÖNCE: imzaları toplu istekte alındı ve 15 dk'lık;
+      // videodan sonraya bırakmak ömürlerini videonun süresi kadar kısaltırdı.
+      // (Tek PUT yolunun taze kare imzası alacağı bir route yok; bu yol yalnızca
+      // 16 MB altı dosyalar için, onlar da saniyeler sürüyor.)
+      const frames = await uploadFrames(p, target.framePutUrls);
       await putWithProgress(target.videoPutUrl, p.file, videoType(p.file), (fraction) =>
         patch(p.key, { progress: fraction })
       );
-      await uploadFrames(p.frames, target.framePutUrls);
       patch(p.key, { phase: "tamamlanıyor", progress: 1 });
-      const done = await complete(target.postId);
+      const done = await complete(target.postId, frames);
       if (!done.ok) throw new Error(done.error);
       return;
     }
@@ -315,10 +379,24 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
     await saveResume(record);
     // Kareler ÖNCE: küçükler ve ilk URL'lerin süresi yalnızca 15 dk — video
     // uzun sürerse ya da askıya alınırsa sonraya bırakılan kare URL'leri ölürdü.
-    await uploadFrames(p.frames, target.framePutUrls);
+    // Toplu yüklemede sıradaki videonun imzaları öncekiler yüklenirken
+    // eskiyebilir: 10 dk'dan eskiyse (parça URL'leriyle aynı eşik) kare
+    // imzaları ilk parçanınkiyle birlikte tek istekte tazelenir.
+    let frameUrls = target.framePutUrls;
+    let initialUrls: Map<number, string> | undefined;
+    if (p.frames.length > 0 && Date.now() - issuedAt > URL_MAX_AGE_MS) {
+      try {
+        const fresh = await requestPartUrls(target.postId, [1], { includeFrames: true });
+        if (fresh.framePutUrls) frameUrls = fresh.framePutUrls;
+        initialUrls = fresh.urls;
+      } catch {
+        // Tazelenemezse eski imzalarla denenir; düşerse raporda görünür.
+      }
+    }
+    const frames = await uploadFrames(p, frameUrls, target.postId);
     record.framesDone = true;
     await saveResume(record);
-    await uploadMultipart(p, record, undefined, false);
+    await uploadMultipart(p, record, initialUrls, false, frames);
   }
 
   async function start(picked: { file: File; key: string }[]) {
@@ -329,7 +407,7 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
       const prepared: Prepared[] = [];
       for (const { file, key } of picked) {
         patch(key, { phase: "hazırlanıyor" });
-        const { probe, frames } = await extractFrames(file);
+        const { probe, frames, error: frameError } = await extractFrames(file);
         const problem = probeError(probe);
         if (problem) {
           patch(key, { phase: "hata", error: problem });
@@ -350,23 +428,25 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
             : null;
         patch(key, {
           phase: "bekliyor",
-          note: frames.length === 0 ? "Kare çıkarılamadı; caption yalnızca sesten üretilecek" : undefined,
+          note: frames.length === 0 ? NO_FRAMES_NOTE : undefined,
           status: resumeRecord ? "Yarım kalan yükleme bulundu, kaldığı yerden devam edecek" : undefined,
         });
-        prepared.push({ file, key, frames, resume: resumeRecord });
+        prepared.push({ file, key, frames, frameError, resume: resumeRecord });
       }
       if (prepared.length === 0) return;
 
       // 2) Devam edilmeyecek dosyalar için taslaklar, tek istekte.
       const fresh = prepared.filter((p) => !p.resume);
-      const targets = new Map<string, UploadTarget>();
+      const targets = new Map<string, { target: UploadTarget; issuedAt: number }>();
       if (fresh.length > 0) {
         const started = await requestUploads(fresh.map((p) => p.file));
         if (!started.ok) {
           setError(started.error);
           for (const p of fresh) patch(p.key, { phase: "hata", error: "Başlatılamadı" });
         } else {
-          fresh.forEach((p, i) => targets.set(p.key, started.items[i]));
+          fresh.forEach((p, i) =>
+            targets.set(p.key, { target: started.items[i], issuedAt: started.issuedAt })
+          );
         }
       }
 
@@ -382,11 +462,11 @@ export function useVideoUpload(options: { onFinished?: () => void } = {}) {
             // Sunucudaki taslak gitmiş: bu dosya için temiz bir taslak.
             const started = await requestUploads([p.file]);
             if (!started.ok) throw new Error(started.error);
-            targets.set(p.key, started.items[0]);
+            targets.set(p.key, { target: started.items[0], issuedAt: started.issuedAt });
           }
-          const target = targets.get(p.key);
-          if (!target) continue;
-          await uploadFresh(p, target);
+          const entry = targets.get(p.key);
+          if (!entry) continue;
+          await uploadFresh(p, entry.target, entry.issuedAt);
           patch(p.key, { phase: "bitti", status: undefined });
         } catch (err) {
           patch(p.key, { phase: "hata", status: undefined, error: (err as Error).message });

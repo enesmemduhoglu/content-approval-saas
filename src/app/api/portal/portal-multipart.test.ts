@@ -269,6 +269,24 @@ describe("POST /api/portal/videos/[id]/complete — çok parçalı", () => {
     expect(enqueueCaption).toHaveBeenCalledWith(d.id);
   });
 
+  it("parçalarla birlikte kare raporu da kabul edilir; rapor bozuksa R2'ye gidilmeden 400", async () => {
+    const d = await multipartDraft();
+    const bad = await completeVideo(
+      post(`/api/portal/videos/${d.id}/complete`, { parts, frames: { extracted: 9, uploadFailed: 0 } }),
+      idParams(d.id)
+    );
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).field).toBe("frames");
+    expect(completeMultipartUpload).not.toHaveBeenCalled();
+
+    const ok = await completeVideo(
+      post(`/api/portal/videos/${d.id}/complete`, { parts, frames: { extracted: 6, uploadFailed: 1 } }),
+      idParams(d.id)
+    );
+    expect(ok.status).toBe(200);
+    expect(completeMultipartUpload).toHaveBeenCalledTimes(1);
+  });
+
   it("parça listesi yoksa 400 — R2'ye gidilmez", async () => {
     const d = await multipartDraft();
     const res = await completeVideo(post(`/api/portal/videos/${d.id}/complete`), idParams(d.id));
