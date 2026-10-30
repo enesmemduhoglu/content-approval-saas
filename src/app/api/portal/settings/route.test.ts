@@ -1,8 +1,11 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@upstash/qstash", async () => (await import("@tests/helpers/qstash")).qstashModule());
 import { db } from "@/lib/db";
 import { resetRateLimiter } from "@/lib/rate-limit";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
 import { createClientUser, portalCookie, portalRequest } from "@tests/helpers/portal";
+import { qstashMock, resetQstashMock } from "@tests/helpers/qstash";
 import { GET, PUT } from "./route";
 
 let clientId: string;
@@ -128,5 +131,59 @@ describe("PUT /api/portal/settings", () => {
   it("yabancı Origin 403", async () => {
     expect((await put(valid, "https://kotu.example")).status).toBe(403);
     expect(await db.publishSettings.count()).toBe(0);
+  });
+});
+
+describe("PUT → slot uyandırmaları (V11)", () => {
+  beforeEach(() => {
+    resetQstashMock();
+    vi.stubEnv("QSTASH_TOKEN", "test-token");
+    vi.stubEnv("APP_URL", "https://cas.test");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const wakeTimes = async () =>
+    (await db.queueWake.findMany({ orderBy: { at: "asc" } })).map((w) => w.at.getTime());
+
+  it("başarılı kayıttan sonra yeni saatlerin uyandırmaları kurulur", async () => {
+    expect((await put({ ...valid, slots: ["09:00", "20:00"] })).status).toBe(200);
+
+    const times = await wakeTimes();
+    // 6 günlük ufuk × 2 slot (bugünün geçmiş olanları hariç).
+    expect(times.length).toBeGreaterThanOrEqual(11);
+    expect(qstashMock.published).toHaveLength(times.length);
+    expect(qstashMock.published.every((p) => (p.body as { kind: string }).kind === "slot")).toBe(true);
+    // Kurulum paralel — sıraya değil kümeye bak.
+    expect(qstashMock.published.map((p) => p.notBefore! * 1000).sort((a, b) => a - b)).toEqual(times);
+  });
+
+  it("saat değişince eski uyandırmalar iptal edilir", async () => {
+    await put({ ...valid, slots: ["09:00"] });
+    const before = await wakeTimes();
+    await put({ ...valid, slots: ["10:00"] });
+
+    expect(qstashMock.cancelled).toHaveLength(before.length);
+    const after = await wakeTimes();
+    expect(after.some((t) => before.includes(t))).toBe(false);
+  });
+
+  it("uyandırma kurulamasa da kayıt 200 ve ayar yazılmış", async () => {
+    qstashMock.failPublishAfter = 0;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await put({ ...valid, slots: ["21:30"] });
+
+    expect(res.status).toBe(200);
+    const row = await db.publishSettings.findUniqueOrThrow({ where: { clientId } });
+    expect(row.slots).toEqual(["21:30"]);
+    expect(await db.queueWake.count()).toBe(0);
+  });
+
+  it("doğrulama hatasında (400) senkron hiç koşmaz", async () => {
+    expect((await put({ ...valid, slots: ["25:99"] })).status).toBe(400);
+    expect(qstashMock.published).toEqual([]);
+    expect(await db.queueWake.count()).toBe(0);
   });
 });

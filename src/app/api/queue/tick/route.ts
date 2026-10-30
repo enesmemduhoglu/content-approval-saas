@@ -8,6 +8,8 @@ import { notifyClientUsers } from "@/lib/push";
 import { slotEmptyPush } from "@/lib/push-messages";
 import { authorizeQueueRequest } from "@/lib/qstash";
 import { retentionDue, runMediaRetention, type MediaRetentionStats } from "@/lib/media-retention";
+import { reportCrash } from "@/lib/db-health";
+import { followUpDecision, parseWakeKind, scheduleFollowUp } from "@/lib/queue-wake";
 import { SLOT_LOOKBACK_MS, SLOT_WINDOW_MS, dueSlots, isEligible, pickNext } from "@/lib/queue";
 import {
   attachPostToSlotRun,
@@ -18,13 +20,16 @@ import {
   findQueueClients,
   finishSlotRun,
   loadQueue,
+  publishingContainerTimes,
   recentSlotRunTimes,
   type QueueClient,
 } from "@/lib/queue-db";
 
 /**
- * Video kuyruğu (V4) — slot tabanlı yayın tick'i. QStash her 5 dakikada bir
- * çağırır (K7); yedek tetikleyici cron-job.org + `CRON_SECRET`.
+ * Video kuyruğu (V4) — slot tabanlı yayın tick'i. V11'den (K32) beri periyodik
+ * DEĞİL: QStash bir slotun saati geldiğinde tek seferlik mesajla çağırır
+ * (`queue-wake.ts`), bitmemiş iş kalırsa tick kendine kısa bir takip mesajı
+ * kurar. Elle/yedek çağrı `Bearer CRON_SECRET` ile; gövdesiz istek slot sayılır.
  *
  * Her müşteri için (README §5):
  *   1. `paused` → vadesi gelen slotlara `SlotRun(paused)`, yayın yok.
@@ -34,14 +39,15 @@ import {
  *   5. Onay kapalıysa koşullu `pending → approved` + `ApprovalAudit(auto_approved)`.
  *   6. `publishApprovedPost` (throw etmez, kendi kilidi ve onay kontrolü var).
  * Ardından `publishing`de kalmış portal videoları `resumePublish` ile ilerletilir.
- * Saatin ilk tick'inde son iş R2 temizliği (V9, `media-retention.ts`).
+ * Slot uyandırmasında son iş R2 temizliği (V9, `media-retention.ts`); takipte yok.
  *
  * ─── Zaman bütçesi ──────────────────────────────────────────────────────────
  * Tek bir video yayını ~30 sn yoklama (`IG_VIDEO_BUDGET_MS`) + container açma +
  * media_publish sürebiliyor; fonksiyon tavanı 60 sn. Yeni bir yayın ya da
  * devam ettirme yalnızca `START_DEADLINE_MS` dolmadan BAŞLATILIR; başlamayan
- * slotun `SlotRun` satırı hiç yazılmaz, yani sonraki tick (5 dk sonra, hâlâ
- * pencerenin içinde) onu yeniden görür. Yarıda kesilen bir iş kalmaz.
+ * slotun `SlotRun` satırı hiç yazılmaz ve tick 60 sn sonrasına takip
+ * uyandırması kurar (hâlâ pencerenin içinde); takip onu yeniden görür.
+ * Yarıda kesilen bir iş kalmaz.
  */
 
 export const dynamic = "force-dynamic";
@@ -89,6 +95,8 @@ async function handle(request: Request) {
   if (!(await authorizeQueueRequest(request, rawBody))) {
     return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
   }
+  // Gövde imzalı (ya da CRON_SECRET'lı istekten) — güvenilir.
+  const kind = parseWakeKind(rawBody);
 
   const start = Date.now();
   const now = new Date();
@@ -150,22 +158,37 @@ async function handle(request: Request) {
       }
     }
 
-    // V9 depolama temizliği: saatte bir, yayın işleri bittikten SONRA ve
-    // yalnızca bütçe varken — yayın her zaman önce gelir, temizlik bekleyebilir.
-    // Saatlik olması portaldaki "Bugün silinecek" sayacını gerçeğe yakın
-    // tutuyor; günlük cron da aynı işi emniyet ağı olarak çağırıyor.
+    // Bitmemiş iş için takip: eskiden 5 dakikalık döngü kendiliğinden
+    // geliyordu, artık kimse gelmiyor. Kendi try'ında — yayın yapılmış bir
+    // turu takip kurulamadı diye "çöktü"ye çevirmemeli.
+    let followUp: number | null = null;
+    try {
+      followUp = followUpDecision(stats, await publishingContainerTimes(), new Date());
+      if (followUp !== null) {
+        await scheduleFollowUp(followUp, stats.deferred > 0 ? "deferred" : "publishing");
+      }
+    } catch (error) {
+      console.error("[queue:tick] takip kararı verilemedi:", error);
+    }
+
+    // V9 depolama temizliği: slot uyandırmasında, yayın işleri bittikten SONRA
+    // ve yalnızca bütçe varken — yayın her zaman önce gelir, temizlik
+    // bekleyebilir. Günlük cron da aynı işi emniyet ağı olarak çağırıyor.
     let retention: MediaRetentionStats | undefined;
-    if (retentionDue(now) && elapsed() < START_DEADLINE_MS) {
+    if (retentionDue(kind) && elapsed() < START_DEADLINE_MS) {
       retention = await runMediaRetention(now);
     }
 
     // Yanıt yalnızca SAYI taşır — caption/müşteri bilgisi QStash loglarına düşmesin.
-    return NextResponse.json({ ok: true, ...stats, ...(retention ? { retention } : {}) });
+    return NextResponse.json({
+      ok: true,
+      ...stats,
+      ...(followUp !== null ? { followUp } : {}),
+      ...(retention ? { retention } : {}),
+    });
   } catch (error) {
     console.error("[queue:tick] tick çöktü:", error);
-    await sendAlert("queue:tick:crash", "Kuyruk tick'i beklenmeyen hatayla çöktü", {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    await reportCrash("queue:tick:crash", "Kuyruk tick'i beklenmeyen hatayla çöktü", error);
     return NextResponse.json({ ok: false, error: "tick çöktü" }, { status: 500 });
   }
 }
@@ -206,8 +229,8 @@ async function processClient(
       continue;
     }
 
-    // Yayın bütçeye sığmayacaksa slot SAHİPLENİLMEDEN bırakılır: sonraki tick
-    // hâlâ pencerenin içinde ve onu yeniden görecek.
+    // Yayın bütçeye sığmayacaksa slot SAHİPLENİLMEDEN bırakılır: `deferred`
+    // sayılır, tick sonunda 60 sn'lik takip kurulur ve takip onu yeniden görür.
     if (elapsed() > START_DEADLINE_MS) {
       stats.deferred += 1;
       continue;
@@ -297,8 +320,8 @@ async function runSlot(
       stats.published += 1;
       await finishSlotRun(client.id, slotAt, { outcome: "published" });
     } else if (outcome.publishStatus === "publishing") {
-      // Instagram videoyu hâlâ işliyor: sonuç satırı BOŞ kalır, yayını sonraki
-      // tick `resumePublish` ile bitirir ve sonucu `publish-post`un kancası yazar.
+      // Instagram videoyu hâlâ işliyor: sonuç satırı BOŞ kalır, yayını takip
+      // uyandırması `resumePublish` ile bitirir ve sonucu `publish-post`un kancası yazar.
       stats.publishing += 1;
     } else {
       stats.failed += 1;

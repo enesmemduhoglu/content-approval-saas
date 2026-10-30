@@ -13,7 +13,10 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
     deleteObject: vi.fn(async () => true),
   };
 });
-vi.mock("@/lib/qstash", () => ({
+// Kısmi: V11 ayar kaydı `qstashClient`/`appUrl`i de kullanıyor (token yok →
+// senkron sessizce atlanır); yalnızca caption kuyruğu sahte.
+vi.mock("@/lib/qstash", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/qstash")>()),
   enqueueCaption: vi.fn(async () => ({ queued: true, messageId: "m-1" })),
 }));
 

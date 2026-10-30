@@ -233,10 +233,8 @@ describe("hata yolları", () => {
 });
 
 describe("retentionDue", () => {
-  it("saatin ilk 5 dakikası", () => {
-    expect(retentionDue(new Date("2026-09-28T12:00:00Z"))).toBe(true);
-    expect(retentionDue(new Date("2026-09-28T12:04:59Z"))).toBe(true);
-    expect(retentionDue(new Date("2026-09-28T12:05:00Z"))).toBe(false);
-    expect(retentionDue(new Date("2026-09-28T12:55:00Z"))).toBe(false);
+  it("slot uyandırması temizlik yapar, Instagram'ı yoklayan takip yapmaz", () => {
+    expect(retentionDue("slot")).toBe(true);
+    expect(retentionDue("follow")).toBe(false);
   });
 });

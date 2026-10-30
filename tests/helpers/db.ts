@@ -5,7 +5,8 @@ import type { PostStatus, PublishStatus } from "@prisma/client";
 
 export async function resetDb() {
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "PostRevision", "ApprovalAudit", "ApprovalLink", "Post", "Client", "AgencyInvite", "AgencyMember", "Agency" CASCADE'
+    // `QueueWake` hiçbir tabloya bağlı değil; CASCADE onu temizlemez.
+    'TRUNCATE TABLE "PostRevision", "ApprovalAudit", "ApprovalLink", "Post", "Client", "AgencyInvite", "AgencyMember", "Agency", "QueueWake" CASCADE'
   );
 }
 
