@@ -79,8 +79,9 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
       (Portal route'ları `portalMutationGuard` ile korunuyor; `approve/[token]/**`
       çerezsiz, `media/upload-url` ve `queue/tick` makine yolu — bunlar muaf.)
 - [ ] **D4 · Zamanlayıcılar için ölü adam anahtarı yok.** `sendAlert` yalnızca bir iş
-      KOŞUP hata verdiğinde çalışıyor. Üç Vercel cron'u ya da QStash tick'i hiç
-      tetiklenmezse (schedule silindi, plan düştü, deployment bozuk) ses çıkmaz:
+      KOŞUP hata verdiğinde çalışıyor. Üç Vercel cron'u ya da kuyruğun slot
+      uyandırmaları hiç tetiklenmezse (QStash token'ı düştü, plan düştü, deployment
+      bozuk) ses çıkmaz:
       kuyruk yayını durur, token yenileme durur, ilk haber müşteriden gelir. En ucuz
       şekli: her iş son başarılı koşusunu yazsın, bayatlık bir yerde raporlansın.
       Dikkat: `/api/health` public ve bilerek sığ (F12) — "son koşu 3 gün önce" de iç
@@ -116,25 +117,32 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
 ### Zamanlama
 
 - [ ] **Panelin zamanlanmış yayını (`publishAt`) hâlâ ±24 saat.** Video kuyruğu Hobby
-      sınırını QStash'in 5 dk tick'iyle aştı (K7), ama tick yalnızca portal
+      sınırını slot saatinde kurulan tek seferlik QStash mesajlarıyla aştı (K32), ama tick yalnızca portal
       postlarına bakıyor (`queue-db.ts`, `source: "portal"`). Panel/furi postunun
       `publishAt`'ı hâlâ `vercel.json`'daki günlük `publish-scheduled`'a
       (`0 5 * * *`, ±59 dk) bağlı; aynı cron 10 dk'dan eski `publishing` Reels
       container'larını da devralıyor, yani o emniyet ağı da günlük. Pro yok (K7:
-      para harcanmayacak). Seçenekler: `publish-scheduled`'ın işini tick'e taşımak,
-      ya da aynı route'a ikinci bir QStash schedule'ı (route bugün `CRON_SECRET`
-      bekliyor, QStash imzası değil — kimlik doğrulama kararı gerekir).
+      para harcanmayacak). Doğal yol artık K32'nin deseni: `publishAt` yazıldığında
+      o an için `QueueWake` kurmak (periyodik schedule DEĞİL — Neon kotası, CLAUDE.md).
 
 ### Elle yapılacaklar (repo yapamaz)
 
-- [ ] `ALERT_EMAIL`'e gerçek bir uyarının teslim edildiği hiç gözlenmedi — ilk
-      `cron:*` / `portal:frames:*` uyarısında kutuya düştüğünü kontrol et.
 - [ ] 2026-08-17'de `ENCRYPTION_KEY` önce yanlışlıkla `web-projesi` Vercel projesine
       eklenmişti; oradan silindiğini doğrula.
 
 ### Bilinen sınırlar / bilinçli kapsam dışı
 
 Hepsi bilerek bırakıldı; yeniden ele alınırsa notu oku.
+
+- [ ] **V11: müşteri silinince uyandırmaları hemen iptal edilmiyor.** Kalan mesaj
+      tick'te "vadesi gelen slot yok" deyip kapanır, ertesi günkü senkron satırı
+      iptal eder. Kazanç birkaç boş uyanma; silme yoluna QStash bağımlılığı eklemeye değmez.
+- [ ] **V11: QStash DLQ izlenmiyor.** Teslim edilemeyen bir uyandırma (prod 3 denemede
+      de 5xx) DLQ'ya düşer ve o slot kaçar. Tick'in kendi hatası zaten `sendAlert`
+      (`reportCrash`) atıyor; DLQ'yu ayrıca izlemek D4'ün parçası.
+- [ ] **V11: 30 dk'dan uzun işlenen Reels takip edilmez.** Takip zinciri 30 dk'da durur,
+      böyle bir videoyu günlük `publish-scheduled` bitirir (±24 saat). Bilinçli: takılı
+      bir container DB'yi saatlerce uyanık tutmasın.
 
 - [ ] **Toplu onayda ajans bildirimi yok.** Doğru şekli: `notifyAgencyTeam` ile N postu
       tek satırda özetleyen bir bildirim. Ele alınırsa D9 da aynı turda.

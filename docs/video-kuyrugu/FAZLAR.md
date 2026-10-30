@@ -7,7 +7,14 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-09-29 (V10 — portal depolama göstergesi canlıda, #87)
+- **Son güncelleme:** 2026-10-30 (V11 — kuyruk slot saatinde uyanır; PR hazır, merge bekliyor)
+- **⚠ Prod 2026-10-19'dan beri KAPALI:** Neon ücretsiz kotası doldu (402), sebebi
+  5 dk'lık tick (K32). Kota büyük ihtimalle 1 Kasım 00:00 UTC'de sıfırlanıyor.
+  DB açılmadan deploy yapılamaz (`vercel-build` = `migrate deploy`). V11 PR'ı
+  `feat/v11-slot-uyandirma`; göç `20261030193253_kuyruk_uyandirma` (yalnızca yeni
+  tablo). Canlıya geçiş sırası aşağıda "Elle yapılacaklar"da — **`*/5`
+  schedule'ını `arm` çağrısından ÖNCE silme**, yoksa slotlar kurulana kadar
+  yayın olmaz.
 - **V10 (#87) canlıda** (merge 2026-09-29, prod deploy Ready). Canlıda
   `/portal/ayarlar` tarayıcıda denendi: "1,4 GB / 10 GB · Yaklaşık 116 video
   daha sığar", konsol hatasız. V7 kanvası canlıya göre temizlendi (kullanıcı
@@ -56,7 +63,17 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
       `QSTASH_NEXT_SIGNING_KEY` (Vercel + `.env.local`).
 - [x] **fal.ai:** `FAL_KEY` (subtitle-pipeline'daki anahtar kullanılabilir).
 - [x] **Anthropic:** `ANTHROPIC_API_KEY`. (Vercel'e eklendiği kullanıcı beyanı; deploy sonrası doğrulanacak.)
-- [x] **QStash schedule** (`*/5 * * * *` → `/api/queue/tick`) — 2026-09-25.
+- [x] **QStash schedule** (`*/5 * * * *` → `/api/queue/tick`) — 2026-09-25. **V11 ile kaldırılacak**, aşağıya bak.
+- [ ] **V11 canlıya geçiş (sırayla, DB açıldıktan sonra):**
+      1. PR push → preview build `QueueWake` tablosunu prod'a ekler → merge.
+      2. `curl -X POST -H "Authorization: Bearer $CRON_SECRET" $APP_URL/api/queue/arm`
+         → yanıtta `armed > 0`. QStash konsolunda önümüzdeki 6 günün slot saatleri görünmeli.
+      3. **Ancak bundan sonra** Upstash'teki `*/5` schedule'ını sil. cron-job.org yedek
+         tetikleyicisi aktifse onu da kapat (periyodik her şey compute'u uyutmaz).
+      4. Neon konsolu: autoscaling 0,25–0,25 CU. Neon API anahtarı oluştur, Vercel'e
+         `NEON_API_KEY` + `NEON_PROJECT_ID` ekle (Production), redeploy.
+      5. İlk slotta `SlotRun(published)` ve Instagram'da yayın; ertesi gün Neon kullanım
+         grafiğinde compute'un slot aralarında uyuduğunu gör.
 - [x] **Furkan'ın `ClientUser` kaydı** ve portal ayarlarından yayın gün/saatleri
       (`PublishSettings`) — 2026-09-25 / 28.
 
@@ -182,6 +199,19 @@ daha sığar"; %80'de turuncu, dolunca kırmızı; okunamazsa "Şu an okunamadı
 Ayarlar'da `Suspense` içinde. `r2-denetim.mjs` yarım yüklemeleri de raporlar,
 `--sil` terk edilmişleri iptal eder. Şema göçü yok.
 Tasarım: V7 kanvası "Güncelleme 29 Eyl".
+
+### V11 — Kuyruk slot saatinde uyanır 🟡 (`feat/v11-slot-uyandirma`) · K32
+5 dk'lık QStash tick'i Neon kotasını bitirip ürünü 11 gün kapattı; tick artık
+yalnızca slot saatinde kurulmuş tek seferlik mesajla uyanıyor.
+- `queue-wake.ts`: `desiredWakeTimes` (saf), `syncQueueWakes`, `scheduleFollowUp`,
+  `followUpDecision`. Kurulum ayar PUT'unda, `pending-reminders`'ta ve
+  `POST /api/queue/arm`'da.
+- Göç `20261030193253_kuyruk_uyandirma`: `QueueWake` (yalnızca yeni tablo).
+- Tick: `{kind}` gövdesi, bütçe dolduğunda ya da Instagram işlerken takip mesajı,
+  R2 temizliği slot uyandırmalarında.
+- `db-health.ts`: P1001 → Neon HTTP yoklaması → tek "kota doldu" uyarısı (tick ve
+  üç cron'un crash dalı).
+- `neon-usage.ts`: %70 erken uyarısı.
 
 ## Uçtan uca doğrulama senaryosu (V5)
 
