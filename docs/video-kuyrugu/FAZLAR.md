@@ -70,8 +70,11 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
          → yanıtta `armed > 0`. QStash konsolunda önümüzdeki 6 günün slot saatleri görünmeli.
       3. **Ancak bundan sonra** Upstash'teki `*/5` schedule'ını sil. cron-job.org yedek
          tetikleyicisi aktifse onu da kapat (periyodik her şey compute'u uyutmaz).
-      4. Neon konsolu: autoscaling 0,25–0,25 CU. Neon API anahtarı oluştur, Vercel'e
-         `NEON_API_KEY` + `NEON_PROJECT_ID` ekle (Production), redeploy.
+      4. Neon: autoscaling zaten 0,25–0,25 CU (ek iş yok). `NEON_PROJECT_ID` Vercel'de
+         var (entegrasyon yazdı). `NEON_API_KEY` **kullanıcı kararıyla şimdilik eklenmedi**
+         (2026-10-31): %70 kontrolü sessizce atlanıyor. Neon'un kendi 80%/100% mailleri
+         hesap sahibine gidiyor ama Ekim'dekiler Gmail "Güncellemeler" sekmesinde okunmadı.
+         Eklenirse: proje kapsamlı API key → Vercel Production.
       5. İlk slotta `SlotRun(published)` ve Instagram'da yayın; ertesi gün Neon kullanım
          grafiğinde compute'un slot aralarında uyuduğunu gör.
 - [x] **Furkan'ın `ClientUser` kaydı** ve portal ayarlarından yayın gün/saatleri
