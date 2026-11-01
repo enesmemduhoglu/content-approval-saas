@@ -213,3 +213,29 @@ describe("ajans bildirimi", () => {
     expect((await res.json()).published).toBe(1);
   });
 });
+
+describe("yarıda kesilmiş yayın (2026-11-01)", () => {
+  it("takılı ajans postu → failed'a çekilir, ajansa tek 'yayınlanamadı' bildirimi, yanıtta recovered", async () => {
+    const agency = await createAgency();
+    const client = await createInstagramClient(agency.id);
+    const { post } = await createPendingPostWithLink(agency.id, client.id, {
+      status: "approved",
+      publishStatus: "publishing",
+    });
+    const eski = new Date(Date.now() - 11 * 60_000);
+    await db.$executeRaw`UPDATE "Post" SET "updatedAt" = ${eski} WHERE id = ${post.id}`;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await GET(cronRequest());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, recovered: 1, failed: 0 });
+    const saved = await db.post.findUniqueOrThrow({ where: { id: post.id } });
+    expect(saved.publishStatus).toBe("failed");
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "approved", publishStatus: "failed" })
+    );
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+});

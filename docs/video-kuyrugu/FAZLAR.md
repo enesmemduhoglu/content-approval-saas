@@ -7,14 +7,21 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-10-30 (V11 — kuyruk slot saatinde uyanır; PR hazır, merge bekliyor)
-- **⚠ Prod 2026-10-19'dan beri KAPALI:** Neon ücretsiz kotası doldu (402), sebebi
-  5 dk'lık tick (K32). Kota büyük ihtimalle 1 Kasım 00:00 UTC'de sıfırlanıyor.
-  DB açılmadan deploy yapılamaz (`vercel-build` = `migrate deploy`). V11 PR'ı
-  `feat/v11-slot-uyandirma`; göç `20261030193253_kuyruk_uyandirma` (yalnızca yeni
-  tablo). Canlıya geçiş sırası aşağıda "Elle yapılacaklar"da — **`*/5`
-  schedule'ını `arm` çağrısından ÖNCE silme**, yoksa slotlar kurulana kadar
-  yayın olmaz.
+- **Son güncelleme:** 2026-11-01 (yayın ortasında DB kopması — `fix/yayin-baglanti-kopmasi`)
+- **Prod 1 Kasım'da yeniden açıldı, V11 (#89) canlıda.** Kota sıfırlandı; slot
+  uyandırması çalışıyor (SlotRun'lar slot dakikasına tam oturuyor). 31 Ekim slotları
+  ürün kapalıyken geçtiği için `skipped` yazıldı.
+- **2026-11-01 11:03 UTC olayı:** tick'te yayın kilidi tuttuktan sonra Neon bağlantısı
+  koptu (P1017). Hatayı yazacak `markFailed` de koptu ve `publishApprovedPost` throw
+  etti. Post `publishing`'de, container id'si boş kaldı; bu kombinasyonu hiçbir yol
+  ilerletmiyordu. Instagram'a `media_publish` gitmedi. Düzeltme:
+  - `neverThrows` sarmalayıcısı,
+  - `recoverInterruptedPublishes` + `closeOrphanSlotRuns` (tick ve günlük cron).
+  Takılı video aynı gün elle kuyruğa geri alındı (kullanıcı isteği):
+  - post koşullu UPDATE ile `publishing → idle`, `slotAt` boş, kuyruk sırası korundu;
+  - 11:03 SlotRun'ı `failed` olarak kapandı;
+  - müşteriye mail gitmedi.
+  **Deploy sonrası doğrula:** sistemde `outcome = null` SlotRun kalmamalı.
 - **V10 (#87) canlıda** (merge 2026-09-29, prod deploy Ready). Canlıda
   `/portal/ayarlar` tarayıcıda denendi: "1,4 GB / 10 GB · Yaklaşık 116 video
   daha sığar", konsol hatasız. V7 kanvası canlıya göre temizlendi (kullanıcı

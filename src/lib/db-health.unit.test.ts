@@ -4,7 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/alerts", () => ({ sendAlert: vi.fn(async () => undefined) }));
 
 import { sendAlert } from "@/lib/alerts";
-import { NEON_QUOTA_ALERT_KEY, isUnreachableDbError, probeNeon, reportCrash } from "@/lib/db-health";
+import {
+  NEON_QUOTA_ALERT_KEY,
+  isConnectionLostError,
+  isTransientDbError,
+  isUnreachableDbError,
+  probeNeon,
+  reportCrash,
+} from "@/lib/db-health";
+import { IGError } from "@/lib/instagram";
 
 const NEON_URL = "postgresql://kullanici:gizli-sifre@ep-test-123-pooler.us-east-1.aws.neon.tech/neondb";
 const QUOTA_BODY = JSON.stringify({
@@ -114,5 +122,42 @@ describe("reportCrash", () => {
     });
     await expect(reportCrash("k", "t", unreachable())).resolves.toBeUndefined();
     expect(sendAlert).toHaveBeenCalledWith("k", "t", expect.any(Object));
+  });
+});
+
+describe("isConnectionLostError / isTransientDbError", () => {
+  /** 2026-11-01 kuyruk tick uyarısındaki metnin birebiri. */
+  const incident = () =>
+    new Error(
+      "Invalid `prisma.post.updateMany()` invocation:\n\n\nServer has closed the connection."
+    );
+
+  it("olaydaki birebir metin → bağlantı koptu", () => {
+    expect(isConnectionLostError(incident())).toBe(true);
+    expect(isTransientDbError(incident())).toBe(true);
+  });
+
+  it("P1017 kodlu Prisma hatası → bağlantı koptu", () => {
+    const error = new Prisma.PrismaClientKnownRequestError("bağlantı kapandı", {
+      code: "P1017",
+      clientVersion: "6.5.0",
+    });
+    expect(isConnectionLostError(error)).toBe(true);
+  });
+
+  it("P1001 bağlantı kopması DEĞİL ama geçici DB hatası", () => {
+    expect(isConnectionLostError(unreachable())).toBe(false);
+    expect(isTransientDbError(unreachable())).toBe(true);
+  });
+
+  it("sorgunun kendi hatası, Instagram hatası ve hata olmayan değerler → false", () => {
+    const unique = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+      code: "P2002",
+      clientVersion: "6.5.0",
+    });
+    for (const value of [unique, new IGError("Container ERROR"), new Error("x"), null, "Server"]) {
+      expect(isConnectionLostError(value)).toBe(false);
+      expect(isTransientDbError(value)).toBe(false);
+    }
   });
 });

@@ -1,6 +1,7 @@
 import { Prisma, type SlotOutcome } from "@prisma/client";
 import { db } from "@/lib/db";
 import { SLOT_WINDOW_MS } from "@/lib/queue";
+import { ORPHAN_SLOT_DETAIL, orphanSlotRunAction } from "@/lib/publish-recovery";
 
 /**
  * Video kuyruğu (V4) — tick'in ve günlük özetin SİSTEM DÜZEYİ sorguları.
@@ -116,6 +117,48 @@ export async function recordSlotOutcomeForPost(
     where: { postId, outcome: null },
     data: { outcome, detail: detail ? detail.slice(0, 500) : null },
   });
+}
+
+/** Yetim SlotRun eşiği: pencere + bayat-sahiplenme süresi kadar sessiz kalmış satır. */
+export const ORPHAN_SLOT_RUN_MS = 2 * SLOT_WINDOW_MS;
+
+/**
+ * Sonucu hiç yazılmamış eski SlotRun'ları kapatır. Tick slotu sahiplenip
+ * (`claimSlotRun`) sonucunu yazamadan ölürse satır `outcome: null` kalır ve
+ * `dueSlots` onu "alınmış" saydığı için kimse bir daha bakmaz; panel o slotu
+ * sonsuza dek "sürüyor" gösterir. Kararı `orphanSlotRunAction` verir;
+ * `publishing`deki postun satırı beklemeye bırakılır.
+ */
+export async function closeOrphanSlotRuns(
+  now: Date = new Date(),
+  olderThanMs: number = ORPHAN_SLOT_RUN_MS
+): Promise<number> {
+  const runs = await db.slotRun.findMany({
+    where: { outcome: null, createdAt: { lte: new Date(now.getTime() - olderThanMs) } },
+    select: { id: true, outcome: true, createdAt: true, postId: true },
+    take: 50,
+  });
+  if (runs.length === 0) return 0;
+
+  const postIds = runs.flatMap((run) => (run.postId ? [run.postId] : []));
+  const posts = await db.post.findMany({
+    where: { id: { in: postIds } },
+    select: { id: true, publishStatus: true },
+  });
+  const byId = new Map(posts.map((post) => [post.id, post]));
+
+  let closed = 0;
+  for (const run of runs) {
+    const post = run.postId ? (byId.get(run.postId) ?? null) : null;
+    if (orphanSlotRunAction(run, post, now, olderThanMs) !== "close") continue;
+    // Koşullu: arada sonuç kancası yazdıysa onunki kalır (`finishSlotRun` deseni).
+    const result = await db.slotRun.updateMany({
+      where: { id: run.id, outcome: null },
+      data: { outcome: "failed", detail: ORPHAN_SLOT_DETAIL },
+    });
+    closed += result.count;
+  }
+  return closed;
 }
 
 /** Müşterinin kuyruğu — `pickNext`in baktığı alanlar + e-postalar için caption/kare. */

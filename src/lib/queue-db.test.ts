@@ -4,6 +4,7 @@ import {
   autoApprovePost,
   claimPostForSlot,
   claimSlotRun,
+  closeOrphanSlotRuns,
   finishSlotRun,
   loadQueue,
   recordSlotOutcomeForPost,
@@ -140,5 +141,53 @@ describe("loadQueue", () => {
     await createQueuePost(agency.id, other.id);
 
     expect((await loadQueue(client.id)).map((p) => p.id)).toEqual([a.id, b.id]);
+  });
+});
+
+describe("closeOrphanSlotRuns", () => {
+  const HOUR = 60 * 60_000;
+  const NOW = new Date();
+  const ago = (ms: number) => new Date(NOW.getTime() - ms);
+
+  async function orphan(clientId: string, createdAt: Date, postId: string | null = null) {
+    return db.slotRun.create({ data: { clientId, slotAt: createdAt, postId, createdAt } });
+  }
+
+  it("sonuçsuz, 3 saatlik, postu idle → failed + açıklama", async () => {
+    const { agency, client } = await seed();
+    const post = await createQueuePost(agency.id, client.id);
+    const run = await orphan(client.id, ago(3 * HOUR), post.id);
+
+    expect(await closeOrphanSlotRuns(NOW)).toBe(1);
+    const saved = await db.slotRun.findUniqueOrThrow({ where: { id: run.id } });
+    expect(saved).toMatchObject({ outcome: "failed", detail: "Slot yarıda kaldı — sonuç yazılamadı" });
+  });
+
+  it("postu hâlâ publishing → dokunulmaz (sonucu yayın kancası yazacak)", async () => {
+    const { agency, client } = await seed();
+    const post = await createQueuePost(agency.id, client.id, { publishStatus: "publishing" });
+    const run = await orphan(client.id, ago(3 * HOUR), post.id);
+
+    expect(await closeOrphanSlotRuns(NOW)).toBe(0);
+    expect((await db.slotRun.findUniqueOrThrow({ where: { id: run.id } })).outcome).toBeNull();
+  });
+
+  it("30 dakikalık sonuçsuz satır → dokunulmaz (tick hâlâ çalışıyor olabilir)", async () => {
+    const { client } = await seed();
+    const run = await orphan(client.id, ago(30 * 60_000));
+
+    expect(await closeOrphanSlotRuns(NOW)).toBe(0);
+    expect((await db.slotRun.findUniqueOrThrow({ where: { id: run.id } })).outcome).toBeNull();
+  });
+
+  it("sonucu yazılmış satır → değişmez", async () => {
+    const { client } = await seed();
+    const run = await db.slotRun.create({
+      data: { clientId: client.id, slotAt: ago(5 * HOUR), createdAt: ago(5 * HOUR), outcome: "published" },
+    });
+
+    expect(await closeOrphanSlotRuns(NOW)).toBe(0);
+    const saved = await db.slotRun.findUniqueOrThrow({ where: { id: run.id } });
+    expect(saved).toMatchObject({ outcome: "published", detail: null });
   });
 });

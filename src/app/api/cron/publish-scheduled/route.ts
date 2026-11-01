@@ -3,7 +3,13 @@ import { reportCrash } from "@/lib/db-health";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
 import { notifyAgencyTeam } from "@/lib/agency-notify";
-import { findStuckVideoPublishes, publishApprovedPost, resumePublish } from "@/lib/publish-post";
+import {
+  findStuckVideoPublishes,
+  publishApprovedPost,
+  recoverInterruptedPublishes,
+  resumePublish,
+} from "@/lib/publish-post";
+import { closeOrphanSlotRuns } from "@/lib/queue-db";
 
 /**
  * Zamanlanmış yayın (F8): `publishAt` zamanı gelmiş, onaylanmış ama henüz
@@ -107,6 +113,18 @@ export async function GET(request: Request) {
     let failed = 0;
     let deferred = 0;
     let resumed = 0;
+    let recovered = 0;
+
+    // Yarıda kesilmiş yayınlar (2026-11-01) — tick de aynısını yapıyor, ama
+    // tick yalnızca slot saatinde uyanıyor; slotu olmayan günlerde ve ajans
+    // postlarında emniyet ağı burası. Bildirimler `recoverInterruptedPublishes`in
+    // içinde: aşağıdaki `notifyAgency` bunlar için ÇAĞRILMAZ, çift mail olmasın.
+    try {
+      recovered += await recoverInterruptedPublishes(now);
+      recovered += await closeOrphanSlotRuns(now);
+    } catch (error) {
+      console.error("[cron:publish-scheduled] yarıda kalan yayınlar kurtarılamadı:", error);
+    }
 
     for (const post of stuck) {
       if (Date.now() - start > TIME_BUDGET_MS) break;
@@ -162,6 +180,7 @@ export async function GET(request: Request) {
       failed,
       deferred,
       resumed,
+      recovered,
     });
   } catch (error) {
     console.error("[cron:publish-scheduled] cron çöktü:", error);

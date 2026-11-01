@@ -206,6 +206,15 @@ Prisma yalnızca P1001 "Can't reach database server" der, TCP de açılır — g
 (402 "exceeded the quota") Neon'un HTTP ucu söyler (`db-health.ts > probeNeon`). Günlük
 cron %70'te uyarır (`neon-usage.ts`, `NEON_API_KEY` + `NEON_PROJECT_ID` gerekir).
 
+**V11'den beri DB bağlantısı her an kopabilir — `catch` içindeki yazma da.** Neon
+slotlar arasında uyuyor; sıcak Vercel örneği ölü bağlantıyı yeniden kullanınca
+sorgu P1017 "Server has closed the connection" ile düşüyor. 2026-11-01'de bu yayın
+kilidinden sonra oldu, hatayı yazacak `markFailed` de koptu ve post `publishing` +
+container'sız asılı kaldı. "Throw etmez" sözü veren fonksiyon bunu gövdedeki
+`catch`lere bırakmamalı, dış sarmalayıcı kullanmalı (`publish-post.ts > neverThrows`).
+Ara durumda kalabilen her satırın bir kurtarma yolu olmalı: buradakiler
+`recoverInterruptedPublishes` ve `closeOrphanSlotRuns`.
+
 **Mailler iki AYRI kutuya gidiyor:** onay maili müşteriye (`Client.email`), ajans
 bildirimleri iş sahibine (`Agency.email`), sistem uyarıları `ALERT_EMAIL`'e. "Mail
 gitmiyor" teşhisini gelen kutusuna bakarak değil, `/api/posts` yanıtındaki
