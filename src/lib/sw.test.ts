@@ -96,6 +96,7 @@ function loadWorker(opts: { online: boolean }) {
     URL,
     Promise,
     console,
+    setTimeout,
   });
 
   async function dispatchFetch(
@@ -216,6 +217,41 @@ describe("public/sw.js — çevrimdışı", () => {
     const res = await w.dispatchFetch("/portal", { mode: "navigate" });
     expect(await res?.text()).toBe("body:/portal/cevrimdisi");
     expect(await w.dispatchFetch("/api/portal/videos")).toBeUndefined();
+  });
+
+  it("tek bir düşüş çevrimdışı saydırmaz: navigasyon yeniden denenir (iOS uyanma düşüşü)", async () => {
+    const w = loadWorker({ online: true });
+    await w.install();
+    w.fetchMock.mockImplementationOnce(async () => {
+      throw new TypeError("Load failed");
+    });
+    const res = await w.dispatchFetch("/portal", { mode: "navigate" });
+    expect(await res?.text()).toBe("body:/portal");
+  });
+
+  it("üç deneme de düşerse çevrimdışı sayfası; sunucu yanıtı (5xx) yeniden denenmez", async () => {
+    const w = loadWorker({ online: true });
+    await w.install();
+    const kurulumCagrilari = w.fetchMock.mock.calls.length;
+    w.fetchMock.mockImplementation(async () => {
+      throw new TypeError("Load failed");
+    });
+    const res = await w.dispatchFetch("/portal", { mode: "navigate" });
+    expect(await res?.text()).toBe("body:/portal/cevrimdisi");
+    expect(w.fetchMock.mock.calls.length - kurulumCagrilari).toBe(3);
+
+    w.fetchMock.mockClear();
+    w.fetchMock.mockImplementation(async () => new Response("hata", { status: 500 }));
+    const hata = await w.dispatchFetch("/portal", { mode: "navigate" });
+    expect(hata?.status).toBe(500);
+    expect(w.fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("çevrimdışı sayfasının \"Tekrar dene\"si (?sw=1) SW'ye hiç girmez — tarayıcının ağ yolu", async () => {
+    const w = loadWorker({ online: false });
+    expect(await w.dispatchFetch("/portal?sw=1", { mode: "navigate" })).toBeUndefined();
+    // Parametre yalnızca kaçış kapısı; başka değer normal yoldan gider.
+    expect(await w.dispatchFetch("/portal?sw=0", { mode: "navigate" })).toBeDefined();
   });
 
   it("önbellek boşsa bile navigasyon patlamaz (503 metin)", async () => {
