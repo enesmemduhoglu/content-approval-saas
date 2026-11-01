@@ -17,10 +17,11 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
   ilerletmiyordu. Instagram'a `media_publish` gitmedi. Düzeltme:
   - `neverThrows` sarmalayıcısı,
   - `recoverInterruptedPublishes` + `closeOrphanSlotRuns` (tick ve günlük cron).
-  Kullanıcı kararı: prod'a elle müdahale YOK. Deploy'dan sonraki ilk tick ya da cron
-  takılı postu `failed`'a çeker; müşteriye "yayınlanamadı" maili gider, portaldan
-  "tekrar dene" ile kuyruğa döner. **Deploy sonrası doğrula:** sistemde
-  `outcome = null` SlotRun kalmamalı, takılı post `failed` olmalı.
+  Takılı video aynı gün elle kuyruğa geri alındı (kullanıcı isteği):
+  - post koşullu UPDATE ile `publishing → idle`, `slotAt` boş, kuyruk sırası korundu;
+  - 11:03 SlotRun'ı `failed` olarak kapandı;
+  - müşteriye mail gitmedi.
+  **Deploy sonrası doğrula:** sistemde `outcome = null` SlotRun kalmamalı.
 - **V10 (#87) canlıda** (merge 2026-09-29, prod deploy Ready). Canlıda
   `/portal/ayarlar` tarayıcıda denendi: "1,4 GB / 10 GB · Yaklaşık 116 video
   daha sığar", konsol hatasız. V7 kanvası canlıya göre temizlendi (kullanıcı
