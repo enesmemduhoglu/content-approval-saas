@@ -8,7 +8,9 @@
  *  • stili satır içi: çevrimdışıyken `/_next/static` altındaki CSS/JS ve
  *    Google fontları yüklenemez (onları önbelleğe almıyoruz), sayfa onlarsız
  *    da okunaklı kalmalı. İkon da bu yüzden dosya değil satır içi SVG.
- *    "Tekrar dene" JS'siz düz bir link.
+ *    "Tekrar dene" JS'siz düz bir link. `?sw=1` taşır: SW o isteğe
+ *    karışmaz, tarayıcı kendi ağ yolunu kullanır (public/sw.js, 2026-11-01).
+ *    Telefon çevrimiçiyken SW'nin fetch'i takılırsa çıkış bu link.
  *
  * Görünüm V7 mobil tasarım dilinde (krem zemin, lacivert mürekkep). Başlık
  * fontu Archivo önbellekte değilse sistem yazısına düşer — bilinçli.
@@ -77,13 +79,13 @@ export default function OfflinePage() {
           lineHeight: 1.02,
         }}
       >
-        İnternet bağlantısı yok
+        Portala bağlanılamadı
       </h1>
       <p style={{ fontSize: 15, lineHeight: 1.5, color: "#5B6472", margin: 0 }}>
-        Kuyruğunu görmek ve video yüklemek için bağlantı gerekiyor. Bağlantı gelince tekrar dene.
+        İnternet bağlantın kopmuş ya da portal o an yanıt vermedi. Kuyruğunu görmek için tekrar dene.
       </p>
       <a
-        href="/portal"
+        href="/portal?sw=1"
         style={{
           marginTop: 12,
           boxSizing: "border-box",

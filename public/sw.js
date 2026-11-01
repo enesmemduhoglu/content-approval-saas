@@ -18,6 +18,16 @@
  * Navigasyon → her zaman ağ; ağ yoksa çevrimdışı sayfası. Yanıt önbelleğe
  * YAZILMAZ.
  *
+ * ─── "Çevrimdışı" yanılgısı (2026-11-01) ──────────────────────────────────
+ * iPhone'da ana ekrandaki portal LTE'de, sunucu aynı dakikada sağlıklıyken
+ * "İnternet bağlantısı yok" gösterdi. iOS PWA arka plandan dönünce SW'nin ilk
+ * `fetch`i sık sık "Load failed" ile düşüyor (WebKit); tek bir düşüşü "ağ yok"
+ * saymak portalı ölü gösteriyordu. Bu yüzden:
+ *   • navigasyon iki kez daha, kısa aralıkla denenir (`YENIDEN_DENEME_MS`);
+ *   • çevrimdışı sayfasındaki "Tekrar dene" `?sw=1` ile gelir ve SW o
+ *     isteğe HİÇ karışmaz — tarayıcının kendi ağ yolu kullanılır. SW'nin fetch
+ *     yolu takılı kalsa bile kullanıcının bir çıkışı olsun.
+ *
  * ─── Güncelleme ─────────────────────────────────────────────────────────────
  * `skipWaiting` yalnızca sayfa {type: "SKIP_WAITING"} gönderince (kullanıcı
  * "yenile"ye dokununca). Kendiliğinden devralmak, yükleme sürerken sayfanın
@@ -40,10 +50,17 @@
  *     depoya koyar, /portal/yukle'ye yönlendirir.
  */
 
-const SURUM = "v1";
+// v2: çevrimdışı sayfasının "Tekrar dene" linki `?sw=1` taşıyor (2026-11-01).
+const SURUM = "v2";
 const ONBELLEK_ONEKI = "portal-kabuk-";
 const ONBELLEK = ONBELLEK_ONEKI + SURUM;
 const CEVRIMDISI_URL = "/portal/cevrimdisi";
+// Çevrimdışı sayfasının linkiyle aynı ad (src/app/portal/cevrimdisi/page.tsx).
+const ATLA_PARAMETRESI = "sw";
+// İlk deneme düşerse bu kadar bekleyip tekrar: iOS'un uyanma düşüşü genelde
+// ikinci denemede geçiyor. Toplam ~1,5 sn — gerçekten ağ yoksa kullanıcı
+// çevrimdışı sayfasını bundan fazla beklemesin.
+const YENIDEN_DENEME_MS = [300, 1200];
 
 // Kurulumda indirilenler. Müşteriye özel ikon setleri (/icons/<müşteri>/)
 // burada değil: ilk kullanımda `ikonYaniti` önbelleğe alır.
@@ -117,6 +134,8 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
+    // Kaçış kapısı: çevrimdışı sayfasından gelen yeniden deneme SW'siz gider.
+    if (url.searchParams.get(ATLA_PARAMETRESI) === "1") return;
     event.respondWith(navigasyonYaniti(request));
     return;
   }
@@ -129,20 +148,30 @@ self.addEventListener("fetch", (event) => {
   // Geri kalan her şey (/_next/**, manifest, sw.js): varsayılan ağ yolu.
 });
 
-/** Ağ önce; ağ yoksa çevrimdışı sayfası. Yanıt önbelleğe YAZILMAZ. */
+const bekle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Ağ önce; birkaç deneme de düşerse çevrimdışı sayfası. Yanıt önbelleğe
+ * YAZILMAZ. Yalnızca `fetch`in kendisi patlarsa (bağlantı kurulamadı) yeniden
+ * denenir; sunucunun 4xx/5xx yanıtı olduğu gibi sayfaya gider.
+ */
 async function navigasyonYaniti(request) {
-  try {
-    return await fetch(request);
-  } catch {
-    const cached = await caches.match(CEVRIMDISI_URL);
-    return (
-      cached ||
-      new Response("İnternet bağlantısı yok.", {
-        status: 503,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      })
-    );
+  for (let deneme = 0; ; deneme++) {
+    try {
+      return await fetch(request);
+    } catch {
+      if (deneme >= YENIDEN_DENEME_MS.length) break;
+      await bekle(YENIDEN_DENEME_MS[deneme]);
+    }
   }
+  const cached = await caches.match(CEVRIMDISI_URL);
+  return (
+    cached ||
+    new Response("Portala bağlanılamadı.", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    })
+  );
 }
 
 /**
