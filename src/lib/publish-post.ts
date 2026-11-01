@@ -1,4 +1,4 @@
-import type { PublishStatus } from "@prisma/client";
+import type { Prisma, PublishStatus } from "@prisma/client";
 import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
@@ -20,6 +20,12 @@ import {
   sendQueuePublishedEmail,
 } from "@/lib/email-queue";
 import { recordSlotOutcomeForPost } from "@/lib/queue-db";
+import {
+  INTERRUPTED_AFTER_MS,
+  INTERRUPTED_PUBLISH_DETAIL,
+  interruptedDetail,
+  isInterruptedPublish,
+} from "@/lib/publish-recovery";
 import { notifyClientUsers } from "@/lib/push";
 import { failedPush, publishedPush } from "@/lib/push-messages";
 import { MAX_GET_URL_TTL_SECONDS, keyBelongsToClient, signGetUrl } from "@/lib/storage-r2";
@@ -51,9 +57,51 @@ export const NOT_APPROVED_ERROR = "Onaylanmamış post yayınlanamaz";
  * onay yerinde durur, `publishStatus = "failed"` olur ve tekrar denenebilir.
  *
  * Bu fonksiyon hiçbir zaman throw etmez — çağıran route her durumda onayın
- * sonucunu döndürebilmelidir.
+ * sonucunu döndürebilmelidir. Söz gövdenin `catch`lerine bırakılmıyor (bkz.
+ * {@link neverThrows}).
  */
 export async function publishApprovedPost(postId: string): Promise<PublishOutcome> {
+  return neverThrows("publishApprovedPost", postId, () => publishApprovedPostInner(postId));
+}
+
+/**
+ * "Asla throw etmez" sözünün asıl bekçisi.
+ *
+ * Gövdelerdeki `catch`ler Instagram hatasını yakalıyor ama sonucu yazmak için
+ * yine DB'ye gidiyorlar (`markFailed`). 2026-11-01'de bağlantı yayının ortasında
+ * koptu, `markFailed`in yazması da aynı ölü bağlantıya çarptı ve istisna
+ * kuyruk tick'ine sızdı. V11'den beri Neon slotların arasında uyuyor; bu artık
+ * nadir bir olay değil.
+ *
+ * Dönüş `publishing`: gerçek durum bilinmiyor. Kilit alındıysa post zaten
+ * `publishing`de ve sonucu kurtarma ağı (`recoverInterruptedPublishes`)
+ * yazacak. `failed` dönseydik çağıran (tick) SlotRun'ı "başarısız" diye
+ * kapatırdı — DB'de hiçbir şey yazılamamışken.
+ */
+async function neverThrows(
+  label: string,
+  postId: string,
+  run: () => Promise<PublishOutcome>
+): Promise<PublishOutcome> {
+  try {
+    return await run();
+  } catch (error) {
+    console.error(`[publish] ${label} beklenmeyen hatayla kesildi: post=${postId}`, error);
+    // Bu dal sözün son savunması: `sendAlert` throw etmez ama ona da metni
+    // üreten koda da güvenmiyor — burada bir istisna sözü yine bozardı.
+    try {
+      await sendAlert("publish:interrupted", "Yayın beklenmeyen hatayla yarıda kesildi", {
+        postId,
+        detail: interruptedDetail(error),
+      });
+    } catch (alertError) {
+      console.error(`[publish] yarıda kesilme uyarısı gönderilemedi: post=${postId}`, alertError);
+    }
+    return { publishStatus: "publishing", publishError: GENERIC_ERROR };
+  }
+}
+
+async function publishApprovedPostInner(postId: string): Promise<PublishOutcome> {
   const post = await db.post.findUnique({
     where: { id: postId },
     include: { client: true, images: { orderBy: { sortOrder: "asc" } } },
@@ -216,8 +264,14 @@ export async function publishApprovedPost(postId: string): Promise<PublishOutcom
  *
  * `publishApprovedPost`ı yeniden çağırmıyor çünkü o mükerrer kontrolünü ve
  * token çözmeyi baştan yapardı; buradaki iş yalnızca "hazır mı, hazırsa yayınla".
+ *
+ * `publishApprovedPost` gibi throw etmez ({@link neverThrows}).
  */
 export async function resumePublish(postId: string): Promise<PublishOutcome> {
+  return neverThrows("resumePublish", postId, () => resumePublishInner(postId));
+}
+
+async function resumePublishInner(postId: string): Promise<PublishOutcome> {
   const post = await db.post.findUnique({
     where: { id: postId },
     include: { client: true },
@@ -343,6 +397,78 @@ export async function findStuckVideoPublishes(input: { stuckAfterMs: number; tak
       agency: { select: { email: true } },
     },
   });
+}
+
+/** Tek turda kurtarılacak azami post — tick de cron da 60 sn tavanıyla yarışıyor. */
+const RECOVER_LIMIT = 10;
+
+/**
+ * Kilidi alıp sonucunu yazamadan ölen yayınları `failed`a çeker (2026-11-01).
+ *
+ * `publishing` + container id'si BOŞ bir post hiçbir yoldan ilerlemiyor: kilit
+ * onu geçirmiyor, `resumePublish` "yapılacak bir şey yok" deyip dönüyor,
+ * {@link findStuckVideoPublishes} container ister, portalın "tekrar dene"si
+ * yalnızca `failed`ı alıyor. `failed`a çekmek o kaçış yolunu açar ve
+ * `markFailed`in bildirimleri (müşteri e-postası, push, ajans, SlotRun
+ * kapanışı) bedavaya gelir.
+ *
+ * Neden `idle` değil: kuyruğun kuralı "hata almış video rozetle bekler"
+ * (`queue.ts > PICKABLE_PUBLISH_STATUS`). Bağlantı yine koparsa `idle` her
+ * slotta sessizce aynı yere düşerdi.
+ *
+ * Görsel (ajans) postu da kapsamda: `publishToInstagram` yolu container id'si
+ * yazmıyor, aynı açıktan takılmış görsel post da burada görünür. Onun
+ * bildirimi `notifyPortalOutcome`ta yok (yalnızca portal), bu yüzden burada.
+ *
+ * Kapsamsız sorgu {@link findStuckVideoPublishes} ile aynı gerekçeyle burada:
+ * oturumu olmayan, tüm ajansları gezen bir emniyet ağı. Throw edebilir;
+ * çağıranlar kendi try'ında çağırıyor.
+ */
+export async function recoverInterruptedPublishes(
+  now: Date = new Date(),
+  staleAfterMs: number = INTERRUPTED_AFTER_MS
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - staleAfterMs);
+  const candidates = await db.post.findMany({
+    where: { publishStatus: "publishing", igContainerId: null, updatedAt: { lte: cutoff } },
+    orderBy: { updatedAt: "asc" },
+    take: RECOVER_LIMIT,
+    select: {
+      id: true,
+      source: true,
+      publishStatus: true,
+      igContainerId: true,
+      updatedAt: true,
+      caption: true,
+      externalRef: true,
+      agencyId: true,
+      client: { select: { name: true } },
+      agency: { select: { email: true } },
+    },
+  });
+
+  let recovered = 0;
+  for (const post of candidates) {
+    if (!isInterruptedPublish(post, now, staleAfterMs)) continue;
+    // Bekçi okunanla aynı koşul: okuma ile yazma arasında container yazıldıysa
+    // (yani çağrı aslında yaşıyorsa) geçiş tutmaz.
+    const { won } = await markFailedIf(post.id, INTERRUPTED_PUBLISH_DETAIL, {
+      igContainerId: null,
+      updatedAt: { lte: cutoff },
+    });
+    if (!won) continue;
+    recovered += 1;
+    if (post.source !== "portal") {
+      await notifyAgencyTeam(post.agencyId, {
+        agencyEmail: post.agency.email,
+        event: "approved",
+        clientName: post.client.name,
+        postRef: post.externalRef ?? post.caption.split("\n")[0].slice(0, 80),
+        publishStatus: "failed",
+      }).catch((error) => console.error("[publish] kurtarma bildirimi hatası:", error));
+    }
+  }
+  return recovered;
 }
 
 /** Video yayınının ilk turu: container aç, sakla, bütçe kadar bekle. */
@@ -608,9 +734,22 @@ async function markDuplicate(
  * "yayınlanamadı" görünürdü.
  */
 async function markFailed(postId: string, detail: string): Promise<PublishOutcome> {
+  return (await markFailedIf(postId, detail, {})).outcome;
+}
+
+/**
+ * {@link markFailed}, koşula EK bir bekçiyle. `won` = geçişi bu çağrı yaptı
+ * (bildirimler de yalnızca o zaman gitti) — kurtarma ağı ajans postunun
+ * bildirimini buna göre atıyor.
+ */
+async function markFailedIf(
+  postId: string,
+  detail: string,
+  guard: Prisma.PostWhereInput
+): Promise<{ won: boolean; outcome: PublishOutcome }> {
   console.error("[instagram] yayın hatası:", detail);
   const yazildi = await db.post.updateMany({
-    where: { id: postId, publishStatus: "publishing" },
+    where: { ...guard, id: postId, publishStatus: "publishing" },
     data: { publishStatus: "failed", publishError: detail.slice(0, 1000) },
   });
   if (yazildi.count === 0) {
@@ -622,8 +761,11 @@ async function markFailed(postId: string, detail: string): Promise<PublishOutcom
     });
     console.warn(`[instagram] hata yazılmadı, post zaten sonuçlanmış: post=${postId}`);
     return {
-      publishStatus: current?.publishStatus ?? "failed",
-      igPermalink: current?.igPermalink ?? null,
+      won: false,
+      outcome: {
+        publishStatus: current?.publishStatus ?? "failed",
+        igPermalink: current?.igPermalink ?? null,
+      },
     };
   }
   // F11: bu, ajansa giden per-post bildirimin (approve route'undaki
@@ -639,5 +781,5 @@ async function markFailed(postId: string, detail: string): Promise<PublishOutcom
     { postId, detail: detail.slice(0, 300) }
   );
   await notifyPortalOutcome(postId, "failed", detail);
-  return { publishStatus: "failed", publishError: GENERIC_ERROR };
+  return { won: true, outcome: { publishStatus: "failed", publishError: GENERIC_ERROR } };
 }

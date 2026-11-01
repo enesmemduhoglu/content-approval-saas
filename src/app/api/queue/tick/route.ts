@@ -3,7 +3,7 @@ import { sendAlert } from "@/lib/alerts";
 import { notifyAgencyTeam } from "@/lib/agency-notify";
 import { portalUrl, queueRecipient, sendSlotEmptyEmail, type SlotEmptyReason } from "@/lib/email-queue";
 import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
-import { publishApprovedPost, resumePublish } from "@/lib/publish-post";
+import { publishApprovedPost, recoverInterruptedPublishes, resumePublish } from "@/lib/publish-post";
 import { notifyClientUsers } from "@/lib/push";
 import { slotEmptyPush } from "@/lib/push-messages";
 import { authorizeQueueRequest } from "@/lib/qstash";
@@ -16,6 +16,7 @@ import {
   autoApprovePost,
   claimPostForSlot,
   claimSlotRun,
+  closeOrphanSlotRuns,
   findPortalPublishingPosts,
   findQueueClients,
   finishSlotRun,
@@ -78,6 +79,8 @@ type Stats = {
   /** Bütçe dolduğu için sonraki tick'e bırakılan slotlar. */
   deferred: number;
   resumed: number;
+  /** Yarıda kesilip `failed`a çekilen yayınlar + kapatılan yetim SlotRun'lar. */
+  recovered: number;
 };
 
 export async function POST(request: Request) {
@@ -112,6 +115,7 @@ async function handle(request: Request) {
     lost: 0,
     deferred: 0,
     resumed: 0,
+    recovered: 0,
   };
   // Bu tick'te yayını başlatılan postlar: az önce 30 sn yoklandılar, aynı turda
   // tekrar yoklamak yalnızca bütçe yer.
@@ -134,6 +138,18 @@ async function handle(request: Request) {
           error: error instanceof Error ? error.message : String(error),
         });
       }
+    }
+
+    // Yarıda kesilmiş yayınlar (2026-11-01): kilidi alıp sonucunu yazamadan
+    // ölen çağrının postu hiçbir yoldan ilerlemiyor. Slot işinden SONRA —
+    // yayın her zaman önce gelir — ve kendi try'ında: kurtarma patlarsa tur
+    // "çöktü" sayılmasın. Sıra önemli: önce post `failed`a çekilir (sonuç
+    // kancası SlotRun'ını gerçek nedenle kapatır), sonra kalan yetimler.
+    try {
+      stats.recovered += await recoverInterruptedPublishes(new Date());
+      stats.recovered += await closeOrphanSlotRuns(new Date());
+    } catch (error) {
+      console.error("[queue:tick] yarıda kalan yayınlar kurtarılamadı:", error);
     }
 
     // Instagram'ın hâlâ işlediği videolar. Günlük cron'un "takılı" dalından

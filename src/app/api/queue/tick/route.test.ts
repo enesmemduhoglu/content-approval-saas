@@ -38,7 +38,12 @@ vi.mock("@/lib/media-retention", () => ({
 }));
 // V11: takip uyandırmaları sahte QStash'e gider; kota teşhisi kendi dosyasında.
 vi.mock("@upstash/qstash", async () => (await import("@tests/helpers/qstash")).qstashModule());
-vi.mock("@/lib/db-health", () => ({ reportCrash: vi.fn(async () => undefined) }));
+// Hata sınıflandırıcıları gerçek kalır: yayının "throw etmez" sarmalayıcısı
+// onlarla uyarı metnini üretiyor.
+vi.mock("@/lib/db-health", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/db-health")>()),
+  reportCrash: vi.fn(async () => undefined),
+}));
 
 import { GET, POST } from "./route";
 import { notifyClientUsers } from "@/lib/push";

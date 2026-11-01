@@ -47,6 +47,28 @@ export function isUnreachableDbError(error: unknown): boolean {
 }
 
 /**
+ * Açık bir bağlantının sunucu tarafında kapatılması mı (P1017)?
+ *
+ * V11'den beri Neon compute slotların arasında uyuyor ve uyurken açık
+ * bağlantıları kapatıyor; Vercel'in sıcak kalan örneği o bağlantıyı yeniden
+ * kullanınca sorgu bu hatayla düşüyor (2026-11-01, yayın ortasında). P1001'den
+ * farkı: sunucu oradaydı, bağlantı yolda öldü — kota değil, yeniden denenebilir.
+ */
+export function isConnectionLostError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P1017") {
+    return true;
+  }
+  // `updateMany()` içinden gelen hata `PrismaClientUnknownRequestError` olarak
+  // da gelebiliyor ve kodu taşımıyor; metin sürümler arasında sabit.
+  return error instanceof Error && error.message.includes("Server has closed the connection");
+}
+
+/** Veritabanına ulaşılamadı ya da bağlantı koptu — sorgunun kendisi değil, yol bozuk. */
+export function isTransientDbError(error: unknown): boolean {
+  return isUnreachableDbError(error) || isConnectionLostError(error);
+}
+
+/**
  * Neon'un HTTP ucuna `SELECT 1`. Throw etmez. Bağlantı adresi yalnızca
  * Neon'un kendi ucuna, kendi başlığında gider; hiçbir log ya da uyarıya
  * yazılmaz.

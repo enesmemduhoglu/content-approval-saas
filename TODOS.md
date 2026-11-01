@@ -29,6 +29,16 @@ Plan, kararlar ve **oturum devri** burada DEĞİL:
 [`KARARLAR.md`](docs/video-kuyrugu/KARARLAR.md) · [`V7-pwa.md`](docs/video-kuyrugu/V7-pwa.md).
 Buraya yalnızca sıradaki geliştirmeler düşülür.
 
+- [ ] **DB bağlantı kopmasını kaynağında azalt.** V11'den beri Neon compute slotlar
+      arasında uyuyor; Vercel'in sıcak örneğindeki Prisma havuzu sunucunun kapattığı
+      bağlantıyı yeniden kullanınca sorgu P1017 ile düşüyor (2026-11-01, yayının
+      ortasında). Bugünkü koruma sonucu topluyor: `neverThrows` + kurtarma ağı;
+      takılan post en geç bir sonraki tick ya da cron'da `failed`'a düşer. Kopmanın
+      kendisi açık. Seçenekler:
+      - P1017'de tek seferlik yeniden deneme (`$extends`; dikkat: `db`'nin tipi ve
+        delege spy'ları değişir),
+      - Neon serverless sürücüsü (`@prisma/adapter-neon`).
+      Önce Vercel loglarından kopmanın hangi sorguda ve ne sıklıkla olduğunu ölç.
 - [ ] **Küçük kapak (thumbnail).** Kuyruk kartları, "Sıradaki yayın" kartı ve günlük
       özet e-postası kapağı tam boy ilk kareden (`frameKeys[0]`, imzalı R2 URL'i —
       `portal-media.ts`, `queue-digest.ts`) çiziyor. Önce ölç (kart başına bayt, liste
