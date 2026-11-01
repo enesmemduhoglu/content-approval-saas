@@ -42,7 +42,8 @@ content-approval-saas (Vercel Hobby · Next.js · Neon Postgres)
    ├─ /portal ............ müşteri arayüzü (magic-link girişi)
    ├─ /api/portal/* ...... yükleme, kuyruk, ayarlar
    ├─ /api/queue/caption . caption üretimi (QStash tetikler)
-   ├─ /api/queue/tick .... slot kontrolü + yayın (QStash, 5 dk)
+   ├─ /api/queue/tick .... slot kontrolü + yayın (QStash, slot saatinde — V11)
+   ├─ /api/queue/arm ..... slot uyandırmalarını elle kur/eşitle
    └─ publishApprovedPost  mevcut iki fazlı Reels yayını (değişmez)
         │                    │                   │
         ▼                    ▼                   ▼
@@ -62,13 +63,15 @@ var ve test ediliyor; yeniden yazılmıyor.
 Vercel Hobby cron'u günde bire sınırlı ve ±59 dk oynuyor (bkz. `CLAUDE.md`
 Tuzaklar). "19:00'da yayınla" için yetmez. Upstash QStash:
 
-- her **5 dakikada** `POST /api/queue/tick` çağırır (günde 288 mesaj),
+- her **slot saatinde** tek seferlik `POST /api/queue/tick` çağırır (V11, K32 — ilk
+  tasarım 5 dakikada birdi; Neon compute'unu hiç uyutmadığı için kotayı bitirdi),
 - her yüklenen video için bir kez `POST /api/queue/caption/[postId]` çağırır
   ve başarısız isteği kendisi tekrar dener.
 
 İstekler QStash imzasıyla (`@upstash/qstash` `Receiver`) doğrulanır; imzasız
-istek 401. Mevcut günlük Vercel cron'ları güvenlik ağı olarak kalır. Yedek
-tetikleyici: cron-job.org + `CRON_SECRET`.
+istek 401. Mevcut günlük Vercel cron'ları güvenlik ağı olarak kalır; elle çağrı
+`Bearer CRON_SECRET` ile. Periyodik yedek tetikleyici (cron-job.org) artık YOK — aynı
+sebeple compute'u uyutmazdı.
 
 Kota V1'de ölçülür; sonuç `KARARLAR.md`'ye yazılır.
 
@@ -180,8 +183,9 @@ Saf fonksiyonlar `src/lib/queue.ts`'te; DB'siz birim test edilir.
   3. `pickNext` ile video seç.
   4. Onay kapalıysa `status = approved` + `ApprovalAudit(action: 'auto_approved')`.
   5. `publishApprovedPost` çağır (mevcut, hiç throw etmez, kendi kilidi var).
-  6. Reels konteyneri hazır değilse sonraki tick'ler mevcut `resumePublish`
-     ile tamamlar — bugün bunu günlük cron'un "takılı kalan" dalı yapıyor.
+  6. Reels konteyneri hazır değilse tick 120 sn sonrasına takip uyandırması
+     kurar, takip `resumePublish` ile tamamlar. 30 dakikadan eski container'a
+     takip kurulmaz; onu günlük cron'un "takılı kalan" dalı bitirir.
 - **Hata** — video "hata" rozetiyle kuyruğun başında kalır; portaldan "tekrar
   dene" ya da "sona at". Bir sonraki slotta sıradaki video yayınlanır; tek
   hata kuyruğu durdurmaz.

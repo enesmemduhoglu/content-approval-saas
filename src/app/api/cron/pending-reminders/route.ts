@@ -8,6 +8,9 @@ import { REMINDER_AFTER_DAYS, daysPending, reminderDecision } from "@/lib/remind
 import { runQueueDigest, type QueueDigestStats } from "@/lib/queue-digest";
 import { cleanupStaleDrafts } from "@/lib/draft-cleanup";
 import { runMediaRetention } from "@/lib/media-retention";
+import { checkNeonUsage } from "@/lib/neon-usage";
+import { reportCrash } from "@/lib/db-health";
+import { syncQueueWakes } from "@/lib/queue-wake";
 
 /**
  * Bekleyen postlar için günlük hatırlatma (F3).
@@ -59,6 +62,11 @@ export async function GET(request: Request) {
 
   const now = new Date();
   const baseUrl = appBaseUrl(request);
+
+  // V11: Neon kotası — try'ın ve tüm DB işlerinin ÖNÜNDE. Kota bittiğinde
+  // aşağıdaki ilk sorgu patlar; uyarının işi tam da ondan önce haber vermek.
+  // Neon API'sine gider, DB'ye değil; throw etmez.
+  const neonUsage = await checkNeonUsage();
 
   // Tüm gövde try/catch'e alınıyor (F11): sarmadan önce burada bir DB hatası
   // ya da beklenmeyen istisna cron'u SESSİZCE çökertiyordu — istek 500 ile
@@ -184,9 +192,15 @@ export async function GET(request: Request) {
   // etmez, kendi uyarısını kendisi atar.
   const draftCleanup = await cleanupStaleDrafts(now);
 
-  // V9 depolama temizliği. Asıl koşusu saatlik kuyruk tick'inde; burası
-  // QStash durursa diye emniyet ağı. Throw etmez, uyarısını kendisi atar.
+  // V9 depolama temizliği. Asıl koşusu kuyruk tick'inin slot uyandırmalarında;
+  // burası slotsuz günler ve QStash durursa diye emniyet ağı. Throw etmez,
+  // uyarısını kendisi atar.
   const mediaRetention = await runMediaRetention(now);
+
+  // V11: önümüzdeki 6 günün slot uyandırmalarını tamamla. Ayar kaydı zaten
+  // kuruyor; burası ufku her gün bir gün ileri taşıyor ve kaçan/başarısız
+  // kurulumu onarıyor. Throw etmez, uyarısını kendisi atar.
+  const queueWakes = await syncQueueWakes(now);
 
   // Yanıt yalnızca SAYI taşır — müşteri adı, e-posta, caption hiçbiri geçmez.
   // Bu çıktı Vercel cron loglarına düşüyor.
@@ -201,15 +215,17 @@ export async function GET(request: Request) {
     queueDigest,
     draftCleanup,
     mediaRetention,
+    queueWakes,
+    neonUsage,
   });
   } catch (error) {
     console.error("[cron:reminders] cron çöktü:", error);
     // `key` sabit: bu cron zaten günde bir kez koşuyor, bastırma penceresi
     // burada "aynı günde tekrar tetiklenirse iki kez mail gitmesin" içindir.
-    await sendAlert(
+    await reportCrash(
       "cron:pending-reminders:crash",
       "pending-reminders cron'u beklenmeyen hatayla çöktü",
-      { error: error instanceof Error ? error.message : String(error) }
+      error
     );
     return NextResponse.json({ ok: false, error: "cron çöktü" }, { status: 500 });
   }

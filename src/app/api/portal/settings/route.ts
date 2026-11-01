@@ -3,6 +3,7 @@ import { getClientScopedDb } from "@/lib/client-scoped-db";
 import { portalMutationGuard, portalReadGuard, readJson } from "@/lib/portal-route";
 import { validatePublishSettings } from "@/lib/portal-validation";
 import { PUBLISH_SETTINGS_DEFAULTS, toSettingsView } from "@/lib/portal-settings";
+import { syncQueueWakes } from "@/lib/queue-wake";
 
 /**
  * Yayın ayarları (`PublishSettings`, müşteri başına tek satır). Satır yoksa
@@ -33,5 +34,13 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: parsed.error, field: parsed.field }, { status: 400 });
   }
   const settings = await getClientScopedDb(guard.session).settings.upsert(parsed.value);
+  // V11: tick periyodik değil, slot saatinde kurulmuş mesajla uyanıyor — yeni
+  // saat kurulmazsa ilk yayını günlük senkron gelene kadar kaçar. Senkron
+  // sistem düzeyi (tüm müşterilerin saatleri tek uyandırma kümesi) ve throw
+  // etmez; başarısızsa kendi uyarısını atar, kayıt yine başarılı sayılır.
+  const wakes = await syncQueueWakes();
+  if (wakes.failed > 0 || wakes.skipped) {
+    console.error("[portal:settings] uyandırmalar kurulamadı:", wakes);
+  }
   return NextResponse.json({ settings: toSettingsView(settings) });
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sendAlert } from "@/lib/alerts";
+import { reportCrash } from "@/lib/db-health";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
 import { notifyAgencyTeam } from "@/lib/agency-notify";
@@ -165,10 +165,10 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("[cron:publish-scheduled] cron çöktü:", error);
-    await sendAlert(
+    await reportCrash(
       "cron:publish-scheduled:crash",
       "publish-scheduled cron'u beklenmeyen hatayla çöktü",
-      { error: error instanceof Error ? error.message : String(error) }
+      error
     );
     return NextResponse.json({ ok: false, error: "cron çöktü" }, { status: 500 });
   }

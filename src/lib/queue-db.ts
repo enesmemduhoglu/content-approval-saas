@@ -214,6 +214,72 @@ export async function autoApprovePost(clientId: string, postId: string): Promise
  * container'ı kendisi yokluyor olabilir. Daha tazesine dokunmak iki yoklayıcı,
  * iki `media_publish` denemesi demek; 60 sn sonra açan fonksiyonun öldüğü kesin.
  */
+/**
+ * Hâlâ Instagram'ın işlediği portal videolarının container açılış anları —
+ * tick'in "takip uyandırması kurayım mı" kararı (`followUpDecision`) için.
+ * `findPortalPublishingPosts`tan farkı tazelik eşiği olmaması: bu turda
+ * açılan container da takip ister, onu yoklayacak başka bir tick yok.
+ */
+export async function publishingContainerTimes(): Promise<Date[]> {
+  const rows = await db.post.findMany({
+    where: {
+      source: "portal",
+      publishStatus: "publishing",
+      igContainerId: { not: null },
+      containerAt: { not: null },
+    },
+    select: { containerAt: true },
+  });
+  return rows.flatMap((row) => (row.containerAt ? [row.containerAt] : []));
+}
+
+// ─── V11: kurulmuş uyandırmalar (`QueueWake`) ───────────────────────────────
+
+/**
+ * Uyandırma saatlerini hesaplamaya yeten alanlar — `findQueueClients`in token
+ * ve müşteri bilgisini taşımayan hafif hâli. Duraklatılmışlar da dahil (bkz.
+ * `desiredWakeTimes`).
+ */
+export function findQueueSchedules() {
+  return db.publishSettings.findMany({ select: { slots: true, timezone: true, days: true } });
+}
+
+/** `from` ve sonrasındaki kurulmuş uyandırmalar. */
+export function listWakesFrom(from: Date) {
+  return db.queueWake.findMany({ where: { at: { gte: from } }, orderBy: { at: "asc" } });
+}
+
+/**
+ * Uyandırma anını SAHİPLEN — `claimSlotRun` ile aynı desen. İki senkron aynı
+ * anda koşarsa (ayar kaydı + günlük cron) yalnızca INSERT'i başaran QStash'e
+ * mesaj atar; `false` = başkası kurdu.
+ */
+export async function claimWake(at: Date): Promise<boolean> {
+  try {
+    await db.queueWake.create({ data: { at } });
+    return true;
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function setWakeMessageId(at: Date, messageId: string): Promise<void> {
+  await db.queueWake.updateMany({ where: { at }, data: { messageId } });
+}
+
+export async function deleteWake(at: Date): Promise<void> {
+  await db.queueWake.deleteMany({ where: { at } });
+}
+
+/** Teslim edilmiş (geçmiş) uyandırma kayıtlarını budar; sayıyı döner. */
+export async function pruneWakesBefore(before: Date): Promise<number> {
+  const result = await db.queueWake.deleteMany({ where: { at: { lt: before } } });
+  return result.count;
+}
+
 export function findPortalPublishingPosts(take: number, openedBefore: Date) {
   return db.post.findMany({
     where: {

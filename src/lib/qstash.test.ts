@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { authorizeQueueRequest, enqueueCaption } from "@/lib/qstash";
+import { appUrl, authorizeQueueRequest, enqueueCaption, qstashClient } from "@/lib/qstash";
 
 const SECRET = "x".repeat(40);
 
@@ -41,6 +41,27 @@ describe("authorizeQueueRequest", () => {
     expect(await authorizeQueueRequest(req({ "upstash-signature": "bozuk.jwt.imza" }), "{}")).toBe(
       false
     );
+  });
+});
+
+describe("qstashClient / appUrl", () => {
+  it("token yoksa istemci null", () => {
+    expect(qstashClient()).toBeNull();
+  });
+
+  it("QSTASH_URL bölge adresi olarak istemciye geçer", () => {
+    process.env.QSTASH_TOKEN = "t";
+    process.env.QSTASH_URL = "https://qstash-us-east-1.upstash.io";
+    const client = qstashClient();
+    expect(client).not.toBeNull();
+    // SDK adresi kendi `http` alanında tutuyor; EU varsayılanına düşmediğini gör.
+    expect(JSON.stringify(client)).toContain("qstash-us-east-1.upstash.io");
+    delete process.env.QSTASH_URL;
+  });
+
+  it("APP_URL sondaki eğik çizgilerden arındırılır", () => {
+    process.env.APP_URL = "https://cas.test//";
+    expect(appUrl()).toBe("https://cas.test");
   });
 });
 

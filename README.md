@@ -56,8 +56,9 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
 - **Yayın ayarları** (`PublishSettings`) — yayın **günleri** × saatleri (slot), saat
   dilimi, onay zorunlu mu (kapalıysa sırası gelen video otomatik onaylanır ve
   `auto_approved` olarak audit'e yazılır), duraklatma, bildirim e-postası
-- **Slot tabanlı yayın** — QStash her 5 dakikada `/api/queue/tick`'i çağırır; vadesi
-  gelen slotta kuyruktaki sıradaki uygun video Reels olarak yayınlanır; 1 saatten
+- **Slot tabanlı yayın** — her slot saati için önceden kurulmuş tek seferlik bir QStash
+  mesajı `/api/queue/tick`'i tam o anda çağırır (periyodik kontrol yok — bkz. V11);
+  vadesi gelen slotta kuyruktaki sıradaki uygun video Reels olarak yayınlanır; 1 saatten
   fazla kaçmış slot telafi edilmez
 - **Bildirimler** — e-posta **ve Web Push**: yayınlandı, yayın hatası, "onaylı video
   yok", caption'lar hazır, **günlük özet** (onay bekleyenler, yarın ne yayınlanacak,
@@ -75,7 +76,7 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
 | Müşteri portalı kimliği | Kendi HMAC-imzalı çerezi + magic link / 6 haneli kod (NextAuth dışında) |
 | Görsel depolama (ajans, furi Reels) | Vercel Blob (yerelde `public/uploads/` fallback'i) |
 | Video depolama (portal) | Cloudflare R2 — gizli bucket, süreli imzalı URL, S3 multipart |
-| Arka plan işleri | Upstash QStash (5 dk tick + video başına caption işi) · Vercel Cron (günlük) |
+| Arka plan işleri | Upstash QStash (slot saatinde tek seferlik tick + video başına caption işi) · Vercel Cron (günlük) |
 | Transkript | fal.ai `fal-ai/whisper` |
 | Caption üretimi | Anthropic Claude (`claude-sonnet-5`) |
 | E-posta | Resend |
@@ -107,7 +108,9 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
       │
       └─ ayarlar: PublishSettings (günler × saatler, onay modu, duraklat)
 
-[QStash schedule */5] ──▶ /api/queue/tick   (QStash imzası; yedek: Bearer CRON_SECRET)
+[QStash, slot saatinde tek seferlik] ──▶ /api/queue/tick   (QStash imzası; elle: Bearer CRON_SECRET)
+      kurulum: ayar kaydı · günlük pending-reminders · POST /api/queue/arm → QueueWake (6 gün ufuk)
+      bitmemiş iş (bütçe doldu / Instagram işliyor) → tick kendine 60/120 sn'lik takip kurar
       dueSlots → SlotRun INSERT (UNIQUE = tek kazanan) → pickNext → (onay kapalıysa auto_approved)
       └─▶ publishApprovedPost() → Reels (R2 imzalı URL) · takılı Reels'i resumePublish
       └─▶ sonuç e-postası + Web Push (müşteri) · hata: ajans ekibi + ALERT_EMAIL
@@ -230,13 +233,15 @@ caption işi kendiliğinden koşmaz; elle tetiklemek için:
 | Değişken | Zorunlu | Açıklama |
 |---|---|---|
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | portal | Cloudflare R2. Anahtar yalnızca o bucket'a yetkili olmalı. Boşsa portal yüklemesi açık hatayla kapalı |
-| `QSTASH_TOKEN` | portal | Caption işini kuyruğa atmak için. Boşsa caption `pending` kalır |
+| `QSTASH_TOKEN` | portal | Caption işini ve slot uyandırmalarını kuyruğa atmak için. Boşsa caption `pending` kalır ve **kuyruk hiç uyanmaz** (elle `POST /api/queue/tick` hariç) |
 | `QSTASH_URL` | portal | QStash bölge adresi — token bölgeye özel; verilmezse SDK başka bölgeye düşebilir |
 | `QSTASH_CURRENT_SIGNING_KEY` / `QSTASH_NEXT_SIGNING_KEY` | portal | Gelen QStash isteklerinin imza doğrulaması. Boşsa imzalı istekler reddedilir |
 | `FAL_KEY` | portal | fal Whisper transkripti. Boşsa caption `failed` |
 | `ANTHROPIC_API_KEY` | portal | Claude ile caption üretimi. Boşsa caption `failed` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | — | Web Push (`VAPID_SUBJECT` örn. `mailto:...`). Biri bile eksikse push atlanır (loglanır), portaldaki bildirim anahtarı "kullanılamıyor" durumuna geçer |
 | `PORTAL_DAILY_UPLOAD_LIMIT` | — | Müşteri başına 24 saatte yükleme tavanı (varsayılan 40) |
+| `NEON_API_KEY` / `NEON_PROJECT_ID` | — | Günlük Neon compute kullanımı kontrolü; kotanın %70'inde `ALERT_EMAIL`'e uyarı. Boşsa kontrol atlanır |
+| `NEON_CU_HOURS_QUOTA` | — | Aylık CU-saat kotası (varsayılan 100, ücretsiz plan) |
 
 **Opsiyonel**
 
@@ -301,9 +306,13 @@ otomatik yenilenmez.
 
 **Upstash QStash** (dakika hassasiyeti gereken işler):
 
-- **Schedule** — `*/5 * * * *` → `POST {APP_URL}/api/queue/tick`. Repo bunu kurmaz;
-  QStash panelinden (ya da API'sinden) bir kez oluşturulur. Yedek tetikleyici olarak
-  herhangi bir cron servisi aynı adrese `Authorization: Bearer $CRON_SECRET` ile GET/POST atabilir.
+- **Slot uyandırmaları** — periyodik schedule YOK (V11). Kod, önümüzdeki 6 günün her slot
+  anı için `notBefore`'lu tek seferlik bir `POST {APP_URL}/api/queue/tick` mesajı kurar
+  ve kurduğunu `QueueWake` tablosunda tutar (QStash'in tekilleştirme penceresi 10 dk).
+  Kurulum ayar kaydında ve günlük `pending-reminders`'ta kendiliğinden olur; ilk kurulum
+  ya da onarım için: `curl -X POST -H "Authorization: Bearer $CRON_SECRET" $APP_URL/api/queue/arm`.
+  Periyodik bir tetikleyici (eski `*/5` schedule'ı, cron-job.org) **ekleme**: Neon
+  ücretsiz planında compute'u uyutmaz ve kotayı bitirir (CLAUDE.md Tuzaklar).
 - **Caption işleri** — her tamamlanan yükleme ve "yeniden üret" için kod tarafından
   `POST /api/queue/caption/[postId]` mesajı yayınlanır (3 yeniden deneme).
 

@@ -29,16 +29,22 @@ vi.mock("@/lib/email", async (importOriginal) => {
 vi.mock("@/lib/push", () => ({
   notifyClientUsers: vi.fn(async () => ({ sent: 1, removed: 0, failed: 0 })),
 }));
-// V9 temizliği kendi dosyasında sınanıyor; burada yalnızca "saatte bir,
-// yayından sonra çağrılıyor mu". Gerçek saate bağlı kalmasın diye mock.
+// V9 temizliği kendi dosyasında sınanıyor; burada yalnızca "hangi uyandırmada,
+// yayından sonra çağrılıyor mu". Varsayılan `false`: diğer testler temizlikten
+// bağımsız kalsın.
 vi.mock("@/lib/media-retention", () => ({
   retentionDue: vi.fn(() => false),
   runMediaRetention: vi.fn(async () => ({ archived: 1, purged: 2, failed: 0 })),
 }));
+// V11: takip uyandırmaları sahte QStash'e gider; kota teşhisi kendi dosyasında.
+vi.mock("@upstash/qstash", async () => (await import("@tests/helpers/qstash")).qstashModule());
+vi.mock("@/lib/db-health", () => ({ reportCrash: vi.fn(async () => undefined) }));
 
 import { GET, POST } from "./route";
 import { notifyClientUsers } from "@/lib/push";
 import { retentionDue, runMediaRetention } from "@/lib/media-retention";
+import { reportCrash } from "@/lib/db-health";
+import { qstashMock, resetQstashMock } from "@tests/helpers/qstash";
 import { db } from "@/lib/db";
 import { sendAgencyNoticeEmail, sendRawEmail } from "@/lib/email";
 import { IGError, createReelContainer, finalizeContainer } from "@/lib/instagram";
@@ -63,12 +69,19 @@ const mockPush = vi.mocked(notifyClientUsers);
 const CRON_SECRET = "q".repeat(40);
 const SIGNED = "https://r2.example/clients/x/videos/v.mp4?X-Amz-Signature=gizli";
 
-const tickRequest = (secret: string | null = CRON_SECRET) =>
+const tickRequest = (secret: string | null = CRON_SECRET, body = "") =>
   new Request("http://localhost/api/queue/tick", {
     method: "POST",
     headers: secret ? { authorization: `Bearer ${secret}` } : {},
-    body: "",
+    body,
   });
+
+/** QStash'in kurduğu uyandırmanın teslimi — gövde imzalı istekteki gibi. */
+const slotWake = () => tickRequest(CRON_SECRET, JSON.stringify({ kind: "slot" }));
+const followWake = () => tickRequest(CRON_SECRET, JSON.stringify({ kind: "follow" }));
+
+/** Tick'in kurduğu takip mesajları. */
+const followUps = () => qstashMock.published.filter((p) => (p.body as { kind?: string })?.kind === "follow");
 
 /** Gönderilen kuyruk e-postalarının konu satırları. */
 const subjects = () => mockRaw.mock.calls.map((call) => call[0].subject);
@@ -80,6 +93,8 @@ beforeEach(async () => {
   vi.clearAllMocks();
   vi.stubEnv("CRON_SECRET", CRON_SECRET);
   vi.stubEnv("APP_URL", "https://app.example");
+  vi.stubEnv("QSTASH_TOKEN", "test-token");
+  resetQstashMock();
   mockRaw.mockResolvedValue({ sent: true });
   mockAgency.mockResolvedValue({ sent: true });
   mockSign.mockResolvedValue(SIGNED);
@@ -113,18 +128,33 @@ async function seed(
 }
 
 describe("depolama temizliği (V9)", () => {
-  it("saatin ilk tick'inde koşar, sayıları yanıta ekler", async () => {
-    vi.mocked(retentionDue).mockReturnValueOnce(true);
-    const res = await POST(tickRequest());
+  beforeEach(() => {
+    // Gerçek kural: slot uyandırması evet, takip hayır (`media-retention.test.ts`).
+    vi.mocked(retentionDue).mockImplementation((kind) => kind !== "follow");
+  });
+
+  it("slot uyandırmasında koşar, sayıları yanıta ekler", async () => {
+    const res = await POST(slotWake());
     expect(res.status).toBe(200);
+    expect(retentionDue).toHaveBeenCalledWith("slot");
     expect(runMediaRetention).toHaveBeenCalledTimes(1);
     expect((await res.json()).retention).toEqual({ archived: 1, purged: 2, failed: 0 });
   });
 
-  it("diğer tick'lerde koşmaz", async () => {
-    const res = await POST(tickRequest());
+  it("takip uyandırmasında koşmaz", async () => {
+    const res = await POST(followWake());
+    expect(retentionDue).toHaveBeenCalledWith("follow");
     expect(runMediaRetention).not.toHaveBeenCalled();
     expect((await res.json()).retention).toBeUndefined();
+  });
+
+  it("gövdesiz GET (elle/yedek tetikleyici) slot sayılır", async () => {
+    const res = await GET(new Request("http://localhost/api/queue/tick", {
+      headers: { authorization: `Bearer ${CRON_SECRET}` },
+    }));
+    expect(res.status).toBe(200);
+    expect(retentionDue).toHaveBeenCalledWith("slot");
+    expect(runMediaRetention).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -416,21 +446,26 @@ describe("çok turlu video yayını", () => {
     const post = await createQueuePost(agency.id, client.id);
     mockFinalize.mockResolvedValueOnce({ state: "processing", lastStatus: "IN_PROGRESS" });
 
-    const first = await (await POST(tickRequest())).json();
-    expect(first).toMatchObject({ publishing: 1, published: 0 });
+    const first = await (await POST(slotWake())).json();
+    expect(first).toMatchObject({ publishing: 1, published: 0, followUp: 120 });
     expect(mockRaw).not.toHaveBeenCalled();
+    // Döngü yok: işi bitirecek takip uyandırmasını tick kendisi kurar.
+    expect(followUps()).toEqual([expect.objectContaining({ delay: 120, body: { kind: "follow" } })]);
     let run = await db.slotRun.findFirstOrThrow({ where: { clientId: client.id } });
     expect(run).toMatchObject({ outcome: null, postId: post.id });
 
-    // Sonraki tick (5 dk sonra): aynı slotu tekrar işlemez, açık container'ı
-    // ilerletir. Bir dakikadan taze container'a dokunulmadığı için zaman geri alınır.
+    // Takip uyandırması: aynı slotu tekrar işlemez, açık container'ı ilerletir.
+    // Bir dakikadan taze container'a dokunulmadığı için zaman geri alınır.
     await db.post.update({
       where: { id: post.id },
       data: { containerAt: new Date(Date.now() - 5 * 60_000) },
     });
-    const second = await (await POST(tickRequest())).json();
+    const second = await (await POST(followWake())).json();
     expect(second).toMatchObject({ resumed: 1, published: 1 });
+    expect(second.followUp).toBeUndefined();
     expect(mockCreateReel).toHaveBeenCalledTimes(1);
+    // Video bitti: yeni takip kurulmaz, zincir kendiliğinden durur.
+    expect(followUps()).toHaveLength(1);
 
     run = await db.slotRun.findFirstOrThrow({ where: { clientId: client.id } });
     expect(run.outcome).toBe("published");
@@ -489,5 +524,82 @@ describe("slot boş telefon bildirimi (V7c — e-postaya EK kanal)", () => {
     await POST(tickRequest());
     // Tek bildirim yayın sonucu (publish-post kancası); slot boş değil.
     expect(mockPush.mock.calls.map(([, p]) => p.title)).toEqual(["Videon yayınlandı"]);
+  });
+});
+
+describe("takip uyandırması ve bayat uyanma (V11)", () => {
+  it("bütçe dolup slot ertelenince 60 sn'lik takip kurulur; takip ertelenen slotu yayınlar", async () => {
+    // İki müşteri, ikisinin de slotu vadesinde. İlk yayın sırasında saat 25 sn
+    // ileri sarılır → ikinci slot START_DEADLINE_MS'i (20 sn) aşmış görür.
+    const a = await seed();
+    const b = await seed();
+    await createQueuePost(a.agency.id, a.client.id);
+    const late = await createQueuePost(b.agency.id, b.client.id);
+    const realNow = Date.now.bind(Date);
+    let offset = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => realNow() + offset);
+    mockFinalize.mockImplementationOnce(async ({ containerId }) => {
+      offset = 25_000;
+      return { state: "published", mediaId: `media-${containerId}`, permalink: "https://instagram.com/reel/x/" };
+    });
+
+    const first = await (await POST(slotWake())).json();
+    clock.mockRestore();
+
+    expect(first).toMatchObject({ published: 1, deferred: 1, followUp: 60 });
+    expect(followUps()).toEqual([expect.objectContaining({ delay: 60 })]);
+    // Ertelenen slot SAHİPLENİLMEDİ — takip onu yeniden görebilsin.
+    expect(await db.slotRun.count({ where: { clientId: b.client.id } })).toBe(0);
+
+    const second = await (await POST(followWake())).json();
+    expect(second).toMatchObject({ published: 1, deferred: 0 });
+    expect((await db.post.findUniqueOrThrow({ where: { id: late.id } })).publishStatus).toBe("published");
+    expect(followUps()).toHaveLength(1);
+  });
+
+  it("31 dk'lık takılı container için takip kurulmaz (günlük cron'a kalır)", async () => {
+    const { agency, client } = await seed({ minutesAgo: [120] }); // vadesi geçmiş, iş yok
+    await createQueuePost(agency.id, client.id, {
+      publishStatus: "publishing",
+      igContainerId: "takili-reel",
+      containerAt: new Date(Date.now() - 31 * 60_000),
+    });
+    mockFinalize.mockResolvedValue({ state: "processing", lastStatus: "IN_PROGRESS" });
+
+    const res = await (await POST(slotWake())).json();
+
+    expect(res).toMatchObject({ resumed: 1, published: 0 });
+    expect(res.followUp).toBeUndefined();
+    expect(followUps()).toEqual([]);
+  });
+
+  it("bayat uyanma (saat değişti, eski mesaj geldi): iş yok, SlotRun yazılmaz, 200", async () => {
+    // Slot 3 saat sonra; yalnızca o günün hafta günü seçili → 24 saat önceki
+    // eşi de doğmaz. Tick'i bugün bu saatte getiren eski bir mesaj.
+    const { client } = await seed({
+      minutesAgo: [-180],
+      days: (slotAts) => [localWeekday(slotAts[0], "Europe/Istanbul")],
+    });
+
+    const res = await POST(slotWake());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, published: 0, skipped: 0, empty: 0 });
+    expect(await db.slotRun.count({ where: { clientId: client.id } })).toBe(0);
+    expect(followUps()).toEqual([]);
+  });
+
+  it("çökünce kota teşhisli raporlayıcıya gider (genel sendAlert değil)", async () => {
+    const error = new Error("Can't reach database server at `x:5432`");
+    // Geri ALINMAZ ve bu test DOSYANIN SONUNDA kalmalı: Prisma delegesinde
+    // spy geri alınınca metot kayboluyor, bırakılınca sonraki testlerin
+    // `clearAllMocks`ı onu boş döndürüyor.
+    vi.spyOn(db.publishSettings, "findMany").mockRejectedValueOnce(error);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await POST(slotWake());
+
+    expect(res.status).toBe(500);
+    expect(reportCrash).toHaveBeenCalledWith("queue:tick:crash", expect.any(String), error);
   });
 });

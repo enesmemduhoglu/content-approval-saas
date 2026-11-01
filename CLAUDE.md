@@ -153,7 +153,8 @@ onay yerinde kalır. `publishApprovedPost` hiçbir zaman throw etmez.
 
 **Dört yayın tetikleyicisi var:** onay yolu (anında — portal postunda DEĞİL),
 `publish-scheduled` cron'u (`publishAt` geçmişse), onay sayfasındaki "tekrar dene", ve
-video kuyruğunun 5 dakikalık tick'i (`/api/queue/tick`, QStash). Dördü de
+video kuyruğunun tick'i (`/api/queue/tick`) — periyodik DEĞİL, slot saatinde kurulmuş tek
+seferlik QStash mesajıyla uyanır (`queue-wake.ts`, V11). Dördü de
 `publishApprovedPost`'tan ve aynı koşullu UPDATE kilidinden geçer — tek kazanan garanti.
 Kilit `status: "approved"` koşulunu da taşır: onaysız post hiçbir yoldan yayınlanmaz.
 
@@ -196,6 +197,14 @@ deployment'ı etkilemez**; `vercel redeploy <url>` gerekir.
 **Vercel Hobby cron'ları günde bire sınırlı** ve tetikleme saati ±59dk oynar. Üç cron'un
 da günlük olmasının sebebi bu; zamanlanmış yayının (`publishAt`) gerçek çözünürlüğü
 ±24 saattir. Kod sınırı değil, plan sınırı.
+
+**Neon ücretsiz planında sık tetiklenen hiçbir şey koyma — compute'u uyutmaz.** Compute
+5 dk boşta kalınca uyuyor; 5 dakikada bir gelen QStash tick'i onu hiç uyutmadı, ayda
+~186 CU-saat yaktı (kota 100) ve kota 2026-10-19'da bitince **tüm ürün 11 gün kapalı**
+kaldı. Bu yüzden kuyruk yalnızca slot saatinde uyanıyor (`QueueWake`, V11). Kota bitince
+Prisma yalnızca P1001 "Can't reach database server" der, TCP de açılır — gerçek sebebi
+(402 "exceeded the quota") Neon'un HTTP ucu söyler (`db-health.ts > probeNeon`). Günlük
+cron %70'te uyarır (`neon-usage.ts`, `NEON_API_KEY` + `NEON_PROJECT_ID` gerekir).
 
 **Mailler iki AYRI kutuya gidiyor:** onay maili müşteriye (`Client.email`), ajans
 bildirimleri iş sahibine (`Agency.email`), sistem uyarıları `ALERT_EMAIL`'e. "Mail

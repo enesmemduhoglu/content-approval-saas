@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sendAlert } from "@/lib/alerts";
+import { reportCrash } from "@/lib/db-health";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
@@ -148,10 +148,10 @@ export async function GET(request: Request) {
   });
   } catch (error) {
     console.error("[cron:ig-token] cron çöktü:", error);
-    await sendAlert(
+    await reportCrash(
       "cron:refresh-instagram-tokens:crash",
       "refresh-instagram-tokens cron'u beklenmeyen hatayla çöktü",
-      { error: error instanceof Error ? error.message : String(error) }
+      error
     );
     return NextResponse.json({ ok: false, error: "cron çöktü" }, { status: 500 });
   }

@@ -37,10 +37,11 @@ doğrulanacak). Mevcut Blob akışı yerinde kalır.
 Stil `Client.captionStyle` alanında, ayarlar `PublishSettings`'te müşteri
 başına. İlk sürümde yalnızca bir müşteri doldurulur; kayıt/faturalama yok.
 
-### K7 · 2026-09-25 · Zamanlama QStash ile (5 dk tick)
+### K7 · 2026-09-25 · Zamanlama QStash ile (5 dk tick) — yerini K32 aldı
 Vercel Hobby cron'u günde bir ve ±59 dk. Para harcanmayacağı için Pro yok.
 QStash zaten kullanılan Upstash'in parçası; günde 288 tick. Günlük Vercel
-cron'ları güvenlik ağı.
+cron'ları güvenlik ağı. **Bu karar Neon'un compute maliyetini hesaba katmadı;
+bkz. K32.**
 
 ### K8 · 2026-09-25 · Kaçırılan slot telafi edilmez
 Slot saatinden 1 saatten fazla geçmişse yayın yapılmaz, `skipped` yazılır.
@@ -235,7 +236,8 @@ müşterinin saat diliminde. `outsideAt` red ve "kuyruktan çıkar"da yazılır,
 geri almada ve "sona at"ta sıfırlanır; `updatedAt` yetmezdi (caption üretimi
 sayacı sıfırlardı). Göç anında zaten kuyruk dışında olanlara `NOW()`: merge'le
 hiçbiri hemen silinmez. Temizlik **saatte bir** kuyruk tick'inde (saatin ilk
-tick'i, yayından sonra) ve günlük cron'da emniyet ağı olarak; sıra her yerde
+tick'i, yayından sonra; K32'den beri her slot uyandırmasında) ve günlük cron'da
+emniyet ağı olarak; sıra her yerde
 DB önce, R2 sonra — R2 hatası öksüz nesne bırakır, kırık video değil;
 artıkları `scripts/r2-denetim.mjs` raporlar/siler. Panelden silinen portal
 postunun nesneleri de artık silinir. Tasarım: V7 kanvası "Güncelleme 28 Eyl (4)".
@@ -257,6 +259,41 @@ Cloudflare panelindeki "Bucket Size" güvenilmez: 29 Eyl'de 2.14 GB derken
 gerçek 1.4 GB'tı (Metrics grafiği: 28 Eyl öğlen anlık tepe, sonra düz); doğru
 sayı `prefixUsage` / `scripts/r2-denetim.mjs`. Tasarım: V7 kanvası
 "Güncelleme 29 Eyl".
+
+### K32 · 2026-10-30 · Tick slot saatinde uyanır, periyodik değil (V11)
+
+**Olay:** prod Neon 2026-10-19 09:20 UTC'den itibaren her bağlantıyı reddetti,
+11 gün boyunca panel, portal, onay linkleri ve kuyruk kapalı kaldı. Sebep
+ücretsiz planın 100 CU-saatlik aylık kotası. Neon compute'u 5 dk boşta kalınca
+uyutuyor; K7'nin `*/5` tick'i bu boşluğu hiç bırakmadı: 744 saat × 0,25 CU ≈
+186 CU-saat/ay. Tick'li ilk tam ay olan Ekim'de kota 19'unda bitti. Prisma bunu
+yalnızca P1001 olarak gösterdi; 402'yi Neon'un HTTP ucu söyledi.
+
+**Karar:** periyodik tetikleyici yok. Her slot anı için `notBefore`'lu **tek
+seferlik** QStash mesajı kurulur (`queue-wake.ts`). Kurulum ayar kaydında, günlük
+`pending-reminders`'ta ve `POST /api/queue/arm` ile yapılır. Ufuk 6 gün (ücretsiz
+planda gecikme tavanı 7 gün), aynı ana düşen slotlar tek mesajı paylaşır. Tick
+bitmemiş iş bırakırsa kendine takip kurar: bütçe dolduysa 60 sn, Instagram
+işliyorsa 120 sn. 30 dakikadan eski container'a takip kurulmaz, günlük cron'a
+kalır. Tahmini maliyet: slot başına ~5 dk compute, birkaç müşteriyle ayda
+~15–25 CU-saat.
+
+**Kurulanlar kendi tablomuzda (`QueueWake`):** QStash'in tekilleştirme penceresi
+yalnızca 10 dk. Günlük senkron aynı saatleri her gün yeniden gönderseydi günlük
+1.000 mesajlık kota şişerdi; ayar değişince eski saatleri iptal etmek için de
+`messageId` gerekiyor. Sıra: önce satır (P2002 = başkası kurdu), sonra mesaj.
+
+**Seçilmeyenler:**
+- QStash cron zamanlamaları (slot başına bir tane): ücretsiz planda en fazla 10.
+- Saatlik "emniyet tick'i": her uyanma compute'u ~5 dk açık tutuyor, ayda
+  ~17 CU-saat; onun yerine 6 günlük ufuk ve günlük senkron var.
+- Vercel Hobby cron: günde bir, ±59 dk.
+- GitHub Actions cron: 15–60 dk gecikme.
+- Ücretli Neon: kullanıcı kararı, para harcanmayacak (K7 ile aynı).
+
+**Erken uyarı:** günlük cron Neon API'sinden kullanımı okur, %70'te uyarır
+(`neon-usage.ts`). DB'ye ulaşılamayınca crash dalları Neon'u yoklar; kota
+dolduysa tek ve sabit anahtarlı bir "kota doldu" uyarısı gider (`db-health.ts`).
 
 ---
 

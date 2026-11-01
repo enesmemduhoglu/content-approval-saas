@@ -5,8 +5,10 @@ import { bearerToken, secretsMatch } from "@/lib/api-key";
  * Video kuyruğu (V1) — arka plan tetikleyicisi.
  *
  * Vercel Hobby cron'u günde bir ve ±59 dk (CLAUDE.md Tuzaklar); "19:00'da
- * yayınla" buna sığmaz. QStash iki iş yapıyor (K7, K10):
- *   • her 5 dakikada `POST /api/queue/tick`,
+ * yayınla" buna sığmaz. QStash iki iş yapıyor (K10, K32):
+ *   • slot saatinde tek seferlik `POST /api/queue/tick` (`queue-wake.ts`).
+ *     Periyodik değil: 5 dakikalık tick Neon compute'unu hiç uyutmadı ve
+ *     ücretsiz kotayı ayın 19'unda bitirdi (2026-10, tüm ürün 11 gün kapalı),
  *   • yüklenen her video için bir kez `POST /api/queue/caption/[postId]`
  *     (başarısız isteği kendisi tekrar dener).
  *
@@ -50,9 +52,27 @@ export async function authorizeQueueRequest(
   return secretsMatch(presented, secret);
 }
 
-function appUrl(): string | null {
+export function appUrl(): string | null {
   const url = process.env.APP_URL;
   return url ? url.replace(/\/+$/, "") : null;
+}
+
+/**
+ * Paylaşılan QStash istemcisi; token yoksa `null` (çağıran sessizce atlar).
+ *
+ * Bölge adresi AÇIKÇA veriliyor: token ve imza anahtarları bölgeye özel
+ * (hesap US bölgesinde, DB ve Vercel fonksiyonları da us-east-1). SDK
+ * QSTASH_URL'i env'den okuyabiliyor ama bulamazsa sessizce EU adresine
+ * düşüyor ve istek orada yetkisiz reddediliyor — hatanın kaynağı da
+ * görünmüyor.
+ */
+export function qstashClient(): Client | null {
+  const token = process.env.QSTASH_TOKEN;
+  if (!token) return null;
+  return new Client({
+    token,
+    ...(process.env.QSTASH_URL ? { baseUrl: process.env.QSTASH_URL } : {}),
+  });
 }
 
 export type EnqueueResult = { queued: true; messageId: string } | { queued: false; reason: string };
@@ -72,21 +92,12 @@ export async function enqueueCaption(
   postId: string,
   opts: { note?: string } = {}
 ): Promise<EnqueueResult> {
-  const token = process.env.QSTASH_TOKEN;
+  const client = qstashClient();
   const base = appUrl();
-  if (!token || !base) {
+  if (!client || !base) {
     return { queued: false, reason: "QSTASH_TOKEN ya da APP_URL tanımlı değil" };
   }
   try {
-    // Bölge adresi AÇIKÇA veriliyor: token ve imza anahtarları bölgeye özel
-    // (hesap US bölgesinde, DB ve Vercel fonksiyonları da us-east-1). SDK
-    // QSTASH_URL'i env'den okuyabiliyor ama bulamazsa sessizce EU adresine
-    // düşüyor ve istek orada yetkisiz reddediliyor — hatanın kaynağı da
-    // görünmüyor.
-    const client = new Client({
-      token,
-      ...(process.env.QSTASH_URL ? { baseUrl: process.env.QSTASH_URL } : {}),
-    });
     const res = await client.publishJSON({
       url: `${base}/api/queue/caption/${encodeURIComponent(postId)}`,
       body: { postId, ...(opts.note ? { note: opts.note } : {}) } satisfies CaptionJob,

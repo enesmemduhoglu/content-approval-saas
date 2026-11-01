@@ -254,6 +254,22 @@ model SlotRun {
 }
 
 /**
+ * V11 — kurulmuş tek seferlik QStash uyandırmaları (slot saatinde tick).
+ * QStash'in tekilleştirme penceresi 10 dk: hangi saatin zaten kurulduğunu
+ * kendimiz tutmazsak her günlük senkron önümüzdeki 6 günün mesajlarını
+ * yeniden atar ve günlük 1.000 mesaj kotası şişer. Müşteriden bağımsız —
+ * aynı ana düşen slotlar tek uyandırmayı paylaşır, tick o anda vadesi gelen
+ * herkesi işler.
+ */
+model QueueWake {
+  /** Uyandırma anı (UTC, saniyeye yuvarlı; QStash `notBefore` saniye). */
+  at        DateTime @id
+  /** Boşsa yayın sürüyor ya da yanıtı yazılamadı — iptal edilemez, zararsız boş tick'e döner. */
+  messageId String?
+  createdAt DateTime @default(now())
+}
+
+/**
  * Video kuyruğu (V1) — müşteri tarafı giriş. Bugüne kadar müşterinin hesabı
  * yoktu; tek yetkisi post başına onay linkiydi. Portal (kuyruk, sıralama,
  * ayarlar) kalıcı bir kimlik istiyor. Giriş magic link ile (şifre yok).

@@ -4,6 +4,7 @@ import { DELETABLE_OUTSIDE, deleteOutsideVideo } from "@/lib/client-scoped-db";
 import { deleteOwnedObjects } from "@/lib/r2-cleanup";
 import { r2Configured } from "@/lib/storage-r2";
 import { OUTSIDE_TTL_MS, PUBLISHED_VIDEO_TTL_MS } from "@/lib/retention-rules";
+import type { WakeKind } from "@/lib/queue-wake";
 
 /**
  * Video kuyruğu (V9) — R2 depolama temizliği. İki iş:
@@ -22,8 +23,8 @@ import { OUTSIDE_TTL_MS, PUBLISHED_VIDEO_TTL_MS } from "@/lib/retention-rules";
  * Sıra her zaman DB önce, R2 sonra: R2 hatası en kötü öksüz nesne bırakır
  * (`scripts/r2-denetim.mjs` yakalar); tersi, portalda kırık bir video bırakırdı.
  *
- * Saatte bir kuyruk tick'inden, günde bir `pending-reminders` cron'undan
- * çağrılır (ikincisi emniyet ağı). İki koşu çakışsa da her adım koşullu
+ * Kuyruk tick'inin her slot uyandırmasından, günde bir `pending-reminders`
+ * cron'undan çağrılır (ikincisi emniyet ağı). İki koşu çakışsa da her adım koşullu
  * yazım olduğu için iş bir kez yapılır. ASLA throw etmez (`sendAlert` deseni):
  * temizliğin patlaması yayını ya da hatırlatmaları düşürmemeli.
  *
@@ -47,9 +48,17 @@ export type MediaRetentionStats = {
   error?: true;
 };
 
-/** Saatte bir: tick her 5 dakikada gelir, yalnızca saatin ilk tick'i temizlik yapar. */
-export function retentionDue(now: Date): boolean {
-  return now.getUTCMinutes() < 5;
+/**
+ * Tick bu uyandırmada temizlik yapsın mı (V11). Eskiden "saatin ilk 5
+ * dakikası"ydı — tick her 5 dakikada geldiği için saatte bir koşu demekti.
+ * Artık tick yalnızca slot saatinde (ve takip için) geliyor: her slot
+ * uyandırması temizlik yapar, Instagram'ı yoklayan kısa takipler yapmaz —
+ * onlar 2 dakikada bir gelebiliyor ve aynı işi tekrar tekrar koşturmanın
+ * kazancı yok. Günlük cron emniyet ağı olarak kalıyor; portal sayacı zaten
+ * kurala bakıyor (`retention-rules.ts`), temizliğin saatine değil.
+ */
+export function retentionDue(kind: WakeKind): boolean {
+  return kind !== "follow";
 }
 
 export async function runMediaRetention(now: Date = new Date()): Promise<MediaRetentionStats> {
