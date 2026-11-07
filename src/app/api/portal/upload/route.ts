@@ -80,11 +80,14 @@ export async function POST(request: Request) {
 
   const drafts = await scoped.posts.createDrafts(parsed.files);
 
-  // Büyük dosyalar için R2 çok parçalı yüklemesi. Kimlik yalnızca DB'ye
-  // yazılır; açılamazsa bu istekte doğan bütün taslaklar geri alınır — yarım
-  // bir toplu yükleme günlük tavanı yemesin, kullanıcı aynı seçimi yeniden
-  // denesin.
+  // Büyük dosyalar için R2 çok parçalı yüklemesi, ardından istemciye dönecek
+  // imzalar. İkisi AYNI try içinde: herhangi biri patlarsa istemci yüklemeye
+  // başlayacak bilgiyi alamaz, yani bu istekte doğan taslaklar kullanılamaz —
+  // geri alınır ki yarım bir toplu yükleme günlük tavanı yemesin ve kullanıcı
+  // aynı seçimi yeniden deneyebilsin. İmzalama eskiden dışarıdaydı: hata 500
+  // olarak kaçıyor, taslaklar 24 saat (`draft-cleanup`) tavanda kalıyordu.
   const multipart = new Map<string, string>();
+  let items;
   try {
     for (const [index, draft] of drafts.entries()) {
       if (parsed.files[index].size < MULTIPART_THRESHOLD_BYTES) continue;
@@ -92,8 +95,30 @@ export async function POST(request: Request) {
       multipart.set(draft.id, uploadId);
       await scoped.posts.setUploadId(draft.id, uploadId);
     }
+
+    // İmzalar DB'deki anahtardan üretiliyor, istemcinin beyanından değil; kare
+    // anahtarları da aynı müşteri önekinde (`frameKey`). `uploadId` yanıtta
+    // YOK — parça imzası onu yine DB'den okuyor.
+    items = await Promise.all(
+      drafts.map(async (draft, index) => {
+        const framePutUrls = await Promise.all(
+          Array.from({ length: FRAME_COUNT }, (_, i) =>
+            signPutUrl(frameKey(guard.session.clientId, draft.id, i), "image/jpeg")
+          )
+        );
+        if (multipart.has(draft.id)) {
+          return { postId: draft.id, multipart: true, partSize: MULTIPART_PART_SIZE, framePutUrls };
+        }
+        return {
+          postId: draft.id,
+          multipart: false,
+          videoPutUrl: await signPutUrl(draft.videoKey, parsed.files[index].contentType),
+          framePutUrls,
+        };
+      })
+    );
   } catch (error) {
-    console.error("[portal-upload] çok parçalı yükleme açılamadı:", (error as Error).message);
+    console.error("[portal-upload] yükleme hazırlanamadı:", (error as Error).message);
     const byId = new Map(drafts.map((draft) => [draft.id, draft.videoKey]));
     await Promise.all(
       [...multipart].map(([id, uploadId]) =>
@@ -106,28 +131,6 @@ export async function POST(request: Request) {
       { status: 502 }
     );
   }
-
-  // İmzalar DB'deki anahtardan üretiliyor, istemcinin beyanından değil; kare
-  // anahtarları da aynı müşteri önekinde (`frameKey`). `uploadId` yanıtta
-  // YOK — parça imzası onu yine DB'den okuyor.
-  const items = await Promise.all(
-    drafts.map(async (draft, index) => {
-      const framePutUrls = await Promise.all(
-        Array.from({ length: FRAME_COUNT }, (_, i) =>
-          signPutUrl(frameKey(guard.session.clientId, draft.id, i), "image/jpeg")
-        )
-      );
-      if (multipart.has(draft.id)) {
-        return { postId: draft.id, multipart: true, partSize: MULTIPART_PART_SIZE, framePutUrls };
-      }
-      return {
-        postId: draft.id,
-        multipart: false,
-        videoPutUrl: await signPutUrl(draft.videoKey, parsed.files[index].contentType),
-        framePutUrls,
-      };
-    })
-  );
 
   return NextResponse.json({ items }, { status: 201 });
 }

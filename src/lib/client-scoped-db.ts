@@ -119,6 +119,20 @@ export async function deleteOutsideVideo(
 /** Bu süreden eski `captionStatus = pending` takılmış sayılır (bkz. `requestRegenerate`). */
 export const STUCK_PENDING_MS = 10 * 60 * 1000;
 
+/**
+ * `requestRegenerate`in takılı-pending dalının JS ikizi — portal "Yeniden üret"
+ * düğmesini bununla açar. İkisi ayrışırsa ya kullanıcı 409 alacağı bir düğme
+ * görür ya da sunucunun kurtarabildiği videoda düğme hiç çıkmaz (yüklemedeki
+ * QStash çağrısı düşünce video sonsuza kadar "hazırlanıyor"da kalıyordu).
+ * `generating` bilerek yok: sunucu da onu kabul etmiyor.
+ */
+export function isCaptionStuck(
+  row: { captionStatus: string | null; updatedAt: Date },
+  now: Date = new Date()
+): boolean {
+  return row.captionStatus === "pending" && row.updatedAt.getTime() < now.getTime() - STUCK_PENDING_MS;
+}
+
 export type MoveResult =
   | { ok: true }
   | { ok: false; reason: "not_found" | "anchor_not_found" | "stale" | "self" };

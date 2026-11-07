@@ -33,6 +33,7 @@ import { sendAlert } from "@/lib/alerts";
 import { publishApprovedPost } from "@/lib/publish-post";
 import { PORTAL_RATE_LIMIT_MAX } from "@/lib/portal-route";
 import { POSITION_STEP } from "@/lib/queue";
+import { isCaptionStuck } from "@/lib/client-scoped-db";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
 import {
   createClientUser,
@@ -734,6 +735,21 @@ describe("POST regenerate", () => {
     await db.$executeRaw`UPDATE "Post" SET "updatedAt" = now() - interval '11 minutes' WHERE id = ${v.id}`;
     expect((await regenerateVideo(post(`/api/portal/videos/${v.id}/regenerate`, {}), idParams(v.id))).status).toBe(200);
     expect(enqueueCaption).toHaveBeenCalledWith(v.id, {});
+  });
+
+  it("isCaptionStuck sunucuyla aynı karar verir: düğme görünüyorsa regenerate 200, görünmüyorsa 409", async () => {
+    // Portal düğmesi JS ikiziyle açılıyor; ikisi ayrışırsa kullanıcı ya 409
+    // alacağı bir düğme görür ya da kurtarılabilir videoda düğme hiç çıkmaz.
+    const now = new Date();
+    for (const minutes of [9, 11]) {
+      const v = await createPortalPost(agencyId, clientId, { captionStatus: "pending" });
+      await db.$executeRaw`UPDATE "Post" SET "updatedAt" = ${new Date(now.getTime() - minutes * 60_000)} WHERE id = ${v.id}`;
+      const row = await db.post.findUniqueOrThrow({ where: { id: v.id } });
+      const stuck = isCaptionStuck(row, now);
+      expect(stuck).toBe(minutes > 10);
+      const res = await regenerateVideo(post(`/api/portal/videos/${v.id}/regenerate`, {}), idParams(v.id));
+      expect(res.status).toBe(stuck ? 200 : 409);
+    }
   });
 
   it("500 karakterden uzun not 400", async () => {
