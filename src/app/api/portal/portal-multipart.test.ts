@@ -154,6 +154,31 @@ describe("POST /api/portal/upload — çok parçalı", () => {
     expect(abortMultipartUpload).toHaveBeenCalledWith(expect.stringContaining(`clients/${clientId}/videos/`), "ilk-id");
     expect(await db.post.count()).toBe(0);
   });
+
+  it("imzalama patlarsa 502: açılan yükleme iptal, bu istekteki taslaklar silinir, eski taslak kalır, kota yenmez", async () => {
+    // Eskiden imzalama geri alma bloğunun dışındaydı: istisna 500 olarak
+    // kaçıyor, taslaklar 24 saat tavanda kalıyordu (aynı seçim 403 alıyordu).
+    process.env.PORTAL_DAILY_UPLOAD_LIMIT = "3";
+    try {
+      const existing = await createPortalPost(agencyId, clientId, { status: "draft", queuePosition: null });
+      const files = [
+        { contentType: "video/mp4", size: 2 * MB },
+        { contentType: "video/mp4", size: 20 * MB },
+      ];
+      vi.mocked(signPutUrl).mockRejectedValueOnce(new Error("imza patladı"));
+      const res = await upload(post("/api/portal/upload", { files }));
+      expect(res.status).toBe(502);
+      expect((await res.json()).error).toMatch(/tekrar dene/);
+      expect(abortMultipartUpload).toHaveBeenCalledWith(expect.stringContaining(`clients/${clientId}/videos/`), "r2-upload-id");
+      expect((await db.post.findMany({ where: { clientId }, select: { id: true } })).map((p) => p.id)).toEqual([existing.id]);
+
+      // Aynı seçim yeniden denenebiliyor: tavan (3) = eski taslak + 2 yeni.
+      const retry = await upload(post("/api/portal/upload", { files }));
+      expect(retry.status).toBe(201);
+    } finally {
+      delete process.env.PORTAL_DAILY_UPLOAD_LIMIT;
+    }
+  });
 });
 
 // ─── Parça imzası ─────────────────────────────────────────────────────────

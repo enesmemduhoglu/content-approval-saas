@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getClientScopedDb } from "@/lib/client-scoped-db";
+import { getClientScopedDb, isCaptionStuck } from "@/lib/client-scoped-db";
 import { toDetail } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
 import { estimateIfApproved, estimatePublishTimes } from "@/lib/portal-schedule";
@@ -188,6 +188,7 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
           inQueue={inQueue}
           requireApproval={requireApproval}
           review={requireApproval ? reviewNext(queue, detail.id) : undefined}
+          captionStuck={isCaptionStuck(video, now)}
           retryNote={
             publishError?.retryUseless
               ? "Aynı dosyayla tekrar denemek büyük ihtimalle yine başarısız olur."

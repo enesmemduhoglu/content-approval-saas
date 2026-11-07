@@ -7,7 +7,14 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-11-01 (yayın ortasında DB kopması — `fix/yayin-baglanti-kopmasi`)
+- **Son güncelleme:** 2026-11-07 (portal: takılı caption düğmesi + yükleme imzası geri alma — `fix/portal-takili-caption-ve-imza`)
+- **2026-11-07 portal düzeltmeleri** (bir ajan incelemesinden, testle yeniden üretildi):
+  - Yüklemede QStash düşerse caption `pending` kalıyordu; sunucu 10 dk sonra
+    `regenerate`'i kabul ediyordu ama portal düğmeyi `pending`de hep gizliyordu.
+    Artık `isCaptionStuck` (sunucu koşulunun JS ikizi) doğruysa düğme açılır.
+  - `upload`'da imzalama geri alma bloğunun dışındaydı: hata 500 kaçıyor, taslaklar
+    24 saat günlük tavanı yiyor, çok parçalı yükleme iptal edilmiyordu. Artık 502 +
+    geri alma, çok parçalı açılış hatasıyla aynı yol.
 - **Prod 1 Kasım'da yeniden açıldı, V11 (#89) canlıda.** Kota sıfırlandı; slot
   uyandırması çalışıyor (SlotRun'lar slot dakikasına tam oturuyor). 31 Ekim slotları
   ürün kapalıyken geçtiği için `skipped` yazıldı.

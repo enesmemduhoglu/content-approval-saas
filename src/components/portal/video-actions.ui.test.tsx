@@ -250,3 +250,42 @@ describe("Yeniden üret — not çipleri", () => {
     expect(JSON.parse(init.body)).toEqual({ note: "daha kısa, emoji yok" });
   });
 });
+
+describe("Yeniden üret — takılı caption", () => {
+  const queued = (overrides: Partial<VideoActionsProps> = {}) =>
+    props({ status: "pending", inQueue: true, canDelete: false, caption: "", ...overrides });
+
+  it("taze pending: 'hazırlanıyor' yazar, düğme YOK (iş yolda, ikinci iş açılmasın)", () => {
+    render(<VideoActions {...queued({ captionStatus: "pending" })} />);
+    expect(screen.getByText(/Caption hazırlanıyor/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Yeniden üret" })).toBeNull();
+  });
+
+  it("generating: captionStuck gelse bile düğme YOK — sunucu generating'i kabul etmiyor", () => {
+    render(<VideoActions {...queued({ captionStatus: "generating", captionStuck: true })} />);
+    expect(screen.getByText(/Caption hazırlanıyor/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Yeniden üret" })).toBeNull();
+  });
+
+  it("takılı pending: uyarı + düğme; onay metni elle düzenlemeden söz etmez, istek gider", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true, captionQueued: true }), { status: 200 }));
+    render(<VideoActions {...queued({ captionStatus: "pending", captionStuck: true })} />);
+    expect(screen.queryByText(/Caption hazırlanıyor/)).toBeNull();
+    expect(screen.getByText(/beklenenden uzun sürdü/)).toBeTruthy();
+    // Düzenlenecek caption yok: boş kilitli alan gösterilmez.
+    expect(screen.queryByRole("textbox", { name: /caption/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Yeniden üret" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Yeniden üretme onayı" });
+    expect(dialog.textContent).toContain("yeniden başlatılacak");
+    expect(dialog.textContent).not.toContain("elle yaptığın");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Evet, yeniden üret" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/portal/videos/v1/regenerate");
+  });
+
+  it("takılı ama yayında kilitli (publishing): düğme YOK — sunucu da reddeder", () => {
+    render(<VideoActions {...queued({ captionStatus: "pending", captionStuck: true, publishStatus: "publishing" })} />);
+    expect(screen.queryByRole("button", { name: "Yeniden üret" })).toBeNull();
+  });
+});

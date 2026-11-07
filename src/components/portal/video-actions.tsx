@@ -74,6 +74,11 @@ export type VideoActionsProps = {
   retryNote?: string;
   /** Onay bekleyenler arasında gezinme (`reviewNext`); onay kapalıyken yok. */
   review?: ReviewNext;
+  /**
+   * `pending` caption takılmış (`isCaptionStuck`): iş kuyruğa hiç girmemiş
+   * olabilir. Sunucu bu durumda yeniden üretimi kabul ediyor; düğme de açılır.
+   */
+  captionStuck?: boolean;
 };
 
 /**
@@ -122,7 +127,11 @@ export function VideoActions(props: VideoActionsProps) {
     (props.status === "pending" || props.status === "approved") &&
     (props.publishStatus === "idle" || props.publishStatus === "failed");
   const captionReady = props.captionStatus === "ready";
-  const captionBusy = props.captionStatus === "pending" || props.captionStatus === "generating";
+  const captionStuck = props.captionStuck === true && props.captionStatus === "pending";
+  // Takılı `pending` meşgul sayılmaz: sayılsaydı "Yeniden üret" gizli kalır ve
+  // kuyruğa hiç girmemiş videonun portalda kurtarma yolu olmazdı.
+  const captionBusy =
+    (props.captionStatus === "pending" && !captionStuck) || props.captionStatus === "generating";
   const canEditCaption = editable && (captionReady || props.captionStatus === "failed");
 
   /** Başarıda yanıt gövdesini döner (red eski sırayı taşıyor), hatada `null`. */
@@ -287,6 +296,16 @@ export function VideoActions(props: VideoActionsProps) {
             Caption hazırlanıyor — konuşma yazıya dökülüyor. Birkaç dakika sonra sayfayı yenile.
           </span>
         </p>
+      ) : captionStuck ? (
+        // Düzenlenecek metin yok (caption hiç üretilmedi); boş, kilitli bir
+        // alan yerine ne olduğunu ve ne yapılacağını söyle.
+        <p className="p-note p-note--danger">
+          <IconSparkle size={18} />
+          <span>
+            Caption beklenenden uzun sürdü, büyük ihtimalle hiç başlamadı. Aşağıdan yeniden üretmeyi
+            dene.
+          </span>
+        </p>
       ) : (
         <>
           {/* Whisper sayıları yanlış duyabiliyor ("15" → "50"); yayından önce
@@ -392,7 +411,9 @@ export function VideoActions(props: VideoActionsProps) {
             >
               {/* KARARLAR "Açık sorular": elle düzenleme kaybolur — önce söyle. */}
               <p>
-                Caption baştan üretilecek; elle yaptığın değişiklikler kaybolur.
+                {captionStuck
+                  ? "Caption üretimi yeniden başlatılacak."
+                  : "Caption baştan üretilecek; elle yaptığın değişiklikler kaybolur."}
                 {props.status === "approved" && " Video yeniden onayını bekleyecek."}
               </p>
               <div className="p-confirm-actions">
