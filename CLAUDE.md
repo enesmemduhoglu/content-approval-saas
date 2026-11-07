@@ -231,12 +231,6 @@ olmayan müşteriyi `skip` sayar. Instagram bağlarken bitiş tarihi de girilmel
 Instagram'ı bir kez yeniden bağlamak prod'un kendi anahtarıyla şifreler; betik yerel
 anahtarı kullanır ve anahtarların aynı olduğu kanıtlanamaz (yukarıdaki Sensitive maddesi).
 
-**`.claude/worktrees/` altında deponun ESKİ kopyaları duruyor** (agent worktree
-kalıntısı, `.gitignore`'da). Bunlar `node_modules` ve `prisma/migrations` dahil tam
-kopya, üstelik F6 öncesi şemayla. Kod ararken sonuç oradan gelirse yanlış dosyayı
-okursun — arama sonuçlarında yol `.claude/` ile başlıyorsa yok say, `src/` altındakine
-bak.
-
 **`next → sharp/postcss` audit uyarısı yanıltıcı.** Düzeltmesi Next 16'ya semver-major
 sıçrama; proje `next/image` kullanmıyor, `sharp` istek yoluna girmiyor, `postcss` build
 zamanı. Güvenlik gerekçesiyle Next 16'ya koşma.
