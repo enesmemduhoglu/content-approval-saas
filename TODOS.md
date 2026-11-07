@@ -115,9 +115,13 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
 - [ ] **D8 · Test boşlukları.** `src/lib/scoped-db.ts` (907 satır, panel IDOR
       korumasının tamamı) ve `src/lib/quota.ts` için ayrı birim testi yok, yalnızca
       route testlerinden dolaylı kapsanıyor. `settings/page.tsx` ve `team-panel.tsx`
-      `.ui.test.tsx`'siz. e2e yalnızca `approval-flow.spec.ts` (6 senaryo): ekip
-      daveti, zamanlanmış yayın, revizyon turu ve **portalın tamamı** uçtan uca hiç
-      koşulmuyor. e2e CI dışında (bilinçli; ayrı DB, port, tarayıcı indirmesi).
+      `.ui.test.tsx`'siz. e2e: `approval-flow.spec.ts` (6) + `portal.spec.ts` (2:
+      kodla giriş → kuyruk → detay → onay; takılı caption kurtarma). Ekip daveti,
+      zamanlanmış yayın, revizyon turu uçtan uca hiç koşulmuyor. Portalda **gerçek
+      dosya seçimi + yükleme tamamlama** yok: `complete` R2'de `HeadObject` arıyor,
+      e2e'de R2 bilerek kapalı (yerel anahtar prod bucket'ına yazar) — sahte bir
+      S3 ucu (ör. yerel MinIO) gerekir. e2e CI dışında (bilinçli; ayrı DB, port,
+      tarayıcı indirmesi).
 - [ ] **D9 · Toplu onay `publishStatus`'a dokunmuyor.** Tekil yol `skipped` yazarken
       `/api/approve/[token]/batch` postu `idle` bırakıyor. Bugün görünür hata değil
       (batch yalnızca Instagram'ı OLMAYAN postları onaylıyor, rozet çıkmıyor); batch'in

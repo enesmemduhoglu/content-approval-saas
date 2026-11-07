@@ -62,6 +62,13 @@ yüklü olan `cas-test-pg`.
   çiziliyor, veri katmanı mock'lanıyor.
 - **`tests/e2e/*.spec.ts` — Playwright.** AYRI veritabanı (`content_approval_e2e`),
   ayrı port (3111), `prisma db push` (migrate değil) ve `ENABLE_TEST_AUTH=1`.
+  **`next dev` `.env.local`'i yükler ve orada prod anahtarları var** (QStash, R2,
+  Upstash Redis, Anthropic…). `playwright.config.ts` env dosyalarındaki her anahtarı
+  boş verip yalnızca gerekenleri doldurur; QStash `tests/e2e/fake-qstash.mjs`'e
+  (3112) gider ve testler yayınlanan mesajları oradan okur. Yeni bir dış servis
+  e2e'de gerekiyorsa gerçek anahtarı açma, sahte uç kur. Portal testleri
+  `portal-seed.ts` ile kayıt üretir: test süreci DB/`AUTH_SECRET`i ayarlamadan
+  uygulama modülünü import ederse `.env`'deki YEREL dev DB'ye yazar.
 
 Yardımcılar `tests/helpers/db.ts`'te, `@tests` alias'ıyla import edilir. `resetDb()`
 her testin başında `TRUNCATE`, `createAgency()` / `createClient()` / `createMember()`
