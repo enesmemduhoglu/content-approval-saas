@@ -29,6 +29,13 @@ Plan, kararlar ve **oturum devri** burada DEĞİL:
 [`KARARLAR.md`](docs/video-kuyrugu/KARARLAR.md) · [`V7-pwa.md`](docs/video-kuyrugu/V7-pwa.md).
 Buraya yalnızca sıradaki geliştirmeler düşülür.
 
+- [ ] **`PublishSettings.requireApproval` kolonunu düşür (K33'ün ikinci adımı).**
+      Portal onayı kaldırıldı; kod kolonu okumuyor/yazmıyor ama şemada duruyor, çünkü
+      aynı PR'da düşürmek preview build'in prod'a göçü uygulayıp canlıdaki eski kodu
+      kırması demekti. K33 PR'ı canlıya çıkıp eski deployment'lar emekliye ayrıldıktan
+      SONRA ayrı PR: `ALTER TABLE "PublishSettings" DROP COLUMN "requireApproval"` +
+      şemadan alan + `tests/helpers/queue.ts`'teki seçenek. `nextjs-prisma:goc` ile
+      boş DB'de ve prod'a benzeyen veriyle sına.
 - [ ] **DB bağlantı kopmasını kaynağında azalt.** V11'den beri Neon compute slotlar
       arasında uyuyor; Vercel'in sıcak örneğindeki Prisma havuzu sunucunun kapattığı
       bağlantıyı yeniden kullanınca sorgu P1017 ile düşüyor (2026-11-01, yayının
@@ -46,8 +53,8 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
       ertelendi (FAZLAR, oturum devri).
 - [ ] **V7c Web Push — canlı doğrulama.** Kod master'da (#74): `PushSubscription`,
       `push.ts > notifyClientUsers`, `/api/portal/push`, SW `push` /
-      `notificationclick`, Ayarlar'da `PushToggle`, beş olay kancası (yayınlandı,
-      yayınlanamadı, slot boş, caption'lar hazır, günlük hatırlatma). Kalan:
+      `notificationclick`, Ayarlar'da `PushToggle`, dört olay kancası (yayınlandı,
+      yayınlanamadı, slot boş, günlük hatırlatma; "caption'lar hazır" K33 ile kalktı). Kalan:
       (a) Vercel Production'da `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` /
       `VAPID_SUBJECT` var mı — yoksa gönderim sessizce atlanır, yalnızca log;
       (b) V7-pwa §6.2: ana ekrandan açılmış iPhone'da izin → yayın → kilit ekranında
@@ -116,7 +123,7 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
       korumasının tamamı) ve `src/lib/quota.ts` için ayrı birim testi yok, yalnızca
       route testlerinden dolaylı kapsanıyor. `settings/page.tsx` ve `team-panel.tsx`
       `.ui.test.tsx`'siz. e2e: `approval-flow.spec.ts` (6) + `portal.spec.ts` (2:
-      kodla giriş → kuyruk → detay → onay; takılı caption kurtarma). Ekip daveti,
+      kodla giriş → kuyruk → detay → caption düzenleme; takılı caption kurtarma). Ekip daveti,
       zamanlanmış yayın, revizyon turu uçtan uca hiç koşulmuyor. Portalda **gerçek
       dosya seçimi + yükleme tamamlama** yok: `complete` R2'de `HeadObject` arıyor,
       e2e'de R2 bilerek kapalı (yerel anahtar prod bucket'ına yazar) — sahte bir

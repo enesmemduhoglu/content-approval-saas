@@ -37,7 +37,6 @@ import { GET as listVideos } from "./videos/route";
 import { DELETE as deleteVideo, GET as getVideo, PATCH as patchVideo } from "./videos/[id]/route";
 import { POST as completeVideo } from "./videos/[id]/complete/route";
 import { POST as moveVideo } from "./videos/[id]/move/route";
-import { POST as decideVideo } from "./videos/[id]/decision/route";
 import { POST as restoreVideo } from "./videos/[id]/restore/route";
 import { POST as removeVideo } from "./videos/[id]/remove/route";
 import { POST as retryVideo } from "./videos/[id]/retry/route";
@@ -176,33 +175,6 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
     expect((await snapshot(ctx.postA.id)).queuePosition).toBe(1);
   });
 
-  it("POST decision (onay): B'nin videosu onaylanamaz, audit yazılmaz", async () => {
-    const res = await decideVideo(
-      portalRequest(`/api/portal/videos/${ctx.postB2.id}/decision`, {
-        method: "POST",
-        cookie: ctx.cookieA,
-        body: { action: "approve" },
-      }),
-      idParams(ctx.postB2.id)
-    );
-    expect(res.status).toBe(404);
-    expect((await snapshot(ctx.postB2.id)).status).toBe("pending");
-    expect(await db.approvalAudit.count()).toBe(0);
-  });
-
-  it("POST decision (red): B'nin videosu reddedilemez", async () => {
-    const res = await decideVideo(
-      portalRequest(`/api/portal/videos/${ctx.postB2.id}/decision`, {
-        method: "POST",
-        cookie: ctx.cookieA,
-        body: { action: "reject" },
-      }),
-      idParams(ctx.postB2.id)
-    );
-    expect(res.status).toBe(404);
-    expect((await snapshot(ctx.postB2.id)).status).toBe("pending");
-  });
-
   it("POST remove: B'nin videosu kuyruktan çıkarılamaz", async () => {
     const res = await removeVideo(
       portalRequest(`/api/portal/videos/${ctx.postB2.id}/remove`, { method: "POST", cookie: ctx.cookieA }),
@@ -250,11 +222,7 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
       status: "rejected",
     });
     const res = await restoreVideo(
-      portalRequest(`/api/portal/videos/${rejectedB.id}/restore`, {
-        method: "POST",
-        cookie: ctx.cookieA,
-        body: { approve: true },
-      }),
+      portalRequest(`/api/portal/videos/${rejectedB.id}/restore`, { method: "POST", cookie: ctx.cookieA }),
       idParams(rejectedB.id)
     );
     expect(res.status).toBe(404);
@@ -267,11 +235,7 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
       data: { agencyId: ctx.agencyA.id, clientId: ctx.clientA.id, caption: "Ajans postu", status: "rejected" },
     });
     const res = await restoreVideo(
-      portalRequest(`/api/portal/videos/${agencyPost.id}/restore`, {
-        method: "POST",
-        cookie: ctx.cookieA,
-        body: { approve: false },
-      }),
+      portalRequest(`/api/portal/videos/${agencyPost.id}/restore`, { method: "POST", cookie: ctx.cookieA }),
       idParams(agencyPost.id)
     );
     expect(res.status).toBe(404);
@@ -306,19 +270,18 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
 
   it("settings: A'nın kaydı B'nin ayarına yazılmaz, B'nin ayarı A'ya okunmaz", async () => {
     await db.publishSettings.create({
-      data: { clientId: ctx.clientB.id, slots: ["08:00"], requireApproval: false },
+      data: { clientId: ctx.clientB.id, slots: ["08:00"] },
     });
     const put = await putSettings(
       portalRequest("/api/portal/settings", {
         method: "PUT",
         cookie: ctx.cookieA,
-        body: { slots: ["10:00"], timezone: "Europe/Istanbul", requireApproval: true, paused: false },
+        body: { slots: ["10:00"], timezone: "Europe/Istanbul", paused: false },
       })
     );
     expect(put.status).toBe(200);
     const b = await db.publishSettings.findUniqueOrThrow({ where: { clientId: ctx.clientB.id } });
     expect(b.slots).toEqual(["08:00"]);
-    expect(b.requireApproval).toBe(false);
 
     const get = await getSettings(portalRequest("/api/portal/settings", { cookie: ctx.cookieA }));
     expect((await get.json()).settings.slots).toEqual(["10:00"]);
@@ -343,16 +306,18 @@ describe("IDOR — A müşterisinin kullanıcısı B'nin videosuna dokunamaz", (
         status: "pending",
       },
     });
-    const res = await decideVideo(
-      portalRequest(`/api/portal/videos/${agencyPost.id}/decision`, {
-        method: "POST",
+    // Caption düzenleme: portalda değişiklik yapan en geniş yol (K33 öncesi
+    // burada onay route'u sınanıyordu).
+    const res = await patchVideo(
+      portalRequest(`/api/portal/videos/${agencyPost.id}`, {
+        method: "PATCH",
         cookie: ctx.cookieA,
-        body: { action: "approve" },
+        body: { caption: "Portaldan yazıldı" },
       }),
       idParams(agencyPost.id)
     );
     expect(res.status).toBe(404);
-    expect((await snapshot(agencyPost.id)).status).toBe("pending");
+    expect((await db.post.findUniqueOrThrow({ where: { id: agencyPost.id } })).caption).toBe("Ajans postu");
   });
 
   it("çerezdeki clientId ile kullanıcının gerçek müşterisi uyuşmazsa oturum yok sayılır", async () => {

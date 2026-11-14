@@ -331,15 +331,6 @@ body:has(.portal-root) {
   color: #c9cfdb;
 }
 
-.p-next-runway-extra {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #faf6e9;
-  text-align: right;
-  max-width: 45%;
-  line-height: 1.35;
-}
-
 /* 2 gün ve altı: video ekleme vakti — turuncu. */
 .p-next-runway--low .p-next-runway-head {
   color: #ffb59a;
@@ -600,11 +591,6 @@ body:has(.portal-root) {
   color: #faf6e9;
 }
 
-.p-badge--peach {
-  background: var(--p-peach);
-  color: var(--p-accent-deep);
-}
-
 .p-badge--gray {
   background: var(--p-skeleton);
   color: #4b5563;
@@ -643,11 +629,6 @@ body:has(.portal-root) {
 }
 
 /* 1.5 px kenarlı kartta dolgu yarım piksel az: kartların içerikleri hizalı kalsın. */
-.p-qcard--pending {
-  border: 1.5px solid var(--p-peach-line);
-  padding: 11.5px;
-}
-
 .p-qcard--failed {
   border: 1.5px solid var(--p-danger-line);
   padding: 11.5px;
@@ -1555,14 +1536,6 @@ body:has(.portal-root) {
   opacity: 0.45;
 }
 
-.p-hcard-reason {
-  font-size: 12px;
-  color: #7a1712;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* V9 — kuyruk dışı kartın silme sayacı. Sakin gri-kırmızı; son gün koyulaşır. */
 .p-expiry {
   display: inline-flex;
@@ -1580,20 +1553,6 @@ body:has(.portal-root) {
 .p-expiry--soon {
   color: var(--p-danger);
   font-weight: 700;
-}
-
-/* Detay sayfasında red nedeni kutusunun içindeki sayaç satırı. */
-.p-expiry-note {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.p-expiry-note hr {
-  width: 100%;
-  margin: 0;
-  border: 0;
-  border-top: 1px solid #f1c4c1;
 }
 
 .p-expiry-row {
@@ -1626,147 +1585,6 @@ body:has(.portal-root) {
   gap: 5px;
   font-size: 12px;
   color: var(--p-muted);
-}
-
-/* Redden hemen sonra "Geri al" (V7 tasarımı, "Reddettikten hemen sonra"). */
-/* Onaydan hemen sonra: "Onaylandı" satırı + "Sıradakine geç" (28 Eyl (3)). */
-.p-approved {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.p-approved-check {
-  width: 28px;
-  height: 28px;
-  border-radius: 14px;
-  background: var(--p-ink);
-  color: #faf6e9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.p-approved-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  font-size: 12.5px;
-  color: var(--p-muted);
-  min-width: 0;
-}
-
-.p-approved-text strong {
-  font-size: 14px;
-  color: var(--p-ink);
-}
-
-.p-undo {
-  background: var(--p-ink);
-  color: #faf6e9;
-  border-radius: 16px;
-  padding: 10px 10px 10px 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.p-undo-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-  font-size: 12.5px;
-  color: #c9cfdb;
-}
-
-.p-undo-text strong {
-  font-size: 14px;
-  color: #faf6e9;
-}
-
-.portal-root .p-undo-btn {
-  height: 44px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 12px;
-  background: #ffb59a;
-  color: var(--p-ink);
-  font-weight: 800;
-  font-size: 15px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-/* Kuyruğa geri al: iki seçenek, tam genişlik (başlık + açıklama). */
-.portal-root .p-choice {
-  width: 100%;
-  text-align: left;
-  border: 1.5px solid var(--p-ink);
-  border-radius: 16px;
-  background: var(--p-card);
-  color: var(--p-ink);
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.portal-root .p-choice--primary {
-  border-color: var(--p-ink);
-  background: var(--p-ink);
-  color: #faf6e9;
-}
-
-.portal-root .p-choice:disabled {
-  opacity: 0.45;
-}
-
-.p-choice-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 18px;
-  background: var(--p-peach);
-  color: var(--p-accent-deep);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.p-choice--primary .p-choice-icon {
-  background: var(--p-ink-2);
-  color: #faf6e9;
-}
-
-.p-choice-text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.p-choice-title {
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.p-choice-sub {
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: var(--p-muted);
-}
-
-.p-choice--primary .p-choice-sub {
-  color: #c9cfdb;
-}
-
-.portal-root .p-sheet-cancel {
-  align-self: center;
 }
 
 .p-toast {

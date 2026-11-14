@@ -11,7 +11,7 @@ import {
  * Video kuyruğu (V3) — portal kartındaki "tahmini yayın" metni.
  *
  * Hesap V4'ün `projectSchedule`ı: tick'in kurallarını birebir simüle ediyor
- * (onay açıkken onaysız video takvimde yok, duraklatılmış kuyrukta takvim
+ * (caption'ı hazır olmayan video takvimde yok, duraklatılmış kuyrukta takvim
  * boş). Portal kendi hesabını yazmıyor — iki ayrı hesap, kartta "19:00" yazıp
  * tick'in başka videoyu yayınlaması demek olurdu.
  *
@@ -20,44 +20,13 @@ import {
  */
 export function estimatePublishTimes(
   queue: QueueItem[],
-  settings: Pick<PublishSettings, "slots" | "timezone" | "days" | "requireApproval" | "paused"> | null,
+  settings: Pick<PublishSettings, "slots" | "timezone" | "days" | "paused"> | null,
   now: Date = new Date()
 ): Map<string, Date> {
   if (!settings) return new Map();
   return new Map(
     projectSchedule(queue, settings, now, queue.length).map((slot) => [slot.postId, slot.slotAt])
   );
-}
-
-/**
- * Onay bekleyen her video için "Onaylarsan ne zaman çıkar" (V7 tasarımı,
- * kuyruk kartı "Onaylarsan: 27 Eyl 19:00"). Her video için AYRI bir
- * varsayım: yalnızca o video onaylanır, diğerleri olduğu gibi kalır — kart
- * "bunu onaylarsan" diyor, "hepsini onaylarsan" değil. Hesap yine
- * `projectSchedule`; kuyruk kısa (onlarca video), video başına bir projeksiyon
- * ucuz.
- *
- * Yalnızca onay açıkken ve caption'ı hazır olan (onay düğmesi açık) videolar
- * için; duraklatılmış kuyrukta ya da ayar yokken boş.
- */
-export function estimateIfApproved(
-  queue: QueueItem[],
-  settings: Pick<PublishSettings, "slots" | "timezone" | "days" | "requireApproval" | "paused"> | null,
-  now: Date = new Date()
-): Map<string, Date> {
-  const result = new Map<string, Date>();
-  if (!settings || settings.paused || !settings.requireApproval) return result;
-  for (const item of queue) {
-    if (item.status !== "pending" || item.captionStatus !== "ready") continue;
-    const hypothetical = queue.map((other) =>
-      other.id === item.id ? { ...other, status: "approved" as const } : other
-    );
-    const slot = projectSchedule(hypothetical, settings, now, hypothetical.length).find(
-      (projected) => projected.postId === item.id
-    );
-    if (slot) result.set(item.id, slot.slotAt);
-  }
-  return result;
 }
 
 /** "Cmt 27 Eyl 19:00" — müşterinin kendi saat diliminde. */
@@ -76,10 +45,10 @@ export function formatEta(slotAt: Date, timezone: string): string {
 
 type RunwaySettings = Pick<
   PublishSettings,
-  "slots" | "timezone" | "days" | "requireApproval" | "paused"
+  "slots" | "timezone" | "days" | "paused"
 >;
 
-/** Bir senaryoda (onaylılar / hepsi onaylanırsa) kuyruğun bittiği yer. */
+/** Şu anki kuyrukla kuyruğun bittiği yer. */
 export type RunwayEnd = {
   /** Takvime giren video sayısı. */
   count: number;
@@ -96,12 +65,7 @@ export type RunwayEnd = {
 
 export type QueueRunway = {
   /** Şu anki kuyrukla gerçekten yayınlanacaklar; takvime giren yoksa `null`. */
-  approved: RunwayEnd | null;
-  /**
-   * Kuyruktaki her şey onaylanırsa. Yalnızca onay AÇIKKEN ve sonuç
-   * `approved`dan fazla video kapsıyorsa dolu; aksi halde `null` (gösterilmez).
-   */
-  ifAllApproved: RunwayEnd | null;
+  runway: RunwayEnd | null;
   /** `now`dan sonraki ilk slot — kuyruk boşken "sıradaki slot boş geçer" için. */
   nextSlotAt: Date;
 };
@@ -153,8 +117,8 @@ function runwayEnd(queue: QueueItem[], settings: RunwaySettings, now: Date): Run
 /**
  * "Kuyruk kaç gün yeter" — portalın kuyruk ekranı için.
  *
- * Ayrı bir takvim hesabı YOK: iki senaryo da `projectSchedule`dan geçer,
- * yani yayın günleri, slotlar, saat dilimi, onay modu ve `now`dan önceki
+ * Ayrı bir takvim hesabı YOK: `projectSchedule`dan geçer, yani yayın
+ * günleri, slotlar, saat dilimi, caption durumu ve `now`dan önceki
  * slotların atlanması tick'le birebir aynı. Portal "10 gün yeter" deyip
  * tick'in 8. gün boş slot geçirmesi mümkün olmasın.
  *
@@ -163,7 +127,7 @@ function runwayEnd(queue: QueueItem[], settings: RunwaySettings, now: Date): Run
  * `days = (sonYayınGünü − bugün) + 1`. Yayın yapılmayan günler (seçilmemiş
  * hafta sonu gibi) de sayılır — soru "kaç gün boyunca içerik derdim yok",
  * "kaç yayın günü" değil. Örnekler (İstanbul, slotlar 12:00 ve 19:00,
- * 20 onaylı video):
+ * 20 hazır video):
  *  - Şu an 10:00 → bugün 2 yayın, … son yayın 10. günün 19:00'u → **10 gün**.
  *  - Şu an 13:00 (12:00 geçti) → bugün yalnız 19:00; son yayın 11. günün
  *    12:00'si → **11 gün**: kaçan slot bir video artırıyor, takvim bir gün uzuyor.
@@ -174,17 +138,13 @@ function runwayEnd(queue: QueueItem[], settings: RunwaySettings, now: Date): Run
  *
  * `null` → gösterge gizlenir: ayar yok (tick bu müşteriyi hiç taramaz),
  * kuyruk duraklatılmış ya da geçerli tek bir slot saati bile yok. Kuyruk boş
- * ya da takvime giren video yoksa `null` DEĞİL, `approved: null` — o durum
+ * ya da takvime giren video yoksa `null` DEĞİL, `runway: null` — o durum
  * kullanıcıya söylenmesi gereken bir bilgi ("sıradaki slot boş geçer").
  *
- * `ifAllApproved`: her öğe `status: "approved"`, `captionStatus: "ready"`
- * sayılır; `publishStatus` ve `queuePosition` olduğu gibi kalır, yani yayını
- * patlamış (`failed`) video `isEligible` gereği yine takvime girmez — onu
- * onay değil "tekrar dene" kurtarır. Caption'ı ÜRETİLEMEMİŞ (`failed`) video
- * da sayılmaz: onaylanabilmesi için önce caption'ının düzeltilmesi gerekiyor
- * (2026-09-28 analizi); hazırlanmakta olanlar birazdan hazır olacağı için
- * sayılır. Onay KAPALIYKEN hep `null`: onay yayını zaten belirlemiyor,
- * "hepsini onaylarsan" cümlesi yanıltıcı olurdu.
+ * K33 öncesi burada ikinci bir senaryo ("hepsini onaylarsan X gün") vardı;
+ * portalda onay kalkınca anlamını yitirdi. Caption'ı henüz hazırlanan video
+ * takvime girmez — tick de onu seçmiyor; birkaç dakika içinde hazır olunca
+ * gösterge kendiliğinden uzar.
  */
 export function queueRunway(
   queue: QueueItem[],
@@ -196,18 +156,5 @@ export function queueRunway(
   // `QueueSettings.days`); haftada slot olup olmadığını geçerli saat belirler.
   if (!settings.slots.some((slot) => parseSlot(slot) !== null)) return null;
 
-  const approved = runwayEnd(queue, settings, now);
-
-  let ifAllApproved: RunwayEnd | null = null;
-  if (settings.requireApproval) {
-    const hypothetical = queue.map((item) =>
-      item.captionStatus === "failed"
-        ? item
-        : { ...item, status: "approved" as const, captionStatus: "ready" as const }
-    );
-    const all = runwayEnd(hypothetical, settings, now);
-    if (all && all.count > (approved?.count ?? 0)) ifAllApproved = all;
-  }
-
-  return { approved, ifAllApproved, nextSlotAt: firstSlotAfter(settings, now) };
+  return { runway: runwayEnd(queue, settings, now), nextSlotAt: firstSlotAfter(settings, now) };
 }

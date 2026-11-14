@@ -81,7 +81,7 @@ const save = (slots: string[]) =>
     portalRequest("/api/portal/settings", {
       method: "PUT",
       cookie,
-      body: { slots, timezone: "Europe/Istanbul", requireApproval: true, paused: false, notifyEmail: null },
+      body: { slots, timezone: "Europe/Istanbul", paused: false, notifyEmail: null },
     })
   );
 

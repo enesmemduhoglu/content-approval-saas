@@ -195,7 +195,7 @@ export function PushToggle() {
           Telefon bildirimleri
         </p>
         <p className={styles.subtitle} id={descId}>
-          Yayınlandı, yayınlanamadı, onay bekleyen videolar.
+          Yayınlandı, yayınlanamadı, kuyruk bitiyor.
         </p>
         {note && <p className={styles.note}>{note}</p>}
         {error && (

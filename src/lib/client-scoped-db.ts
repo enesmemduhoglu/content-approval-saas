@@ -394,67 +394,18 @@ export function getClientScopedDb(session: ClientSession) {
       },
 
       /**
-       * Onay / red. Onay YAYIN TETİKLEMEZ: portal postu kuyrukta slotunu
-       * bekler (README §8). Onay için caption hazır olmalı — henüz görülmemiş
-       * bir metni onaylamak, `requireApproval` güvencesini boşa düşürürdü.
-       * Red videoyu kuyruktan da çıkarır: "bunu yayınlama" kararı sırada yer
-       * tutmamalı. Redde videonun ESKİ sırası döner: portal birkaç saniyelik
-       * "Geri al" ile videoyu tam o yere koyabilsin (`restoreRejected`).
+       * K33 öncesinde reddedilmiş videoyu kuyruğun SONUNA `pending` olarak
+       * geri alır. Portalda onay/red kalktı, yeni red üretilmiyor; bu yol
+       * yalnızca o eski kayıtlar "Kuyruk dışı"nda dururken işe yarar. Onay
+       * yazılmaz: sırası gelince tick `autoApprovePost` ile onaylar. Defterde
+       * `restored` satırı.
        */
-      decide: (
-        id: string,
-        action: "approve" | "reject",
-        ip: string,
-        reason: string | null
-      ): Promise<{ previousPosition: number | null } | null> =>
+      restoreRejected: (id: string, ip: string): Promise<boolean> =>
         db.$transaction(async (tx) => {
-          const before = await tx.post.findFirst({
-            where: { id, ...scope },
-            select: { queuePosition: true },
+          const agg = await tx.post.aggregate({
+            where: { ...scope, queuePosition: { not: null } },
+            _max: { queuePosition: true },
           });
-          const result = await tx.post.updateMany({
-            where:
-              action === "approve"
-                ? { id, ...scope, status: "pending", captionStatus: "ready" }
-                : { id, ...scope, status: "pending" },
-            data:
-              action === "approve"
-                ? { status: "approved" }
-                : {
-                    status: "rejected",
-                    rejectionReason: reason,
-                    queuePosition: null,
-                    // V9: 3 günlük silme sayacı bu andan başlar.
-                    outsideAt: new Date(),
-                  },
-          });
-          if (result.count !== 1) return null;
-          await tx.approvalAudit.create({
-            data: { postId: id, action: action === "approve" ? "approved" : "rejected", ip },
-          });
-          return { previousPosition: before?.queuePosition ?? null };
-        }),
-
-      /**
-       * Reddi geri alır: video kuyruğa döner, onaylı (`approve`) ya da onay
-       * bekler hâlde. `position` verilirse o sıraya (red hemen ardından "Geri
-       * al" — `decide`ın döndürdüğü eski yer), verilmezse sona. Onaylı dönüş
-       * için caption hazır olmalı (`decide` ile aynı kural). Defterde
-       * `restored` satırı; onaylı dönüşte ayrıca `approved`.
-       */
-      restoreRejected: (
-        id: string,
-        input: { approve: boolean; position: number | null; ip: string }
-      ): Promise<boolean> =>
-        db.$transaction(async (tx) => {
-          let queuePosition = input.position;
-          if (queuePosition === null) {
-            const agg = await tx.post.aggregate({
-              where: { ...scope, queuePosition: { not: null } },
-              _max: { queuePosition: true },
-            });
-            queuePosition = positionAtEnd(agg._max.queuePosition);
-          }
           const result = await tx.post.updateMany({
             where: {
               id,
@@ -462,22 +413,16 @@ export function getClientScopedDb(session: ClientSession) {
               status: "rejected",
               queuePosition: null,
               publishStatus: EDITABLE_PUBLISH,
-              ...(input.approve ? { captionStatus: "ready" as const } : {}),
             },
             data: {
-              status: input.approve ? "approved" : "pending",
+              status: "pending",
               rejectionReason: null,
-              queuePosition,
+              queuePosition: positionAtEnd(agg._max.queuePosition),
               outsideAt: null,
             },
           });
           if (result.count !== 1) return false;
-          await tx.approvalAudit.createMany({
-            data: [
-              { postId: id, action: "restored", ip: input.ip },
-              ...(input.approve ? [{ postId: id, action: "approved", ip: input.ip }] : []),
-            ],
-          });
+          await tx.approvalAudit.create({ data: { postId: id, action: "restored", ip } });
           return true;
         }),
 
@@ -607,8 +552,8 @@ export function getClientScopedDb(session: ClientSession) {
 
       /**
        * Yeniden üretim isteği. Üretim zaten sürüyorsa ikinci iş kuyruğa
-       * atılmaz. Onaylı videoda onay GERİ ALINIR: yeni metni kullanıcı henüz
-       * görmedi, eski onayla yayınlanırsa `requireApproval` güvencesi delinir.
+       * atılmaz. `status`a dokunulmaz: portalda onay yok (K33), caption
+       * `ready` olmadan tick videoyu zaten seçmiyor.
        *
        * `pending` de kabul — ama yalnızca TAKILMIŞSA (son değişiklik
        * `STUCK_PENDING_MS`'ten eski): yüklemedeki QStash çağrısı başarısız
@@ -630,7 +575,7 @@ export function getClientScopedDb(session: ClientSession) {
             ],
             publishStatus: EDITABLE_PUBLISH,
           },
-          data: { captionStatus: "pending", captionError: null, status: "pending" },
+          data: { captionStatus: "pending", captionError: null },
         });
         return result.count === 1;
       },

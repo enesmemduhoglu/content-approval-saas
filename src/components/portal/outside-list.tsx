@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { PortalBadges, type BadgeInput } from "@/components/portal/portal-badges";
 import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
-import { RestoreSheet, requeueVideo, restoreVideo } from "@/components/portal/restore-sheet";
+import { requeueVideo, restoreVideo } from "@/components/portal/requeue";
 import { IconCheck, IconHourglass, IconTrash, IconUndo, IconVideo } from "@/components/portal/icons";
 
 /** Yüzen bildirimin ekranda kalma süresi. */
@@ -15,7 +15,6 @@ export type OutsideCard = BadgeInput & {
   id: string;
   caption: string;
   coverUrl: string | null;
-  rejectionReason: string | null;
   /** V9: "3 gün sonra silinecek" (sunucu, müşterinin saat diliminde hesaplar). */
   deleteLabel: string | null;
   /** Son gün (yarın/bugün): sayaç koyulaşır. */
@@ -23,20 +22,18 @@ export type OutsideCard = BadgeInput & {
 };
 
 /**
- * Kuyruk dışı: çıkarılan ve reddedilen videolar. Kart detaya gider; sağda iki
- * düğme (V7 tasarımı, "Kuyruk dışı · geri al + sil"):
- *   • geri al — çıkarılan video doğrudan sona döner; reddedilen video için
- *     "onaylayıp al / onay bekleyen olarak al" sorulur (onay kapalıysa sorulmaz),
+ * Kuyruk dışı: çıkarılan videolar (ve K33 öncesinde reddedilmiş olanlar). Kart
+ * detaya gider; sağda iki düğme (V7 tasarımı, "Kuyruk dışı · geri al + sil"):
+ *   • geri al — video doğrudan kuyruğun sonuna döner,
  *   • sil — kalıcı silme, onay sayfasıyla.
  * Kartın altında silme sayacı (V9, "Kuyruk dışı · silinmeye kalan gün"): kuyruk
  * dışı video 3 gün sonra kendiliğinden silinir (`media-retention.ts`).
  * İşlem biten kart hemen listeden düşer; sayfa arkadan tazelenir.
  */
-export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; requireApproval: boolean }) {
+export function OutsideList({ cards }: { cards: OutsideCard[] }) {
   const router = useRouter();
   const [removed, setRemoved] = useState<string[]>([]);
   const [asking, setAsking] = useState<OutsideCard | null>(null);
-  const [restoring, setRestoring] = useState<OutsideCard | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -50,14 +47,12 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
 
   const cancel = useCallback(() => {
     setAsking(null);
-    setRestoring(null);
     setError(null);
   }, []);
 
   function finish(id: string, text: string) {
     setRemoved((prev) => [...prev, id]);
     setAsking(null);
-    setRestoring(null);
     setError(null);
     setToast(text);
     router.refresh();
@@ -76,33 +71,14 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
     finish(asking.id, "Video silindi");
   }
 
-  async function restoreRejected(card: OutsideCard, approve: boolean) {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    const result = await restoreVideo(card.id, approve);
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    finish(
-      card.id,
-      approve ? "Onaylandı ve kuyruğa alındı" : requireApproval ? "Kuyruğa alındı · onayını bekliyor" : "Kuyruğa geri alındı"
-    );
-  }
-
   async function startRestore(card: OutsideCard) {
     setToast(null);
     setError(null);
-    if (card.status === "rejected") {
-      if (requireApproval) setRestoring(card);
-      else await restoreRejected(card, false);
-      return;
-    }
     if (busy) return;
     setBusy(true);
-    const result = await requeueVideo(card.id);
+    // Reddedilmiş (K33 öncesi) video `to-end`den geçmez; kendi yolu var.
+    const result =
+      card.status === "rejected" ? await restoreVideo(card.id) : await requeueVideo(card.id);
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
@@ -113,7 +89,7 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
 
   const visible = cards.filter((card) => !removed.includes(card.id));
   // Sayfa hatası yalnızca bir sayfa (sheet) açık DEĞİLKEN listede; açıksa orada.
-  const listError = !asking && !restoring ? error : null;
+  const listError = !asking ? error : null;
 
   return (
     <>
@@ -133,7 +109,7 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
             </h2>
           </div>
           <p className="p-hint">
-            Kuyruktan çıkardığın ya da reddettiğin videolar yayınlanmaz ve{" "}
+            Kuyruktan çıkardığın videolar yayınlanmaz ve{" "}
             <strong>3 gün sonra kendiliğinden silinir</strong>; o zamana kadar kuyruğa geri alabilirsin.
           </p>
           {listError && (
@@ -155,12 +131,9 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
                 )}
                 <span className="p-hcard-body">
                   <span className="p-qcard-meta">
-                    <PortalBadges video={card} requireApproval={requireApproval} />
+                    <PortalBadges video={card} />
                   </span>
                   <span className="p-hcard-caption">{card.caption || "Caption yok"}</span>
-                  {card.status === "rejected" && card.rejectionReason && (
-                    <span className="p-hcard-reason">Neden: {card.rejectionReason}</span>
-                  )}
                   {card.deleteLabel && (
                     <span className={`p-expiry${card.deleteSoon ? " p-expiry--soon" : ""}`}>
                       <IconHourglass size={13} />
@@ -206,17 +179,6 @@ export function OutsideList({ cards, requireApproval }: { cards: OutsideCard[]; 
           error={error}
           onCancel={cancel}
           onConfirm={confirmDelete}
-        />
-      )}
-      {restoring && (
-        <RestoreSheet
-          caption={restoring.caption}
-          coverUrl={restoring.coverUrl}
-          captionReady={restoring.captionStatus === "ready"}
-          busy={busy}
-          error={error}
-          onCancel={cancel}
-          onChoose={(approve) => void restoreRejected(restoring, approve)}
         />
       )}
     </>

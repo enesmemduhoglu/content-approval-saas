@@ -1,7 +1,6 @@
 import webpush, { WebPushError } from "web-push";
 import { db } from "@/lib/db";
 import { resolvePortalApp } from "@/lib/portal-app";
-import { upstashConfig } from "@/lib/rate-limit";
 
 /**
  * V7c — telefon bildirimi (Web Push) gönderimi (V7-pwa §6).
@@ -108,7 +107,6 @@ let warnedNotConfigured = false;
 /** Testler "env yok" uyarısını yeniden görebilsin diye. */
 export function resetPushForTests(): void {
   warnedNotConfigured = false;
-  captionReadySentAt.clear();
 }
 
 /**
@@ -227,112 +225,4 @@ function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   // Hata metnine bir URL (endpoint) karışmışsa ayıkla.
   return clip(message.replace(/https?:\/\/\S+/gi, "[adres gizlendi]"), 200);
-}
-
-// ─── Caption'lar hazır (toplu) ─────────────────────────────────────────────
-
-/**
- * Aynı müşteriye bu süre içinde "hazır" bildirimi gittiyse yenisi atlanır.
- * Üç video art arda yüklenince üç bildirim değil bir bildirim.
- */
-export const CAPTION_READY_THROTTLE_MS = 2 * 60 * 1000;
-/**
- * Bu süreden eski `pending`/`generating` "yolda" sayılmaz (takılmış iş —
- * `run.ts > STALE_AFTER_MS` ve `STUCK_PENDING_MS` ile aynı değer). Takılı bir
- * video bildirimi sonsuza kadar bekletmesin.
- */
-const IN_FLIGHT_MAX_AGE_MS = 10 * 60 * 1000;
-
-// Süreç içi kısma; Upstash varsa instance'lar arası da (bkz. `claimCaptionReadySlot`).
-const captionReadySentAt = new Map<string, number>();
-
-/**
- * Kısma hakkını alır: `true` → bu çağrı gönderebilir. Upstash varsa
- * `SET NX PX` (instance'lar arası tek kazanan), yoksa ya da hata verirse
- * süreç içi bellek. Kesin tekrar koruması DEĞİL — amaç spam önlemek (K4'teki
- * e-posta asıl kanal; bir fazla bildirim zarar değil).
- */
-async function claimCaptionReadySlot(clientId: string, now: number): Promise<boolean> {
-  const last = captionReadySentAt.get(clientId);
-  if (last !== undefined && now - last < CAPTION_READY_THROTTLE_MS) return false;
-
-  const config = upstashConfig();
-  if (config) {
-    try {
-      const res = await fetch(`${config.baseUrl}/pipeline`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify([
-          ["SET", `push:caption-ready:${clientId}`, "1", "NX", "PX", String(CAPTION_READY_THROTTLE_MS)],
-        ]),
-      });
-      if (!res.ok) throw new Error(`Upstash pipeline ${res.status}`);
-      const out = (await res.json()) as { result?: unknown }[];
-      // NX: anahtar zaten varsa `null` — başka bir instance son 2 dk'da gönderdi.
-      if (out?.[0]?.result !== "OK") {
-        captionReadySentAt.set(clientId, now);
-        return false;
-      }
-    } catch (error) {
-      console.warn("[push] Upstash kısma hatası, bellek içi kısmaya düşüldü:", safeError(error));
-    }
-  }
-  captionReadySentAt.set(clientId, now);
-  return true;
-}
-
-/**
- * Caption `ready` olunca çağrılır (`caption/run.ts`). Video başına bildirim
- * YOK (V7-pwa §6.1): toplu yüklemede her video ayrı bitiyor.
- *
- *  1. Onay kapalıysa gönderilmez — onaylanacak bir şey yok, video sırası
- *     gelince zaten yayınlanır (ve "yayınlandı" bildirimi gider).
- *  2. Aynı müşterinin başka bir caption'ı hâlâ yoldaysa gönderilmez: partinin
- *     SONUNDA tek bildirim, doğru sayıyla. Her çağrı kendi `ready` yazımından
- *     SONRA baktığı için en son biten mutlaka partinin tamamını görür.
- *  3. Son 2 dakikada gönderildiyse atlanır (tek tek art arda yükleme).
- *
- * Asla throw etmez.
- */
-export async function notifyCaptionsReady(clientId: string, now: Date = new Date()): Promise<void> {
-  try {
-    const settings = await db.publishSettings.findUnique({
-      where: { clientId },
-      select: { requireApproval: true },
-    });
-    // Ayar satırı yoksa şema varsayılanı (onay açık) geçerli.
-    if (settings && !settings.requireApproval) return;
-
-    const portal = { clientId, source: "portal" as const };
-    const [inFlight, waiting] = await Promise.all([
-      db.post.count({
-        where: {
-          ...portal,
-          status: { in: ["pending", "approved"] },
-          captionStatus: { in: ["pending", "generating"] },
-          updatedAt: { gt: new Date(now.getTime() - IN_FLIGHT_MAX_AGE_MS) },
-        },
-      }),
-      db.post.count({
-        where: {
-          ...portal,
-          status: "pending",
-          captionStatus: "ready",
-          queuePosition: { not: null },
-          publishStatus: { in: ["idle", "failed"] },
-        },
-      }),
-    ]);
-    if (inFlight > 0 || waiting === 0) return;
-    if (!(await claimCaptionReadySlot(clientId, now.getTime()))) return;
-
-    await notifyClientUsers(clientId, {
-      title: waiting === 1 ? "1 video onayına hazır" : `${waiting} video onayına hazır`,
-      body: "Caption'lar yazıldı. Yayından önce göz atıp onaylayabilirsin.",
-      url: "/portal",
-      tag: "caption-hazir",
-    });
-  } catch (error) {
-    console.error(`[push] caption hazır bildirimi patladı (müşteri=${clientId}):`, safeError(error));
-  }
 }

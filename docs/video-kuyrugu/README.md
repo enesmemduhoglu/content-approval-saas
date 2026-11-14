@@ -23,10 +23,10 @@ Sayfa sahibinin yaptığı **tek iş video yüklemek** olsun:
    yeniden ürettirir.
 4. Kullanıcı yayın saatlerini seçer (ör. günde 1 video, 19:00). Her saatte
    kuyruktaki sıradaki **uygun** video Instagram'a yayınlanır.
-5. **Onay kullanıcının tercihidir.** Açıksa yalnızca onaylanan video yayınlanır;
-   kapalıysa sırası gelen video onay beklemeden yayınlanır.
+5. **Portalda onay adımı yok (K33).** Caption'ı hazır video sırası gelince
+   yayınlanır; müşteri istemediği videoyu kuyruktan çıkarır.
 6. **Her yayın sonucu e-postayla bildirilir** — başarıda Instagram linkiyle,
-   hatada nedeniyle. Onay kapalı olsa bile.
+   hatada nedeniyle.
 
 Bugünkü akış (karşılaştırma için): furi1 reposunda Reels elle hazırlanıyor,
 caption elle yazılıyor, `saas_gonder.py` ile tek tek bu SaaS'a gönderiliyor,
@@ -146,7 +146,7 @@ Göç `nextjs-prisma:goc` ile yapılır. Taslak — kesin hali V1'de netleşir.
 |---|---|---|
 | `slots` | `["19:00"]` | Günlük yayın sayısı = slot sayısı |
 | `timezone` | `Europe/Istanbul` | |
-| `requireApproval` | `true` | Güvenli varsayılan |
+| `requireApproval` | `true` | **Kullanılmıyor (K33)**; kolon ayrı PR'da düşecek |
 | `paused` | `false` | |
 | `notifyEmail` | Client.email | Yayın sonucu e-postalarının adresi |
 
@@ -168,20 +168,19 @@ Saf fonksiyonlar `src/lib/queue.ts`'te; DB'siz birim test edilir.
   olmayan slotları döner. **Pencere 1 saat:** daha eski kaçırılmış slot yayın
   yapmaz, `skipped` yazılır. Sistem bir gün kapalı kalırsa ertesi gün birikmiş
   videoları art arda yayınlamasın diye.
-- **`pickNext(queue, requireApproval)`** — `queuePosition` sırasında ilk
-  uygun video. Uygunluk:
+- **`pickNext(queue)`** — `queuePosition` sırasında ilk uygun video. Uygunluk:
   - `captionStatus = ready`,
-  - yayınlanmamış, reddedilmemiş, kuyruktan çıkarılmamış,
-  - `requireApproval` açıksa `status = approved`.
+  - `status` `pending` ya da `approved` (K33: müşteri onayı yok),
+  - yayınlanmamış (`publishStatus = idle`), kuyruktan çıkarılmamış.
 
-  Onay açıkken sıradaki video onaysızsa **sıradaki ilk onaylı video**
-  yayınlanır. Hiç yoksa yayın olmaz, `empty` yazılır ve e-posta gider.
+  Baştaki videonun caption'ı hazır değilse sıradaki hazır video yayınlanır.
+  Hiç yoksa yayın olmaz, `empty` yazılır ve e-posta gider.
 - **Tick akışı** (`/api/queue/tick`), her müşteri için:
   1. `paused` ise geç.
   2. Vadesi gelen slotu bul; `SlotRun` INSERT et — UNIQUE çakışması = başka
      tick almış, geç.
   3. `pickNext` ile video seç.
-  4. Onay kapalıysa `status = approved` + `ApprovalAudit(action: 'auto_approved')`.
+  4. `pending` ise `status = approved` + `ApprovalAudit(action: 'auto_approved')` (K33).
   5. `publishApprovedPost` çağır (mevcut, hiç throw etmez, kendi kilidi var).
   6. Reels konteyneri hazır değilse tick 120 sn sonrasına takip uyandırması
      kurar, takip `resumePublish` ile tamamlar. 30 dakikadan eski container'a
@@ -192,9 +191,10 @@ Saf fonksiyonlar `src/lib/queue.ts`'te; DB'siz birim test edilir.
 
 ### Güvenlik kuralı (değişmez)
 
-**`requireApproval = true` iken onaysız video hiçbir yoldan yayınlanmaz.**
-Kontrol iki yerde: `pickNext` içinde ve yayın kilidi alınmadan hemen önce.
-İkisi de ayrı testle sınanır.
+**`status = approved` olmayan video hiçbir yoldan yayınlanmaz.** Kontrol yayın
+kilidinin koşulunda (`publish-post.ts`). Portal postunda bu onayı müşteri
+değil tick yazar (K33); `rejected`, `draft`, caption'ı hazır olmayan ya da
+kuyruk dışındaki video `pickNext`'ten de geçmez.
 
 Portal route'ları `CLAUDE.md`'deki sabit kontrol sırasını izler; müşteri
 oturumu için `getScopedDb`'nin **müşteri kapsamlı** bir varyantı eklenir —
@@ -208,12 +208,12 @@ Hepsi `gonder()` / `notifyAgencyTeam()` üzerinden (bkz. `CLAUDE.md`).
 |---|---|---|
 | Yayın başarılı | müşteri | `igPermalink`, caption'ın başı |
 | Yayın başarısız | müşteri + ajans ekibi | hata nedeni (sır içermez), portal linki |
-| Slot boş kaldı (onay açık, onaylı video yok) | müşteri | "Bu saatte yayınlanacak onaylı video yoktu" |
-| Günlük özet (onay açık) | müşteri | "N video onay bekliyor" — her video için ayrı mail yok |
-| Günlük hatırlatma (her iki mod) | müşteri | "Yarın 19:00'da şu video yayınlanacak" + kapak karesi |
+| Slot boş kaldı (yayınlanabilecek video yok) | müşteri | "Kuyrukta yayınlanacak video kalmadı" |
+| Günlük hatırlatma | müşteri | "Yarın 19:00'da şu video yayınlanacak" + kapak karesi; kuyruk bitiyorsa uyarı |
 
-Hatırlatma onay kapalıyken de gider: kullanıcı ne yayınlanacağını önceden
-görsün ve isterse sırayı değiştirsin.
+Hatırlatma portalda onay olmadığı için (K33) önemli: kullanıcı ne
+yayınlanacağını önceden görsün ve isterse sırayı değiştirsin ya da kuyruktan
+çıkarsın.
 
 ## 7. Portal ekranları (`/portal`)
 
@@ -228,14 +228,13 @@ görsün ve isterse sırayı değiştirsin.
 
   Sınırlar mevcut kodla aynı: 300 MB (`MAX_VIDEO_BYTES`), ≤ 90 sn, dikey.
 - **Kuyruk** — kart başına kapak karesi, caption'ın başı, durum rozeti
-  (caption hazırlanıyor / onay bekliyor / onaylı / hata) ve tahmini yayın
+  (caption hazırlanıyor / yayınlanıyor / hata) ve tahmini yayın
   zamanı (sıra + slotlardan hesaplanan gösterim). Sürükle-bırak (`@dnd-kit`);
   mobilde yukarı/aşağı okları.
 - **Video detayı** — oynatıcı, düzenlenebilir caption, "yeniden üret" (not
-  ile), Onayla / Reddet / Kuyruktan çıkar.
+  ile), Kuyruktan çıkar / Sona at. Onay/red yok (K33).
 - **Geçmiş** — yayınlananlar (Instagram linkiyle) ve başarısızlar.
-- **Ayarlar** — yayın saatleri, onay aç/kapat (kapatırken uyarı), duraklat,
-  bildirim e-postası.
+- **Ayarlar** — yayın saatleri ve günleri, duraklat, bildirim e-postası.
 
 Ajans paneli (`/dashboard`) aynı kuyruğu müşteri seçerek görür.
 

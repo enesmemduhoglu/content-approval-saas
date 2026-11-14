@@ -25,7 +25,6 @@ beforeEach(async () => {
 const valid = {
   slots: ["19:00"],
   timezone: "Europe/Istanbul",
-  requireApproval: true,
   paused: false,
   notifyEmail: null,
 };
@@ -52,11 +51,20 @@ describe("PUT /api/portal/settings", () => {
     let row = await db.publishSettings.findUniqueOrThrow({ where: { clientId } });
     expect(row.slots).toEqual(["09:00", "21:30"]);
 
-    const res = await put({ ...valid, requireApproval: false, paused: true, notifyEmail: "bildirim@ornek.com" });
+    const res = await put({ ...valid, paused: true, notifyEmail: "bildirim@ornek.com" });
     expect(res.status).toBe(200);
     row = await db.publishSettings.findUniqueOrThrow({ where: { clientId } });
-    expect(row).toMatchObject({ requireApproval: false, paused: true, notifyEmail: "bildirim@ornek.com" });
+    expect(row).toMatchObject({ paused: true, notifyEmail: "bildirim@ornek.com" });
     expect(await db.publishSettings.count()).toBe(1);
+  });
+
+  it("K33: eski PWA'nın gönderdiği requireApproval (geçersiz olsa da) yok sayılır, yanıtta yok", async () => {
+    const res = await put({ ...valid, requireApproval: "evet", paused: true });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.settings).not.toHaveProperty("requireApproval");
+    const row = await db.publishSettings.findUniqueOrThrow({ where: { clientId } });
+    expect(row.paused).toBe(true);
   });
 
   it.each([
@@ -66,7 +74,6 @@ describe("PUT /api/portal/settings", () => {
     ["geçersiz saat", { slots: ["24:00"] }, "slots"],
     ["tek haneli saat", { slots: ["9:00"] }, "slots"],
     ["geçersiz saat dilimi", { timezone: "Mars/Olympus" }, "timezone"],
-    ["boolean olmayan onay", { requireApproval: "evet" }, "requireApproval"],
     ["boolean olmayan duraklatma", { paused: 1 }, "paused"],
     ["geçersiz e-posta", { notifyEmail: "adres-degil" }, "notifyEmail"],
   ])("%s → 400 (field: %s)", async (_label, patch, field) => {

@@ -111,7 +111,11 @@ beforeEach(async () => {
   }));
 });
 
-/** Instagram bağlı müşteri + ayar; slot `minutesAgo` dakika önce. */
+/**
+ * Instagram bağlı müşteri + ayar; slot `minutesAgo` dakika önce. Ayar satırı
+ * varsayılan olarak `requireApproval: true` yazılır — K33 öncesinden kalan
+ * prod satırları böyle ve kod artık bu kolonu okumamalı.
+ */
 async function seed(
   options: {
     minutesAgo?: number[];
@@ -191,7 +195,7 @@ describe("yetkilendirme", () => {
 });
 
 describe("slot yayını", () => {
-  it("onay açık + onaylı video → yayınlar, slotAt ve SlotRun yazılır, R2 imzalı URL verilir", async () => {
+  it("onaylı video → yayınlar, slotAt ve SlotRun yazılır, R2 imzalı URL verilir", async () => {
     const { agency, client, slotAts } = await seed();
     const post = await createQueuePost(agency.id, client.id);
 
@@ -204,6 +208,8 @@ describe("slot yayını", () => {
     const saved = await db.post.findUniqueOrThrow({ where: { id: post.id } });
     expect(saved.publishStatus).toBe("published");
     expect(saved.slotAt).toEqual(slotAts[0]);
+    // Zaten onaylı (K33 öncesi) videoya ikinci bir onay satırı yazılmaz.
+    expect(await db.approvalAudit.count({ where: { postId: post.id } })).toBe(0);
 
     const runs = await db.slotRun.findMany({ where: { clientId: client.id } });
     expect(runs).toHaveLength(1);
@@ -243,37 +249,33 @@ describe("slot yayını", () => {
     expect(subjects()).toEqual(["Videon Instagram'da yayınlandı"]);
   });
 
-  it("onay AÇIK + yalnızca onaysız video → yayın yok, empty + 'onaylı video yoktu' e-postası", async () => {
+  it("K33: eski `requireApproval: true` satırında bile bekleyen video yayınlanır", async () => {
     const { agency, client } = await seed({ requireApproval: true });
     const post = await createQueuePost(agency.id, client.id, { status: "pending" });
 
     const body = await (await POST(tickRequest())).json();
-    expect(body).toMatchObject({ published: 0, empty: 1 });
+    expect(body).toMatchObject({ published: 1, empty: 0 });
 
-    expect(mockCreateReel).not.toHaveBeenCalled();
     const saved = await db.post.findUniqueOrThrow({ where: { id: post.id } });
-    expect(saved.status).toBe("pending");
-    expect(saved.publishStatus).toBe("idle");
-    expect(await db.approvalAudit.count()).toBe(0);
-
+    expect(saved.status).toBe("approved");
+    expect(saved.publishStatus).toBe("published");
     const run = await db.slotRun.findFirstOrThrow({ where: { clientId: client.id } });
-    expect(run.outcome).toBe("empty");
-    expect(subjects()).toEqual(["Bu saatte yayınlanacak onaylı video yoktu"]);
-    expect(mockRaw.mock.calls[0][0].text).toContain("1 video onayını bekliyor");
+    expect(run).toMatchObject({ outcome: "published", postId: post.id });
+    expect(subjects()).toEqual(["Videon Instagram'da yayınlandı"]);
   });
 
-  it("onay AÇIK: baştaki onaysızsa sıradaki ilk ONAYLI yayınlanır", async () => {
-    const { agency, client } = await seed({ requireApproval: true });
+  it("sıra korunur: baştaki bekleyen video, arkadaki onaylıdan önce yayınlanır", async () => {
+    const { agency, client } = await seed();
     const first = await createQueuePost(agency.id, client.id, { status: "pending" });
     const second = await createQueuePost(agency.id, client.id, { status: "approved" });
 
     await POST(tickRequest());
 
     expect((await db.post.findUniqueOrThrow({ where: { id: first.id } })).publishStatus).toBe(
-      "idle"
+      "published"
     );
     expect((await db.post.findUniqueOrThrow({ where: { id: second.id } })).publishStatus).toBe(
-      "published"
+      "idle"
     );
   });
 
@@ -284,8 +286,8 @@ describe("slot yayını", () => {
     expect(subjects()).toEqual(["Kuyrukta yayınlanacak video kalmadı"]);
   });
 
-  it("onay KAPALI → auto_approved audit (ip=system) + yayın", async () => {
-    const { agency, client } = await seed({ requireApproval: false });
+  it("bekleyen video → auto_approved audit (ip=system) + yayın", async () => {
+    const { agency, client } = await seed();
     const post = await createQueuePost(agency.id, client.id, { status: "pending" });
 
     const body = await (await POST(tickRequest())).json();
@@ -301,8 +303,8 @@ describe("slot yayını", () => {
     expect(AUTO_APPROVAL_IP).toBe("system");
   });
 
-  it("onay KAPALI olsa bile reddedilmiş video yayınlanmaz", async () => {
-    const { agency, client } = await seed({ requireApproval: false });
+  it("reddedilmiş (K33 öncesi) video yayınlanmaz", async () => {
+    const { agency, client } = await seed();
     await createQueuePost(agency.id, client.id, { status: "rejected" });
 
     const body = await (await POST(tickRequest())).json();
@@ -482,18 +484,18 @@ describe("çok turlu video yayını", () => {
 });
 
 describe("slot boş telefon bildirimi (V7c — e-postaya EK kanal)", () => {
-  it("onaylı video yok → 'Bu saatte onaylı video yoktu' + bekleyen sayısı, kuyruğa gider", async () => {
-    const { agency, client } = await seed({ requireApproval: true });
-    await createQueuePost(agency.id, client.id, { status: "pending" });
+  it("caption'ı hazırlanan video varken slot boş geçer; bildirim onaydan söz etmez, kuyruğa gider", async () => {
+    const { agency, client } = await seed();
+    await createQueuePost(agency.id, client.id, { status: "pending", captionStatus: "generating" });
 
     await POST(tickRequest());
 
-    expect(subjects()).toEqual(["Bu saatte yayınlanacak onaylı video yoktu"]);
+    expect(subjects()).toEqual(["Kuyrukta yayınlanacak video kalmadı"]);
     expect(mockPush).toHaveBeenCalledTimes(1);
     const [clientId, payload] = mockPush.mock.calls[0];
     expect(clientId).toBe(client.id);
-    expect(payload).toMatchObject({ title: "Bu saatte onaylı video yoktu", url: "/portal", tag: "slot-bos" });
-    expect(payload.body).toContain("1 video onayını bekliyor");
+    expect(payload).toMatchObject({ title: "Kuyrukta video kalmadı", url: "/portal", tag: "slot-bos" });
+    expect(payload.body).not.toMatch(/onay/i);
   });
 
   it("kuyruk boş ve Instagram bağlı değil de bildirilir", async () => {
@@ -514,8 +516,7 @@ describe("slot boş telefon bildirimi (V7c — e-postaya EK kanal)", () => {
   });
 
   it("e-posta patlasa da bildirim gider; tick düşmez", async () => {
-    const { agency, client } = await seed({ requireApproval: true });
-    await createQueuePost(agency.id, client.id, { status: "pending" });
+    await seed(); // boş kuyruk → slot boş e-postası
     mockRaw.mockRejectedValue(new Error("resend çöktü"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -524,7 +525,7 @@ describe("slot boş telefon bildirimi (V7c — e-postaya EK kanal)", () => {
   });
 
   it("yayın olan slotta 'slot boş' bildirimi yok", async () => {
-    const { agency, client } = await seed({ requireApproval: true });
+    const { agency, client } = await seed();
     await createQueuePost(agency.id, client.id, { status: "approved" });
     await POST(tickRequest());
     // Tek bildirim yayın sonucu (publish-post kancası); slot boş değil.

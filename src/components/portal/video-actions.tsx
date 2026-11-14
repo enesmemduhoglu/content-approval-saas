@@ -1,24 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
 import { CAPTION_MAX_LENGTH } from "@/lib/validation";
-import type { ReviewNext } from "@/lib/portal-review";
 import { DeleteSheet, deleteVideo } from "@/components/portal/delete-sheet";
-import { RestoreSheet, restoreVideo } from "@/components/portal/restore-sheet";
-import {
-  IconCheck,
-  IconChevronRight,
-  IconRefresh,
-  IconSparkle,
-  IconTrash,
-  IconUndo,
-} from "@/components/portal/icons";
-
-/** Redden sonra "Geri al"ın açık kaldığı süre (sn). */
-export const UNDO_SECONDS = 8;
+import { restoreVideo } from "@/components/portal/requeue";
+import { IconCheck, IconRefresh, IconSparkle, IconTrash, IconUndo } from "@/components/portal/icons";
 
 /**
  * "Yeniden üret" notunun hazır parçaları (V7, "Güncelleme 28 Eyl (3)").
@@ -64,16 +52,13 @@ export type VideoActionsProps = {
   captionStatus: CaptionStatus | null;
   publishStatus: PublishStatus;
   inQueue: boolean;
-  requireApproval: boolean;
   /**
-   * Kalıcı silme: yalnızca kuyruk dışındaki (çıkarılan ya da reddedilen),
+   * Kalıcı silme: yalnızca kuyruk dışındaki (çıkarılan ya da K33 öncesinde reddedilen),
    * yayına girmemiş video. Koşul sunucudaki `posts.deleteOutside` ile aynı.
    */
   canDelete: boolean;
   /** "Tekrar dene"nin üstündeki uyarı (ör. biçim hatasında tekrar denemek boşuna). */
   retryNote?: string;
-  /** Onay bekleyenler arasında gezinme (`reviewNext`); onay kapalıyken yok. */
-  review?: ReviewNext;
   /**
    * `pending` caption takılmış (`isCaptionStuck`): iş kuyruğa hiç girmemiş
    * olabilir. Sunucu bu durumda yeniden üretimi kabul ediyor; düğme de açılır.
@@ -86,30 +71,18 @@ export type VideoActionsProps = {
  * koşullu UPDATE'lerin kabul edeceği durumlarla aynı mantıkta — kullanıcı
  * 409 alacağı bir butonu hiç görmesin. Sunucu yine de son sözü söyler.
  *
- * Görünüm V7 mobil tasarımı: karar (Onayla/Reddet) ve "Tekrar dene" başparmak
- * hizasında, ekranın altına sabit bir çubukta; caption düzenleme ve kuyruk
- * araçları sayfanın akışında.
+ * Görünüm V7 mobil tasarımı: "Tekrar dene" ve kuyruk dışı videonun "Sil /
+ * Kuyruğa geri al"ı başparmak hizasında, ekranın altına sabit bir çubukta;
+ * caption düzenleme ve kuyruk araçları sayfanın akışında. Onay/red çubuğu
+ * yok: portalda müşteri onayı yok (K33), video sırası gelince yayınlanır.
  */
 export function VideoActions(props: VideoActionsProps) {
   const router = useRouter();
   const [caption, setCaption] = useState(props.caption);
   const [note, setNote] = useState("");
-  const [reason, setReason] = useState("");
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [restoring, setRestoring] = useState(false);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
-  /** Redden hemen sonra: videonun eski sırası ve kalan saniye. */
-  const [undo, setUndo] = useState<{ position: number | null; left: number } | null>(null);
-  /**
-   * Onaydan hemen sonra: sıradaki bekleyen video. Onay anındaki `review`dan
-   * alınır — sayfa tazelenince bu video artık "bekleyen" sayılmıyor.
-   */
-  const [approvedNext, setApprovedNext] = useState<{ nextId: string | null; left: number } | null>(
-    null
-  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,14 +107,8 @@ export function VideoActions(props: VideoActionsProps) {
     (props.captionStatus === "pending" && !captionStuck) || props.captionStatus === "generating";
   const canEditCaption = editable && (captionReady || props.captionStatus === "failed");
 
-  /** Başarıda yanıt gövdesini döner (red eski sırayı taşıyor), hatada `null`. */
-  async function call(
-    path: string,
-    body: unknown,
-    done: string,
-    method = "POST"
-  ): Promise<Record<string, unknown> | null> {
-    if (busy) return null;
+  async function call(path: string, body: unknown, done: string, method = "POST"): Promise<void> {
+    if (busy) return;
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -154,95 +121,35 @@ export function VideoActions(props: VideoActionsProps) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error ?? "Bir hata oluştu, tekrar dene");
-        return null;
+        return;
       }
       setMessage(done);
       setConfirmRegenerate(false);
-      setRejecting(false);
       router.refresh();
-      return data;
     } catch {
       setError("Bağlantı hatası, tekrar dene");
-      return null;
     } finally {
       setBusy(false);
     }
   }
 
-  async function reject() {
-    const data = await call(
-      "/decision",
-      { action: "reject", reason: reason.trim() || undefined },
-      "Video reddedildi ve kuyruktan çıkarıldı"
-    );
-    if (!data) return;
-    // Mesaj yerine "Geri al" bildirimi: yanlışlıkla reddetmenin fark edildiği an bu.
-    setMessage(null);
-    const previous = typeof data.previousPosition === "number" ? data.previousPosition : null;
-    setUndo({ position: previous, left: UNDO_SECONDS });
-  }
-
-  async function approve() {
-    const review = props.review;
-    const data = await call(
-      "/decision",
-      { action: "approve" },
-      "Onaylandı. Video kuyruktaki sırası gelince yayınlanacak."
-    );
-    if (!data || !review) return;
-    // Onay açıkken mesaj yerine "sıradakine geç" satırı (V7, 28 Eyl (3)).
-    setMessage(null);
-    const left = Math.max(0, review.awaiting - (review.index !== null ? 1 : 0));
-    setApprovedNext({ nextId: review.nextId, left });
-  }
-
-  // Geri sayım; süre bitince bildirim kalkar, çubukta "Sil / Kuyruğa geri al" kalır.
-  const undoActive = undo !== null;
-  useEffect(() => {
-    if (!undoActive) return;
-    const timer = setInterval(() => {
-      setUndo((current) => (current && current.left > 1 ? { ...current, left: current.left - 1 } : null));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [undoActive]);
-
   /**
-   * Reddi geri al. `position` yalnızca redden hemen sonraki "Geri al"da dolu
-   * (video eski yerine döner); detaydan/listeden geri almada video sona eklenir.
+   * K33 öncesinde reddedilmiş videoyu kuyruğun sonuna geri alır. Yeni red
+   * üretilmiyor; bu yol yalnızca o eski kayıtlar için (`/restore`).
    */
-  async function restore(approve: boolean, position: number | null, done: string) {
+  async function restore() {
     if (busy) return;
     setBusy(true);
     setError(null);
     setMessage(null);
-    setRestoreError(null);
-    const result = await restoreVideo(props.id, approve, position);
+    const result = await restoreVideo(props.id);
     setBusy(false);
     if (!result.ok) {
-      if (restoring) setRestoreError(result.error);
-      else setError(result.error);
+      setError(result.error);
       return;
     }
-    setUndo(null);
-    setRestoring(false);
-    setMessage(done);
+    setMessage("Video kuyruğa geri alındı");
     router.refresh();
-  }
-
-  const closeRestore = useCallback(() => {
-    setRestoring(false);
-    setRestoreError(null);
-  }, []);
-
-  function startRestore() {
-    setMessage(null);
-    setError(null);
-    // Onay kapalıyken "onaylı / onay bekleyen" ayrımı anlamsız: doğrudan geri al.
-    if (!props.requireApproval) {
-      void restore(false, null, "Video kuyruğa geri alındı");
-      return;
-    }
-    setRestoring(true);
   }
 
   const closeDelete = useCallback(() => {
@@ -265,27 +172,13 @@ export function VideoActions(props: VideoActionsProps) {
     router.refresh();
   }
 
-  // Kuyruk dışındaki videoda karar (Onayla/Reddet) çubuğu yerine "Sil" +
-  // "Kuyruğa geri al": yayınlanmayacak bir videoyu onaylamak anlamsız, önce
-  // kuyruğa geri alınır.
+  // Kuyruk dışındaki videoda çubukta "Sil" + "Kuyruğa geri al".
   const outside = !props.inQueue && props.canDelete;
   const rejected = props.status === "rejected";
-  // `undo` açıkken sayfa henüz tazelenmemiş olabilir (status hâlâ `pending`):
-  // karar düğmeleri "Geri al"ın yanında görünmesin.
-  const pendingDecision =
-    props.status === "pending" && !outside && undo === null && approvedNext === null;
   const canRetry = editable && props.publishStatus === "failed" && props.inQueue;
   const dirty = caption.trim() !== props.caption.trim();
   // Mesajlar da çubukta: sonucu, dokunulan düğmenin hemen üstünde görsün.
-  const showBar =
-    pendingDecision ||
-    canRetry ||
-    outside ||
-    undo !== null ||
-    approvedNext !== null ||
-    message !== null ||
-    error !== null;
-  const review = props.review;
+  const showBar = canRetry || outside || message !== null || error !== null;
 
   return (
     <>
@@ -308,15 +201,17 @@ export function VideoActions(props: VideoActionsProps) {
         </p>
       ) : (
         <>
-          {/* Whisper sayıları yanlış duyabiliyor ("15" → "50"); yayından önce
-              okunmadan geçilmesin diye görünür. Reddedilen video yayınlanmayacağı
-              için orada gürültü — kuyruğa geri alınınca yeniden çıkar. */}
+          {/* Whisper sayıları yanlış duyabiliyor ("15" → "50") ve onay adımı
+              yok (K33): metin sırası gelince olduğu gibi yayınlanır. Bunu
+              söylemenin yeri burası. Reddedilen video yayınlanmayacağı için
+              orada gürültü — kuyruğa geri alınınca yeniden çıkar. */}
           {captionReady && !rejected && (
             <p className="p-note">
               <IconSparkle size={18} />
               <span>
-                Caption otomatik üretildi. <strong>Sayıları ve isimleri kontrol et</strong> — konuşma
-                yazıya dökülürken yanlış duyulabilir.
+                Caption otomatik üretildi ve sırası gelince bu hâliyle yayınlanır.{" "}
+                <strong>Sayıları ve isimleri kontrol et</strong> — konuşma yazıya dökülürken yanlış
+                duyulabilir.
               </span>
             </p>
           )}
@@ -414,7 +309,6 @@ export function VideoActions(props: VideoActionsProps) {
                 {captionStuck
                   ? "Caption üretimi yeniden başlatılacak."
                   : "Caption baştan üretilecek; elle yaptığın değişiklikler kaybolur."}
-                {props.status === "approved" && " Video yeniden onayını bekleyecek."}
               </p>
               <div className="p-confirm-actions">
                 <button
@@ -478,22 +372,6 @@ export function VideoActions(props: VideoActionsProps) {
         <DeleteSheet busy={busy} error={deleteError} onCancel={closeDelete} onConfirm={confirmDelete} />
       )}
 
-      {restoring && (
-        <RestoreSheet
-          captionReady={captionReady}
-          busy={busy}
-          error={restoreError}
-          onCancel={closeRestore}
-          onChoose={(approve) =>
-            restore(
-              approve,
-              null,
-              approve ? "Onaylandı ve kuyruğa alındı" : "Kuyruğa alındı · onayını bekliyor"
-            )
-          }
-        />
-      )}
-
       {showBar && (
         <div className="p-actionbar">
           <div className="p-actionbar-inner">
@@ -507,132 +385,7 @@ export function VideoActions(props: VideoActionsProps) {
                 {message}
               </p>
             )}
-            {pendingDecision && !rejecting && !props.requireApproval && (
-              <p className="p-hint">
-                Onay kapalı: sırası gelince onay beklemeden yayınlanır. İstemiyorsan reddet ya da
-                kuyruktan çıkar.
-              </p>
-            )}
-            {pendingDecision && !rejecting && !captionReady && (
-              <p className="p-hint">Caption hazır olunca onaylayabilirsin.</p>
-            )}
-            {pendingDecision && !rejecting && review && review.index !== null && review.awaiting > 1 && (
-              <p className="p-hint p-hint--center">
-                Onay bekleyen {review.awaiting} videodan {review.index}.
-              </p>
-            )}
-            {pendingDecision && rejecting && (
-              <>
-                <label htmlFor="reject-reason" className="p-label">
-                  Neden? (isteğe bağlı)
-                </label>
-                <input
-                  id="reject-reason"
-                  type="text"
-                  className="p-input"
-                  maxLength={2000}
-                  value={reason}
-                  disabled={busy}
-                  onChange={(e) => setReason(e.target.value)}
-                />
-                <div className="p-actionbar-row">
-                  <button
-                    type="button"
-                    className="p-btn p-btn--outline"
-                    disabled={busy}
-                    onClick={() => setRejecting(false)}
-                  >
-                    Vazgeç
-                  </button>
-                  <button
-                    type="button"
-                    className="p-btn p-btn--solid-danger p-btn--grow"
-                    disabled={busy}
-                    onClick={() => void reject()}
-                  >
-                    Reddet
-                  </button>
-                </div>
-              </>
-            )}
-            {pendingDecision && !rejecting && (
-              <div className="p-actionbar-row">
-                <button
-                  type="button"
-                  className="p-btn p-btn--outline"
-                  disabled={busy}
-                  onClick={() => setRejecting(true)}
-                >
-                  Reddet
-                </button>
-                <button
-                  type="button"
-                  className="p-btn p-btn--primary p-btn--grow"
-                  disabled={busy || !captionReady}
-                  onClick={() => void approve()}
-                >
-                  <IconCheck size={18} />
-                  Onayla
-                </button>
-              </div>
-            )}
-            {approvedNext && (
-              <>
-                <div className="p-approved" role="status">
-                  <span className="p-approved-check" aria-hidden="true">
-                    <IconCheck size={14} />
-                  </span>
-                  <span className="p-approved-text">
-                    <strong>Onaylandı</strong>
-                    <span>
-                      {approvedNext.nextId
-                        ? "Sırası gelince yayınlanacak"
-                        : "Sırası gelince yayınlanacak · onay bekleyen başka video yok"}
-                    </span>
-                  </span>
-                </div>
-                <div className="p-actionbar-row">
-                  {approvedNext.nextId ? (
-                    <>
-                      <Link href="/portal" className="p-btn p-btn--outline">
-                        Kuyruk
-                      </Link>
-                      <Link
-                        href={`/portal/video/${approvedNext.nextId}`}
-                        className="p-btn p-btn--primary p-btn--grow"
-                      >
-                        Sıradakine geç · {approvedNext.left} kaldı
-                        <IconChevronRight size={18} />
-                      </Link>
-                    </>
-                  ) : (
-                    <Link href="/portal" className="p-btn p-btn--primary p-btn--grow">
-                      Kuyruğa dön
-                    </Link>
-                  )}
-                </div>
-              </>
-            )}
-            {undo && (
-              <div className="p-undo" role="status">
-                <span className="p-undo-text">
-                  <strong>Video reddedildi</strong>
-                  <span>Kuyruktan çıkarıldı · {undo.left} sn içinde geri alabilirsin</span>
-                </span>
-                <button
-                  type="button"
-                  className="p-undo-btn"
-                  disabled={busy}
-                  onClick={() =>
-                    restore(false, undo.position, "Red geri alındı · video eski yerine döndü")
-                  }
-                >
-                  <IconUndo size={16} />
-                  Geri al
-                </button>
-              </div>
-            )}
-            {outside && !undo && (
+            {outside && (
               <div className="p-actionbar-row">
                 <button
                   type="button"
@@ -653,7 +406,7 @@ export function VideoActions(props: VideoActionsProps) {
                     className="p-btn p-btn--primary p-btn--grow"
                     disabled={busy}
                     onClick={() =>
-                      rejected ? startRestore() : call("/to-end", {}, "Video kuyruğa geri alındı")
+                      rejected ? void restore() : call("/to-end", {}, "Video kuyruğa geri alındı")
                     }
                   >
                     <IconUndo size={18} />
@@ -662,10 +415,10 @@ export function VideoActions(props: VideoActionsProps) {
                 )}
               </div>
             )}
-            {!pendingDecision && canRetry && props.retryNote && (
+            {canRetry && props.retryNote && (
               <p className="p-hint p-hint--center">{props.retryNote}</p>
             )}
-            {!pendingDecision && canRetry && (
+            {canRetry && (
               <div className="p-actionbar-row">
                 <button
                   type="button"

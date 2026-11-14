@@ -4,7 +4,7 @@ import { getClientScopedDb, type PortalVideo } from "@/lib/client-scoped-db";
 import { toCard } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
 import { getPortalContext } from "@/lib/portal-app";
-import { estimateIfApproved, estimatePublishTimes, queueRunway } from "@/lib/portal-schedule";
+import { estimatePublishTimes, queueRunway } from "@/lib/portal-schedule";
 import {
   formatTime,
   runwaySummary,
@@ -43,7 +43,6 @@ async function cardsFor(
     publishStatus: c.publishStatus,
     publishError: c.publishError,
     coverUrl: c.coverUrl,
-    rejectionReason: c.rejectionReason,
     deleteLabel: days === null ? null : deletionLabel(days),
     deleteSoon: days !== null && days <= 1,
     };
@@ -51,7 +50,6 @@ async function cardsFor(
 }
 
 type OutsideExtras = {
-  rejectionReason: string | null;
   /** "3 gün sonra silinecek" — yalnızca kuyruk dışı kartta dolu. */
   deleteLabel: string | null;
   /** Son gün (yarın/bugün): sayaç koyulaşır. */
@@ -60,7 +58,7 @@ type OutsideExtras = {
 
 /**
  * "Sıradaki yayın" kartı. Tahmin yoksa kart boş kalmıyor, NEDENİNİ söylüyor
- * (saat yok / duraklatıldı / onaylı video yok): kullanıcının kuyruk ekranında
+ * (saat yok / duraklatıldı / caption bekleniyor): kullanıcının kuyruk ekranında
  * ilk sorduğu soru "bir sonraki video ne zaman çıkıyor" ve "hiçbir zaman"
  * cevabının sebebi en az o kadar önemli.
  */
@@ -119,14 +117,14 @@ function NextCard({
   );
 }
 
-type RunwayRow = Pick<RunwaySummary, "headline" | "level"> & { sub?: string; extra?: string };
+type RunwayRow = Pick<RunwaySummary, "headline" | "level"> & { sub?: string };
 
 /**
  * "Kuyruk kaç gün yeter" — sıradaki yayın kartının alt satırı (V7 tasarımı,
- * varyant B). Ana rakam onaylı videolarla (gerçekten yayınlanacaklar); onay
- * bekleyenler takvimi uzatıyorsa sağda "Hepsini onaylarsan X gün".
+ * varyant B). Rakam caption'ı hazır videolarla: tick'in gerçekten
+ * yayınlayacakları.
  */
-function RunwayLine({ headline, sub, extra, level }: RunwayRow) {
+function RunwayLine({ headline, sub, level }: RunwayRow) {
   return (
     <span className={`p-next-runway${level === "low" ? " p-next-runway--low" : ""}`}>
       <span className="p-next-runway-main">
@@ -134,7 +132,6 @@ function RunwayLine({ headline, sub, extra, level }: RunwayRow) {
         <span className="p-next-runway-head">{headline}</span>
         {sub && <span className="p-next-runway-sub">{sub}</span>}
       </span>
-      {extra && <span className="p-next-runway-extra">{extra}</span>}
     </span>
   );
 }
@@ -152,25 +149,17 @@ export default async function PortalQueuePage() {
     scoped.client.instagramHealth(now),
   ]);
   const blocked = isInstagramBlocked(instagram);
-  const requireApproval = settings?.requireApproval ?? true;
   const timezone = settings?.timezone ?? "Europe/Istanbul";
   const [queueCards, outsideCards] = await Promise.all([
     cardsFor(queue, session.clientId, timezone, now),
     cardsFor(outside, session.clientId, timezone, now),
   ]);
   // Tahmin, tick'in kurallarıyla (V4 `projectSchedule`): takvimde olmayan
-  // kartta hiçbir şey yazmaz — onay bekleyen video "yayınlanacak" görünmesin.
+  // kartta (caption'ı hazır olmayan) hiçbir şey yazmaz.
   // Instagram bağlantısı yoksa tick slotları boş geçiyor: saat yazmak yalan olur.
   const etaTimes = blocked ? new Map<string, Date>() : estimatePublishTimes(queue, settings, now);
   const etas = Object.fromEntries(
     [...etaTimes].map(([id, at]) => [id, `${slotDayLabel(at, timezone, now)} ${formatTime(at, timezone)}`])
-  );
-  // Onay bekleyen kartta "Onaylarsan: …" (V7 tasarımı): tek başına onaylansa
-  // hangi slota girerdi.
-  const pendingEtas = Object.fromEntries(
-    [...(blocked ? new Map<string, Date>() : estimateIfApproved(queue, settings, now))].map(
-      ([id, at]) => [id, `Onaylarsan: ${slotDayLabel(at, timezone, now)} ${formatTime(at, timezone)}`]
-    )
   );
   const next = [...etaTimes].sort((a, b) => a[1].getTime() - b[1].getTime())[0];
   const nextCard = next ? queueCards.find((c) => c.id === next[0]) : undefined;
@@ -215,11 +204,7 @@ export default async function PortalQueuePage() {
         // Gün adıyla ("Perşembe · 19:00"): yayın günleri seçiliyken sıradaki
         // yayın birkaç gün sonra olabilir; kart ritmi tek bakışta söylesin.
         when={`${slotWeekdayLabel(next[1], timezone, now)} · ${formatTime(next[1], timezone)}`}
-        sub={
-          requireApproval
-            ? "Onaylı ilk video yayınlanır · Onay açık"
-            : "Sıradaki video yayınlanır · Onay kapalı"
-        }
+        sub="Sıradaki video yayınlanır"
         thumb={{ coverUrl: nextCard?.coverUrl ?? null }}
         runway={runway && runway.level !== "empty" ? runway : undefined}
       />
@@ -237,15 +222,8 @@ export default async function PortalQueuePage() {
     nextView = (
       <NextCard
         small
-        when={requireApproval ? "Onaylı video yok" : "Caption bekleniyor"}
-        sub={
-          requireApproval
-            ? "Onayladığın ilk video sıradaki saatte yayınlanır"
-            : "Caption'ı hazır olan ilk video sıradaki saatte yayınlanır"
-        }
-        // Başlık zaten "Onaylı video yok" diyor; gösterge yalnızca onaylanırsa
-        // kuyruğun ne kadar yeteceğini ekler.
-        runway={runway?.extra ? { headline: runway.extra, level: "ok" } : undefined}
+        when="Caption bekleniyor"
+        sub="Caption'ı hazır olan ilk video sıradaki saatte yayınlanır"
       />
     );
   }
@@ -275,17 +253,12 @@ export default async function PortalQueuePage() {
         </h2>
         {queueCards.length > 1 && <span className="p-hint">Oklarla sırala</span>}
       </div>
-      <QueueBoard
-        cards={queueCards}
-        requireApproval={requireApproval}
-        etas={etas}
-        pendingEtas={pendingEtas}
-      />
+      <QueueBoard cards={queueCards} etas={etas} />
 
       {/* Bölüm başlığı listenin içinde: son kart da gidince bölüm kalkar ama
           "Video silindi" bildirimi (bileşenin durumu) yerinde kalır. Eskiden
           bölüm burada koşullu çiziliyordu ve bildirim bölümle birlikte gidiyordu. */}
-      <OutsideList cards={outsideCards} requireApproval={requireApproval} />
+      <OutsideList cards={outsideCards} />
     </PortalShell>
   );
 }

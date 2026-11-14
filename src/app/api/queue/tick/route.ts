@@ -10,7 +10,7 @@ import { authorizeQueueRequest } from "@/lib/qstash";
 import { retentionDue, runMediaRetention, type MediaRetentionStats } from "@/lib/media-retention";
 import { reportCrash } from "@/lib/db-health";
 import { followUpDecision, parseWakeKind, scheduleFollowUp } from "@/lib/queue-wake";
-import { SLOT_LOOKBACK_MS, SLOT_WINDOW_MS, dueSlots, isEligible, pickNext } from "@/lib/queue";
+import { SLOT_LOOKBACK_MS, SLOT_WINDOW_MS, dueSlots, pickNext } from "@/lib/queue";
 import {
   attachPostToSlotRun,
   autoApprovePost,
@@ -37,7 +37,8 @@ import {
  *   2. Penceresi (1 saat) kaçmış slot → `SlotRun(skipped)`, yayın yok (K8).
  *   3. Vadesi gelen slot → `SlotRun` INSERT; UNIQUE çakışması = başka tick aldı.
  *   4. `pickNext` → yoksa `empty` + e-posta.
- *   5. Onay kapalıysa koşullu `pending → approved` + `ApprovalAudit(auto_approved)`.
+ *   5. Koşullu `pending → approved` + `ApprovalAudit(auto_approved)` — portalda
+ *      müşteri onayı yok (K33), kararı kuyruk verir.
  *   6. `publishApprovedPost` (throw etmez, kendi kilidi ve onay kontrolü var).
  * Ardından `publishing`de kalmış portal videoları `resumePublish` ile ilerletilir.
  * Slot uyandırmasında son iş R2 temizliği (V9, `media-retention.ts`); takipte yok.
@@ -297,21 +298,12 @@ async function runSlot(
   for (let attempt = 0; attempt < PICK_ATTEMPTS; attempt += 1) {
     const queue = await loadQueue(client.id);
     const candidates = queue.filter((post) => !exclude.has(post.id));
-    const next = pickNext(candidates, settings.requireApproval);
+    const next = pickNext(candidates);
 
     if (!next) {
-      // Onay açık ve kuyrukta onay bekleyen hazır video varsa e-posta bunu
-      // söylemeli: "kuyruk boş" demek kullanıcıyı yanlış işe (yükleme) yollar.
-      const waiting = settings.requireApproval
-        ? candidates.filter((post) => post.status === "pending" && isEligible(post, false)).length
-        : 0;
-      const reason: SlotEmptyReason = waiting > 0 ? "no_approved" : "empty";
-      await finishSlotRun(client.id, slotAt, {
-        outcome: "empty",
-        detail: reason === "no_approved" ? `Onaylı video yok (${waiting} bekliyor)` : "Kuyruk boş",
-      });
+      await finishSlotRun(client.id, slotAt, { outcome: "empty", detail: "Kuyruk boş" });
       stats.empty += 1;
-      await notifySlotEmpty(settings, to, slotAt, reason, { pendingCount: waiting });
+      await notifySlotEmpty(settings, to, slotAt, "empty", {});
       return;
     }
 
@@ -322,10 +314,11 @@ async function runSlot(
     }
     await attachPostToSlotRun(client.id, slotAt, next.id);
 
-    // K3: onay kapalıyken kararı kuyruk verir ve bu, kimin verdiği bilinsin
-    // diye audit'e yazılır. Koşullu (`pending`) — o anda müşteri reddettiyse
-    // onay yazılmaz ve aşağıdaki yayın, kilidin önündeki onay kontrolünde durur.
-    if (!settings.requireApproval && next.status === "pending") {
+    // K33: portalda müşteri onayı yok; kararı kuyruk verir ve bu, kimin
+    // verdiği bilinsin diye audit'e yazılır. Yayın kilidi `status: approved`
+    // şartını taşıdığı için bu adım atlanamaz. Koşullu (`pending`): onaylı
+    // (K33 öncesinden kalan) videoya ikinci satır yazılmaz.
+    if (next.status === "pending") {
       await autoApprovePost(client.id, next.id);
     }
 
@@ -360,7 +353,7 @@ async function notifySlotEmpty(
   to: string,
   slotAt: Date,
   reason: SlotEmptyReason,
-  extra: { pendingCount?: number; detail?: string }
+  extra: { detail?: string }
 ): Promise<void> {
   try {
     const result = await sendSlotEmptyEmail({
@@ -369,7 +362,6 @@ async function notifySlotEmpty(
       slotAt,
       timezone: settings.timezone,
       reason,
-      pendingCount: extra.pendingCount,
       detail: extra.detail ?? null,
       portalUrl: portalUrl(),
     });
@@ -387,7 +379,6 @@ async function notifySlotEmpty(
       slotAt,
       timezone: settings.timezone,
       reason,
-      pendingCount: extra.pendingCount,
     })
   );
 }

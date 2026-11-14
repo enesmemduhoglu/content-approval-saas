@@ -51,7 +51,7 @@ export async function readVideo(postId: string) {
   const { db } = await modules();
   return db.post.findUniqueOrThrow({
     where: { id: postId },
-    select: { status: true, captionStatus: true, updatedAt: true },
+    select: { status: true, caption: true, captionStatus: true, updatedAt: true },
   });
 }
 

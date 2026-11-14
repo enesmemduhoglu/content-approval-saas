@@ -5,7 +5,7 @@ import type { CaptionStatus, PostStatus, PublishStatus } from "@prisma/client";
  *
  * `reminders.ts` / `instagram-token.ts` ile aynı desen: karar burada, tick
  * (`api/queue/tick`) yalnızca kararı uygular. Böylece saat dilimi, gün dönümü,
- * DST ve onay modu gibi kenar durumların hepsi tek dosyada, DB'siz testte
+ * DST ve gün seçimi gibi kenar durumların hepsi tek dosyada, DB'siz testte
  * toplanır (bkz. docs/video-kuyrugu/README.md §5).
  */
 
@@ -25,7 +25,6 @@ export type QueueSettings = {
    * düşmesin — hiç yayın istemeyenin yolu `paused`.
    */
   days?: number[] | null;
-  requireApproval: boolean;
   paused: boolean;
   /**
    * Ayarın kurulduğu an. Verilirse bundan önceki slotlar hiç üretilmez: yeni
@@ -296,17 +295,16 @@ export function dueSlots(
  */
 const PICKABLE_PUBLISH_STATUS: PublishStatus = "idle";
 
-/** Bu post, verilen onay modunda bir slota seçilebilir mi? */
-export function isEligible(item: QueueItem, requireApproval: boolean): boolean {
+/** Bu post bir slota seçilebilir mi? */
+export function isEligible(item: QueueItem): boolean {
   if (item.queuePosition === null) return false; // kuyruktan çıkarılmış / ajans postu
   if (item.captionStatus !== "ready") return false; // caption'ı olmayan video yayınlanmaz
   if (item.publishStatus !== PICKABLE_PUBLISH_STATUS) return false;
-  // GÜVENLİK KURALI (README §5): onay açıkken onaysız video hiçbir yoldan
-  // yayınlanmaz. Bu, iki kontrolün ilki; ikincisi yayın kilidinin hemen
-  // önünde (`publish-post.ts`).
-  if (requireApproval) return item.status === "approved";
-  // Onay kapalı: bekleyen de onaylı da sırası gelince yayınlanır. `draft`,
-  // `rejected`, `revision_requested` hiçbir modda seçilmez.
+  // Portalda müşteri onayı yok (K33): caption'ı hazır video sırası gelince
+  // yayınlanır, `pending` de `approved` da. `approved`ı tick yayından hemen
+  // önce kendisi yazar (`autoApprovePost`), çünkü yayın kilidi onu şart
+  // koşuyor. `draft`, `rejected` (K33 öncesinden kalan), `revision_requested`
+  // seçilmez.
   return item.status === "pending" || item.status === "approved";
 }
 
@@ -316,15 +314,13 @@ function byPosition(a: QueueItem, b: QueueItem): number {
 }
 
 /**
- * `queuePosition` sırasındaki ilk uygun video; yoksa `null`.
- *
- * Onay açıkken baştaki video onaysızsa slot boş GEÇMEZ, sıradaki ilk ONAYLI
- * video yayınlanır (K9): ritim korunur, kullanıcı istemediği videoyu zaten
- * onaylamamıştır.
+ * `queuePosition` sırasındaki ilk uygun video; yoksa `null`. Baştaki videonun
+ * caption'ı henüz hazır değilse slot boş GEÇMEZ, sıradaki hazır video
+ * yayınlanır: ritim korunur.
  */
-export function pickNext<T extends QueueItem>(queue: T[], requireApproval: boolean): T | null {
+export function pickNext<T extends QueueItem>(queue: T[]): T | null {
   const sorted = [...queue].sort(byPosition);
-  return sorted.find((item) => isEligible(item, requireApproval)) ?? null;
+  return sorted.find((item) => isEligible(item)) ?? null;
 }
 
 // ─── Sıralama ──────────────────────────────────────────────────────────────
@@ -376,15 +372,15 @@ export type ProjectedSlot = { postId: string; slotAt: Date };
  *
  * Tick'in kurallarını birebir simüle eder: `now`dan sonraki her slota
  * `pickNext` ile seçilecek video yerleştirilir ve kuyruktan düşülür. Bu
- * yüzden onay açıkken ONAYSIZ videolar takvimde görünmez — tick de onları
+ * yüzden caption'ı hazır olmayan videolar takvimde görünmez — tick de onları
  * seçmeyecek. Kuyruk duraklatılmışsa takvim boştur.
  *
- * Tahmin: kullanıcı sırayı değiştirir, onay verir ya da bir yayın patlarsa
+ * Tahmin: kullanıcı sırayı değiştirir, caption biter ya da bir yayın patlarsa
  * değişir. Kesin söz değil, "şu anki sıra böyle kalırsa".
  */
 export function projectSchedule<T extends QueueItem>(
   queue: T[],
-  settings: Pick<QueueSettings, "slots" | "timezone" | "days" | "requireApproval" | "paused">,
+  settings: Pick<QueueSettings, "slots" | "timezone" | "days" | "paused">,
   now: Date,
   n: number
 ): ProjectedSlot[] {
@@ -392,7 +388,7 @@ export function projectSchedule<T extends QueueItem>(
   const perWeek = normalizedSlots(settings.slots).length * normalizedDays(settings.days).size;
   if (perWeek === 0) return [];
 
-  let remaining = queue.filter((item) => isEligible(item, settings.requireApproval));
+  let remaining = queue.filter((item) => isEligible(item));
   const want = Math.min(n, remaining.length);
   if (want === 0) return [];
 
@@ -409,7 +405,7 @@ export function projectSchedule<T extends QueueItem>(
   const out: ProjectedSlot[] = [];
   for (const slotAt of instants) {
     if (out.length >= want) break;
-    const next = pickNext(remaining, settings.requireApproval);
+    const next = pickNext(remaining);
     if (!next) break;
     out.push({ postId: next.id, slotAt });
     remaining = remaining.filter((item) => item.id !== next.id);

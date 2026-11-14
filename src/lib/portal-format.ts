@@ -163,8 +163,6 @@ export type RunwaySummary = {
   headline: string;
   /** "Son yayın Çar 7 Eki · 19:00" · "Sıradaki slot boş geçer · Bugün 19:00" */
   sub: string;
-  /** "Hepsini onaylarsan 12 gün" — yalnızca onay bekleyenler takvimi uzatıyorsa. */
-  extra?: string;
   /** `low`: en fazla 2 gün kaldı (bugün + yarın) — video eklemenin vakti. */
   level: "ok" | "low" | "empty";
 };
@@ -193,25 +191,20 @@ export function runwaySummary(
   now: Date = new Date()
 ): RunwaySummary | null {
   if (!runway) return null;
-  const extra = runway.ifAllApproved
-    ? `Hepsini onaylarsan ${runway.ifAllApproved.days} gün`
-    : undefined;
 
-  const { approved } = runway;
-  if (!approved) {
+  const end = runway.runway;
+  if (!end) {
     const next = runway.nextSlotAt;
     return {
       headline: "Yayınlanacak video yok",
       sub: `Sıradaki slot boş geçer · ${slotDayLabel(next, timezone, now)} ${formatTime(next, timezone)}`,
-      ...(extra && { extra }),
       level: "empty",
     };
   }
 
   return {
-    headline: `${approved.days} gün yeter`,
-    sub: `Son yayın ${inlineDayLabel(approved.lastAt, timezone, now)} · ${formatTime(approved.lastAt, timezone)}`,
-    ...(extra && { extra }),
-    level: approved.days <= RUNWAY_LOW_DAYS ? "low" : "ok",
+    headline: `${end.days} gün yeter`,
+    sub: `Son yayın ${inlineDayLabel(end.lastAt, timezone, now)} · ${formatTime(end.lastAt, timezone)}`,
+    level: end.days <= RUNWAY_LOW_DAYS ? "low" : "ok",
   };
 }

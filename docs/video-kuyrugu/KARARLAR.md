@@ -16,10 +16,11 @@ Oracle Always Free / ev bilgisayarında Docker worker değerlendirildi (K1'den
 önce, ffmpeg gerekiyordu). K1 ile gereksizleşti. Onay, iki fazlı Reels yayını,
 token yenileme, e-posta ve IDOR kalıpları burada hazır ve testli.
 
-### K3 · 2026-09-25 · Onay kullanıcının tercihi (`requireApproval`)
-Kullanıcı: "onay gelmesini istemese bile video otomatik yayınlanabilsin."
-Varsayılan **açık** (güvenli taraf). Kapalıyken yayın `ApprovalAudit`'e
-`auto_approved` olarak yazılır ki kimin/neyin karar verdiği izlenebilsin.
+### ~~K3 · 2026-09-25 · Onay kullanıcının tercihi (`requireApproval`)~~ — yerini K33 aldı
+~~Kullanıcı: "onay gelmesini istemese bile video otomatik yayınlanabilsin."
+Varsayılan **açık** (güvenli taraf).~~ Kapalıyken yayın `ApprovalAudit`'e
+`auto_approved` olarak yazılır ki kimin/neyin karar verdiği izlenebilsin —
+**bu kısım K33'te de geçerli**, artık her portal yayını için.
 
 ### K4 · 2026-09-25 · Her yayın sonucu e-postayla bildirilir
 Başarı (link) ve hata (neden) her zaman, onay modundan bağımsız. Ek olarak
@@ -48,10 +49,11 @@ Slot saatinden 1 saatten fazla geçmişse yayın yapılmaz, `skipped` yazılır.
 Aksi halde bir kesinti sonrası birikmiş videolar art arda yayınlanır —
 sayfa için kötü, kullanıcının seçtiği ritmi bozar.
 
-### K9 · 2026-09-25 · Onay açıkken sıradaki ilk ONAYLI video yayınlanır
-Alternatif "baştaki onaylanmadıysa slotu boş geç"ti. Seçilen yol yayın
+### ~~K9 · 2026-09-25 · Onay açıkken sıradaki ilk ONAYLI video yayınlanır~~ — K33 ile anlamsız
+~~Alternatif "baştaki onaylanmadıysa slotu boş geç"ti. Seçilen yol yayın
 ritmini korur; kullanıcı istemediği videoyu zaten onaylamamış olur.
-Hiç onaylı yoksa slot boş geçer ve e-posta gider.
+Hiç onaylı yoksa slot boş geçer ve e-posta gider.~~ Ritim ilkesi kaldı:
+baştaki videonun caption'ı hazır değilse sıradaki hazır video yayınlanır.
 
 ### K10 · 2026-09-25 · Yükleme anında caption, arka planda QStash ile
 Toplu yüklemede (20 video) tek istekte hepsini üretmek 60 sn'yi aşar.
@@ -294,6 +296,35 @@ yalnızca 10 dk. Günlük senkron aynı saatleri her gün yeniden gönderseydi g
 **Erken uyarı:** günlük cron Neon API'sinden kullanımı okur, %70'te uyarır
 (`neon-usage.ts`). DB'ye ulaşılamayınca crash dalları Neon'u yoklar; kota
 dolduysa tek ve sabit anahtarlı bir "kota doldu" uyarısı gider (`db-health.ts`).
+
+### K33 · 2026-11-14 · Portalda müşteri onayı kaldırıldı
+
+**Karar (kullanıcı):** "yeni video yüklendikten sonra gelen onay sistemini
+kaldıralım, onay sistemi hiç yokmuş gibi." Portala yüklenen video caption'ı
+hazır olunca kuyruktaki sırası geldiğinde yayınlanır. Portalda Onayla/Reddet,
+"Onay bekliyor" rozeti, onay anahtarı, "Onaylarsan: …" tahmini, "N video
+onayını bekliyor" e-postası/bildirimi ve "onaylı video yoktu" boş slot sebebi
+yok. Müşterinin elinde kalan kontroller: caption düzenleme / yeniden üretme,
+sıralama, kuyruktan çıkarma, duraklatma ve günlük "yarın şu yayınlanacak"
+özeti (K4 — artık yayından önce son görme şansı tam olarak bu).
+
+**Uygulama — "onay kapalı" yolu kalıcı oldu:** tick sırası gelen `pending`
+videoyu yayından hemen önce `autoApprovePost` ile onaylar
+(`ApprovalAudit.action = auto_approved`, `ip = system`). Yayın kilidinin
+`status: approved` koşulu (CLAUDE.md değişmezi) aynen duruyor; onay yalnızca
+insandan kuyruğa geçti. Ajansın onay linki (`/approve/[token]`) ve ajans akışı
+bu kararın DIŞINDA.
+
+**Veri:** göç yok. Bugün `pending` duran videolar ilk slottan itibaren sırayla
+yayınlanır. K33 öncesinde reddedilmiş videolar "Kuyruk dışı"nda kalır;
+`/restore` onları tek dokunuşla `pending` olarak sona alır (yeni red
+üretilmiyor, bu yol zamanla boşalır).
+
+**`PublishSettings.requireApproval` kolonu bu değişiklikte DÜŞÜRÜLMEDİ:** PR'a
+push edilince preview build göçü prod'a uygular ve o sırada canlıdaki eski kod
+kolonu okuyor (CLAUDE.md "PR'a push = prod şema göçü"). Kod kolonu ne okuyor ne
+yazıyor; ayar ucu gövdede gelirse yok sayıyor (önbellekteki eski PWA
+gönderebilir). Kolonu düşüren göç ayrı bir PR — TODOS.md.
 
 ---
 

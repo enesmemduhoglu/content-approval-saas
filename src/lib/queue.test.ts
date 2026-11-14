@@ -197,41 +197,33 @@ describe("pickNext", () => {
       item({ id: "a", queuePosition: 1 }),
       item({ id: "b", queuePosition: 2 }),
     ];
-    expect(pickNext(queue, true)?.id).toBe("a");
+    expect(pickNext(queue)?.id).toBe("a");
   });
 
-  it("onay AÇIK: baştaki onaysızsa sıradaki ilk ONAYLI seçilir (K9)", () => {
+  it("onay yok (K33): caption'ı hazır BEKLEYEN video da seçilir, sıra korunur", () => {
     const queue = [
       item({ id: "a", queuePosition: 1, status: "pending" }),
       item({ id: "b", queuePosition: 2, status: "approved" }),
     ];
-    expect(pickNext(queue, true)?.id).toBe("b");
+    expect(pickNext(queue)?.id).toBe("a");
   });
 
-  it("onay AÇIK: hiç onaylı yoksa null — onaysız video ASLA seçilmez", () => {
+  it("hepsi bekleyen olsa da ilk sıradaki seçilir — slot boş geçmez", () => {
     const queue = [
-      item({ id: "a", queuePosition: 1, status: "pending" }),
       item({ id: "b", queuePosition: 2, status: "pending" }),
-    ];
-    expect(pickNext(queue, true)).toBeNull();
-  });
-
-  it("onay KAPALI: bekleyen de seçilir, sıra korunur", () => {
-    const queue = [
       item({ id: "a", queuePosition: 1, status: "pending" }),
-      item({ id: "b", queuePosition: 2, status: "approved" }),
     ];
-    expect(pickNext(queue, false)?.id).toBe("a");
+    expect(pickNext(queue)?.id).toBe("a");
   });
 
-  it("onay KAPALI olsa bile reddedilmiş/revizyonda/taslak seçilmez", () => {
+  it("reddedilmiş (K33 öncesi) / revizyonda / taslak seçilmez", () => {
     const queue = [
       item({ id: "a", queuePosition: 1, status: "rejected" }),
       item({ id: "b", queuePosition: 2, status: "revision_requested" }),
       item({ id: "c", queuePosition: 3, status: "draft" }),
       item({ id: "d", queuePosition: 4, status: "pending" }),
     ];
-    expect(pickNext(queue, false)?.id).toBe("d");
+    expect(pickNext(queue)?.id).toBe("d");
   });
 
   it("caption hazır değilse atlanır", () => {
@@ -240,9 +232,9 @@ describe("pickNext", () => {
       item({ id: "b", queuePosition: 2, captionStatus: "generating" }),
       item({ id: "c", queuePosition: 3, captionStatus: "failed" }),
       item({ id: "d", queuePosition: 4, captionStatus: null }),
-      item({ id: "e", queuePosition: 5 }),
+      item({ id: "e", queuePosition: 5, status: "pending" }),
     ];
-    expect(pickNext(queue, true)?.id).toBe("e");
+    expect(pickNext(queue)?.id).toBe("e");
   });
 
   it("failed video atlanır — hata kuyruğu durdurmaz", () => {
@@ -250,7 +242,7 @@ describe("pickNext", () => {
       item({ id: "a", queuePosition: 1, publishStatus: "failed" }),
       item({ id: "b", queuePosition: 2 }),
     ];
-    expect(pickNext(queue, true)?.id).toBe("b");
+    expect(pickNext(queue)?.id).toBe("b");
   });
 
   it("yolda ya da yolun sonundaki video seçilmez", () => {
@@ -261,23 +253,22 @@ describe("pickNext", () => {
       "scheduled",
       "skipped",
     ] as const) {
-      expect(pickNext([item({ id: "a", publishStatus })], false)).toBeNull();
+      expect(pickNext([item({ id: "a", publishStatus })])).toBeNull();
     }
   });
 
   it("kuyruktan çıkarılmış (queuePosition null) seçilmez", () => {
-    expect(pickNext([item({ id: "a", queuePosition: null })], false)).toBeNull();
+    expect(pickNext([item({ id: "a", queuePosition: null })])).toBeNull();
   });
 
   it("boş kuyruk → null", () => {
-    expect(pickNext([], true)).toBeNull();
-    expect(pickNext([], false)).toBeNull();
+    expect(pickNext([])).toBeNull();
   });
 
-  it("isEligible onay moduna göre ayrışır", () => {
-    const pending = item({ id: "a", status: "pending" });
-    expect(isEligible(pending, true)).toBe(false);
-    expect(isEligible(pending, false)).toBe(true);
+  it("isEligible: bekleyen ve onaylı uygun, diğer durumlar değil", () => {
+    expect(isEligible(item({ id: "a", status: "pending" }))).toBe(true);
+    expect(isEligible(item({ id: "a", status: "approved" }))).toBe(true);
+    expect(isEligible(item({ id: "a", status: "rejected" }))).toBe(false);
   });
 });
 
@@ -328,7 +319,7 @@ describe("projectSchedule", () => {
     ];
     const out = projectSchedule(
       queue,
-      { slots: ["19:00"], timezone: "Europe/Istanbul", requireApproval: true, paused: false },
+      { slots: ["19:00"], timezone: "Europe/Istanbul", paused: false },
       now,
       3
     );
@@ -339,31 +330,21 @@ describe("projectSchedule", () => {
     ]);
   });
 
-  it("onay açıkken onaysız video takvimde görünmez — tick de onu seçmez", () => {
+  it("onaysız (bekleyen) video da takvime girer; caption'ı hazır olmayan girmez", () => {
     const queue = [
       item({ id: "a", queuePosition: 1, status: "pending" }),
-      item({ id: "b", queuePosition: 2 }),
+      item({ id: "x", queuePosition: 2, status: "pending", captionStatus: "generating" }),
+      item({ id: "b", queuePosition: 3 }),
     ];
-    const settings = {
-      slots: ["19:00"],
-      timezone: "Europe/Istanbul",
-      requireApproval: true,
-      paused: false,
-    };
-    expect(projectSchedule(queue, settings, now, 5)).toEqual([
-      { postId: "b", slotAt: utc("2026-09-25T16:00:00Z") },
-    ]);
-    // Onay kapalıysa ikisi de sırayla.
-    expect(
-      projectSchedule(queue, { ...settings, requireApproval: false }, now, 5).map((p) => p.postId)
-    ).toEqual(["a", "b"]);
+    const settings = { slots: ["19:00"], timezone: "Europe/Istanbul", paused: false };
+    expect(projectSchedule(queue, settings, now, 5).map((p) => p.postId)).toEqual(["a", "b"]);
   });
 
   it("günde birden çok slot ve n sınırı", () => {
     const queue = ["a", "b", "c", "d"].map((id, i) => item({ id, queuePosition: i + 1 }));
     const out = projectSchedule(
       queue,
-      { slots: ["09:00", "19:00"], timezone: "Europe/Istanbul", requireApproval: true, paused: false },
+      { slots: ["09:00", "19:00"], timezone: "Europe/Istanbul", paused: false },
       now,
       3
     );
@@ -379,7 +360,7 @@ describe("projectSchedule", () => {
     expect(
       projectSchedule(
         [item({ id: "a" })],
-        { slots: ["19:00"], timezone: "Europe/Istanbul", requireApproval: true, paused: true },
+        { slots: ["19:00"], timezone: "Europe/Istanbul", paused: true },
         now,
         3
       )
@@ -390,7 +371,7 @@ describe("projectSchedule", () => {
     expect(
       projectSchedule(
         [item({ id: "a", publishStatus: "failed" })],
-        { slots: ["19:00"], timezone: "Europe/Istanbul", requireApproval: false, paused: false },
+        { slots: ["19:00"], timezone: "Europe/Istanbul", paused: false },
         now,
         3
       )
@@ -502,7 +483,7 @@ describe("yayın günleri — dueSlots", () => {
 });
 
 describe("yayın günleri — projectSchedule", () => {
-  const settings = { slots: ["19:00"], timezone: "Europe/Istanbul", requireApproval: true, paused: false };
+  const settings = { slots: ["19:00"], timezone: "Europe/Istanbul", paused: false };
   const queue = ["a", "b", "c"].map((id, i) => item({ id, queuePosition: i + 1 }));
 
   it("Pzt/Per seçiliyken Salı'dan bakınca ilk video Perşembe'ye kayar", () => {

@@ -22,13 +22,10 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
   return { ...actual, getObjectBytes: (key: string) => getObjectBytes(key) };
 });
 vi.mock("@/lib/alerts", () => ({ sendAlert: vi.fn() }));
-// V7c: "onayına hazır" kancası; toplama/kısma mantığı `push.test.ts`te.
-vi.mock("@/lib/push", () => ({ notifyCaptionsReady: vi.fn(async () => undefined) }));
 
 import { ApiError } from "@fal-ai/client";
 import { db } from "@/lib/db";
 import { sendAlert } from "@/lib/alerts";
-import { notifyCaptionsReady } from "@/lib/push";
 import { frameKey, resetStorageClientForTests, videoKey } from "@/lib/storage-r2";
 import { runCaption, STALE_AFTER_MS } from "./run";
 import { resetFalClientForTests } from "./transcribe";
@@ -36,7 +33,6 @@ import { resetAnthropicClientForTests } from "./generate";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
 
 const mockAlert = vi.mocked(sendAlert);
-const mockReady = vi.mocked(notifyCaptionsReady);
 
 const tags = Array.from({ length: 12 }, (_, i) => `#etiket${i}`);
 const VALID = {
@@ -111,7 +107,6 @@ beforeEach(async () => {
   subscribe.mockReset();
   create.mockReset();
   mockAlert.mockReset();
-  mockReady.mockClear();
   subscribe.mockResolvedValue({ data: { text: "Bugün present perfect öğreniyoruz.", chunks: [] } });
   create.mockResolvedValue(reply(VALID));
   getObjectBytes.mockReset().mockImplementation(async (key: string) => new TextEncoder().encode(`jpeg:${key}`));
@@ -370,25 +365,6 @@ describe("runCaption — kareler içerik olarak, ses izi olmayan video", () => {
   });
 });
 
-describe("runCaption — 'onayına hazır' bildirimi (V7c)", () => {
-  it("ready yazılınca müşteri için toplu bildirim kancası çağrılır", async () => {
-    const { client, post } = await seedPortalPost({ transcript: "x" });
-    expect((await runCaption(post.id)).status).toBe("ready");
-    expect(mockReady).toHaveBeenCalledTimes(1);
-    expect(mockReady).toHaveBeenCalledWith(client.id);
-  });
-
-  it("başarısız üretimde ve atlanan işte çağrılmaz", async () => {
-    const { post } = await seedPortalPost({ transcript: "x" });
-    create.mockResolvedValue(reply({ ...VALID, altText: "" }));
-    expect((await runCaption(post.id)).status).toBe("failed");
-
-    const { post: ready } = await seedPortalPost({ captionStatus: "ready", caption: "hazır" });
-    expect((await runCaption(ready.id)).status).toBe("skipped");
-    expect(mockReady).not.toHaveBeenCalled();
-  });
-});
-
 describe("runCaption — iş sürerken video silindi (portal kalıcı silme)", () => {
   it("Whisper beklenirken silinirse sessizce çıkar: Claude çağrılmaz, uyarı yok", async () => {
     const { post } = await seedPortalPost();
@@ -418,7 +394,6 @@ describe("runCaption — iş sürerken video silindi (portal kalıcı silme)", (
       return reply(VALID);
     });
     expect(await runCaption(post.id)).toEqual({ status: "skipped", reason: "not_found" });
-    expect(mockReady).not.toHaveBeenCalled();
     expect(mockAlert).not.toHaveBeenCalled();
   });
 });

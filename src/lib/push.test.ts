@@ -15,16 +15,14 @@ vi.mock("web-push", async (importOriginal) => {
 import { WebPushError } from "web-push";
 import { db } from "@/lib/db";
 import {
-  CAPTION_READY_THROTTLE_MS,
   PUSH_MAX_FAILURES,
   getVapidPublicKey,
-  notifyCaptionsReady,
   notifyClientUsers,
   resetPushForTests,
   safePushUrl,
 } from "@/lib/push";
 import { createAgency, createClient, resetDb } from "@tests/helpers/db";
-import { createClientUser, createPortalPost } from "@tests/helpers/portal";
+import { createClientUser } from "@tests/helpers/portal";
 
 const VAPID = {
   VAPID_PUBLIC_KEY: "test-public-key",
@@ -222,90 +220,5 @@ describe("safePushUrl", () => {
     ["", "/portal"],
   ])("%s → %s", (input, expected) => {
     expect(safePushUrl(input)).toBe(expected);
-  });
-});
-
-describe("notifyCaptionsReady (toplu, kısmalı)", () => {
-  async function withSubscriber() {
-    const user = await createClientUser(clientId);
-    await subscribe(user.id);
-  }
-
-  it("partinin sonunda tek bildirim, doğru sayıyla", async () => {
-    await withSubscriber();
-    await createPortalPost(agencyId, clientId, { captionStatus: "ready" });
-    const second = await createPortalPost(agencyId, clientId, { captionStatus: "generating" });
-
-    // İlk video bitti ama ikincisi hâlâ yolda → bekle.
-    await notifyCaptionsReady(clientId);
-    expect(sendNotification).not.toHaveBeenCalled();
-
-    await db.post.update({ where: { id: second.id }, data: { captionStatus: "ready" } });
-    await notifyCaptionsReady(clientId);
-    expect(sendNotification).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(sendNotification.mock.calls[0][1])).toMatchObject({
-      title: "2 video onayına hazır",
-      url: "/portal",
-      tag: "caption-hazir",
-    });
-  });
-
-  it("son 2 dakikada gittiyse atlanır, sonra yeniden gider", async () => {
-    await withSubscriber();
-    await createPortalPost(agencyId, clientId, { captionStatus: "ready" });
-    const t0 = new Date("2026-09-26T10:00:00Z");
-
-    await notifyCaptionsReady(clientId, t0);
-    await notifyCaptionsReady(clientId, new Date(t0.getTime() + 60_000));
-    expect(sendNotification).toHaveBeenCalledTimes(1);
-
-    await notifyCaptionsReady(clientId, new Date(t0.getTime() + CAPTION_READY_THROTTLE_MS + 1));
-    expect(sendNotification).toHaveBeenCalledTimes(2);
-  });
-
-  it("Upstash varsa kısma oradan: anahtar zaten varsa (başka instance gönderdi) atlanır", async () => {
-    await withSubscriber();
-    await createPortalPost(agencyId, clientId, { captionStatus: "ready" });
-    process.env.UPSTASH_REDIS_REST_URL = "https://upstash.test";
-    process.env.UPSTASH_REDIS_REST_TOKEN = "t";
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify([{ result: null }]), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    try {
-      await notifyCaptionsReady(clientId);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
-      expect(body[0].slice(0, 2)).toEqual(["SET", `push:caption-ready:${clientId}`]);
-      expect(body[0]).toContain("NX");
-      expect(sendNotification).not.toHaveBeenCalled();
-    } finally {
-      delete process.env.UPSTASH_REDIS_REST_URL;
-      delete process.env.UPSTASH_REDIS_REST_TOKEN;
-    }
-  });
-
-  it("onay kapalıysa gönderilmez (onaylanacak bir şey yok)", async () => {
-    await withSubscriber();
-    await db.publishSettings.create({ data: { clientId, requireApproval: false } });
-    await createPortalPost(agencyId, clientId, { captionStatus: "ready" });
-    await notifyCaptionsReady(clientId);
-    expect(sendNotification).not.toHaveBeenCalled();
-  });
-
-  it("takılmış (10 dk'dan eski) üretim partiyi sonsuza kadar bekletmez", async () => {
-    await withSubscriber();
-    await createPortalPost(agencyId, clientId, { captionStatus: "ready" });
-    await createPortalPost(agencyId, clientId, {
-      captionStatus: "pending",
-      updatedAt: new Date(Date.now() - 11 * 60_000),
-    });
-    await notifyCaptionsReady(clientId);
-    expect(sendNotification).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(sendNotification.mock.calls[0][1]).title).toBe("1 video onayına hazır");
-  });
-
-  it("DB patlasa da throw etmez", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const badId = 42 as unknown as string;
-    await expect(notifyCaptionsReady(badId)).resolves.toBeUndefined();
   });
 });

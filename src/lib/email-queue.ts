@@ -167,8 +167,6 @@ export function sendQueueFailedEmail(input: QueueFailedInput): Promise<EmailResu
 // ─── Slot boş kaldı ────────────────────────────────────────────────────────
 
 export type SlotEmptyReason =
-  /** Onay açık, kuyrukta video var ama hiçbiri onaylı değil. */
-  | "no_approved"
   /** Yayınlanabilecek video yok (kuyruk boş ya da caption'lar hazır değil). */
   | "empty"
   /** Instagram tarafı hazır değil — video HARCANMADI, kuyruk yerinde. */
@@ -180,15 +178,12 @@ export type SlotEmptyInput = {
   slotAt: Date;
   timezone: string;
   reason: SlotEmptyReason;
-  /** no_approved: onay bekleyen hazır video sayısı. */
-  pendingCount?: number;
   /** blocked: ne eksik (sırsız, sabit metin). */
   detail?: string | null;
   portalUrl: string | null;
 };
 
 export function slotEmptySubject(input: Pick<SlotEmptyInput, "reason">): string {
-  if (input.reason === "no_approved") return "Bu saatte yayınlanacak onaylı video yoktu";
   if (input.reason === "blocked") return "Yayın yapılamadı: Instagram bağlantısı";
   return "Kuyrukta yayınlanacak video kalmadı";
 }
@@ -196,14 +191,7 @@ export function slotEmptySubject(input: Pick<SlotEmptyInput, "reason">): string 
 export function renderSlotEmpty(input: SlotEmptyInput) {
   const when = formatSlot(input.slotAt, input.timezone);
   const lines = [`Merhaba ${input.clientName},`];
-  if (input.reason === "no_approved") {
-    lines.push(`${when} yayını için onaylı video yoktu, bu saatte yayın yapılmadı.`);
-    if (input.pendingCount && input.pendingCount > 0) {
-      lines.push(
-        `${input.pendingCount} video onayını bekliyor. Onaylarsan sıradaki yayın saatinde yayınlanır.`
-      );
-    }
-  } else if (input.reason === "blocked") {
+  if (input.reason === "blocked") {
     lines.push(`${when} yayını yapılamadı: ${input.detail ?? "Instagram bağlantısı hazır değil"}.`);
     lines.push("Videoların kuyrukta yerinde duruyor; bağlantı düzelince yayınlar kaldığı yerden sürer.");
   } else {
@@ -244,8 +232,6 @@ export type QueueDigestInput = {
   to: string;
   clientName: string;
   timezone: string;
-  /** Onay açıksa bekleyen hazır video sayısı; onay kapalıysa null (satır basılmaz). */
-  pendingCount: number | null;
   /** Yarın yayınlanacaklar (`projectSchedule`). */
   upcoming: DigestUpcoming[];
   /** Kuyruk azalıyorsa; değilse yok. */
@@ -259,17 +245,15 @@ export function runwayLowTitle(runway: DigestRunway): string {
 }
 
 export function queueDigestSubject(
-  input: Pick<QueueDigestInput, "upcoming" | "pendingCount" | "runwayLow">
+  input: Pick<QueueDigestInput, "upcoming" | "runwayLow">
 ): string {
   // Yarının videosu varsa konu o kalır (günlük özetin asıl işi); kuyruğun
-  // bittiği gövdede. Yarın bir şey yoksa ve kuyruk bitiyorsa konu bu.
+  // bittiği gövdede. Yarın bir şey yoksa özet yalnızca kuyruk bitiyorsa
+  // gönderilir (`queue-digest.ts`), konu da bu.
   if (input.upcoming.length === 0 && input.runwayLow) return runwayLowTitle(input.runwayLow);
-  if (input.upcoming.length > 0) {
-    return input.upcoming.length === 1
-      ? "Yarın 1 video yayınlanacak"
-      : `Yarın ${input.upcoming.length} video yayınlanacak`;
-  }
-  return `${input.pendingCount ?? 0} video onayını bekliyor`;
+  return input.upcoming.length === 1
+    ? "Yarın 1 video yayınlanacak"
+    : `Yarın ${input.upcoming.length} video yayınlanacak`;
 }
 
 function digestLines(input: QueueDigestInput): string[] {
@@ -278,7 +262,8 @@ function digestLines(input: QueueDigestInput): string[] {
     lines.push(`Yarın ${formatTime(item.slotAt, input.timezone)}: “${captionHead(item.caption)}”`);
   }
   if (input.upcoming.length > 0) {
-    // Onay kapalıyken kullanıcının son görme şansı bu e-posta (K4).
+    // Portalda onay yok (K33): kullanıcının yayından önce son görme şansı bu
+    // e-posta (K4).
     lines.push("İstemediğin bir video varsa portaldan sırasını değiştirebilirsin.");
   }
   if (input.runwayLow) {
@@ -288,12 +273,6 @@ function digestLines(input: QueueDigestInput): string[] {
         input.timezone
       )} yayını boş geçer.`
     );
-  }
-  if (input.pendingCount !== null && input.pendingCount > 0) {
-    lines.push(`${input.pendingCount} video onayını bekliyor.`);
-    if (input.upcoming.length === 0 && !input.runwayLow) {
-      lines.push("Onaylı video olmadığı için yarın yayın yapılmayacak.");
-    }
   }
   return lines;
 }

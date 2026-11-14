@@ -95,28 +95,19 @@ describe("runwaySummary — kuyruk kaç gün yeter", () => {
   });
   const next = new Date("2026-09-25T16:00:00Z");
 
-  it("yeterli: gün sayısı, son yayının tarihi, hepsini onaylarsan", () => {
+  it("yeterli: gün sayısı ve son yayının tarihi", () => {
     expect(
-      runwaySummary(
-        {
-          approved: end(10, "2026-10-07T16:00:00Z"),
-          ifAllApproved: end(12, "2026-10-09T16:00:00Z"),
-          nextSlotAt: next,
-        },
-        TZ,
-        NOW
-      )
-    ).toEqual({
+      runwaySummary({ runway: end(10, "2026-10-07T16:00:00Z"), nextSlotAt: next }, TZ, NOW)
+    ).toStrictEqual({
       headline: "10 gün yeter",
       sub: "Son yayın Çar 7 Eki · 19:00",
-      extra: "Hepsini onaylarsan 12 gün",
       level: "ok",
     });
   });
 
-  it("az kaldı (≤ 2 gün): 'yarın' cümle içinde küçük harf, extra yoksa alan da yok", () => {
+  it("az kaldı (≤ 2 gün): 'yarın' cümle içinde küçük harf", () => {
     const out = runwaySummary(
-      { approved: end(2, "2026-09-26T16:00:00Z"), ifAllApproved: null, nextSlotAt: next },
+      { runway: end(2, "2026-09-26T16:00:00Z"), nextSlotAt: next },
       TZ,
       NOW
     );
@@ -127,7 +118,7 @@ describe("runwaySummary — kuyruk kaç gün yeter", () => {
     });
     expect(
       runwaySummary(
-        { approved: end(1, "2026-09-25T16:00:00Z"), ifAllApproved: null, nextSlotAt: next },
+        { runway: end(1, "2026-09-25T16:00:00Z"), nextSlotAt: next },
         TZ,
         NOW
       )?.sub
@@ -135,24 +126,17 @@ describe("runwaySummary — kuyruk kaç gün yeter", () => {
     // Sınır: 3 gün artık uyarı değil.
     expect(
       runwaySummary(
-        { approved: end(3, "2026-09-27T16:00:00Z"), ifAllApproved: null, nextSlotAt: next },
+        { runway: end(3, "2026-09-27T16:00:00Z"), nextSlotAt: next },
         TZ,
         NOW
       )?.level
     ).toBe("ok");
   });
 
-  it("takvime giren yok: sıradaki slot boş geçer; onay bekleyenler varsa extra", () => {
-    expect(
-      runwaySummary(
-        { approved: null, ifAllApproved: end(5, "2026-09-29T16:00:00Z"), nextSlotAt: next },
-        TZ,
-        NOW
-      )
-    ).toEqual({
+  it("takvime giren yok: sıradaki slot boş geçer", () => {
+    expect(runwaySummary({ runway: null, nextSlotAt: next }, TZ, NOW)).toStrictEqual({
       headline: "Yayınlanacak video yok",
       sub: "Sıradaki slot boş geçer · Bugün 19:00",
-      extra: "Hepsini onaylarsan 5 gün",
       level: "empty",
     });
   });
@@ -161,7 +145,7 @@ describe("runwaySummary — kuyruk kaç gün yeter", () => {
     expect(runwaySummary(null, TZ, NOW)).toBeNull();
   });
 
-  it("queueRunway ile uçtan uca: 20 onaylı, günde 2 slot, 10:00'da bakınca", () => {
+  it("queueRunway ile uçtan uca: 20 hazır video, günde 2 slot, 10:00'da bakınca", () => {
     const now = new Date("2026-09-25T07:00:00Z");
     const queue = Array.from({ length: 20 }, (_, i) => ({
       id: `v${i}`,
@@ -170,7 +154,7 @@ describe("runwaySummary — kuyruk kaç gün yeter", () => {
       status: "approved" as const,
       publishStatus: "idle" as const,
     }));
-    const settings = { slots: ["12:00", "19:00"], timezone: TZ, days: [], requireApproval: true, paused: false };
+    const settings = { slots: ["12:00", "19:00"], timezone: TZ, days: [], paused: false };
     expect(runwaySummary(queueRunway(queue, settings, now), TZ, now)).toEqual({
       headline: "10 gün yeter",
       sub: "Son yayın Paz 4 Eki · 19:00",

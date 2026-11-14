@@ -44,15 +44,16 @@ function renderedOrder(): string[] {
 
 describe("QueueBoard", () => {
   it("kartları sırasıyla, kapak ve caption başıyla çizer", () => {
-    render(<QueueBoard cards={[card("a"), card("b")]} requireApproval />);
+    render(<QueueBoard cards={[card("a"), card("b")]} />);
     expect(renderedOrder()).toEqual(["a", "b"]);
     expect(screen.getByText("Caption a")).toBeTruthy();
-    expect(screen.getAllByText("Onay bekliyor")).toHaveLength(2);
+    // K33: bekleyen (onaysız) kartta onay rozeti yok.
+    expect(screen.queryByText("Onay bekliyor")).toBeNull();
   });
 
   it("aşağı oku: iyimser sıralama + iki komşuyla move isteği", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
-    render(<QueueBoard cards={[card("a"), card("b"), card("c")]} requireApproval />);
+    render(<QueueBoard cards={[card("a"), card("b"), card("c")]} />);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Aşağı taşı" })[0]);
 
@@ -65,7 +66,7 @@ describe("QueueBoard", () => {
 
   it("yukarı oku en üste taşırken yalnızca beforeId gönderir", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
-    render(<QueueBoard cards={[card("a"), card("b")]} requireApproval />);
+    render(<QueueBoard cards={[card("a"), card("b")]} />);
     fireEvent.click(screen.getAllByRole("button", { name: "Yukarı taşı" })[1]);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ beforeId: "a" });
@@ -75,7 +76,7 @@ describe("QueueBoard", () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ error: "Kuyruk bu arada değişti" }), { status: 409 })
     );
-    render(<QueueBoard cards={[card("a"), card("b")]} requireApproval />);
+    render(<QueueBoard cards={[card("a"), card("b")]} />);
     fireEvent.click(screen.getAllByRole("button", { name: "Aşağı taşı" })[0]);
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -85,7 +86,7 @@ describe("QueueBoard", () => {
   });
 
   it("ilk kartta yukarı, son kartta aşağı oku devre dışı", () => {
-    render(<QueueBoard cards={[card("a"), card("b")]} requireApproval />);
+    render(<QueueBoard cards={[card("a"), card("b")]} />);
     const up = screen.getAllByRole("button", { name: "Yukarı taşı" });
     const down = screen.getAllByRole("button", { name: "Aşağı taşı" });
     expect((up[0] as HTMLButtonElement).disabled).toBe(true);
@@ -93,7 +94,7 @@ describe("QueueBoard", () => {
   });
 
   it("boş kuyrukta yükleme sayfasına yönlendiren boş durum", () => {
-    render(<QueueBoard cards={[]} requireApproval />);
+    render(<QueueBoard cards={[]} />);
     expect(screen.getByRole("link", { name: "Video yükle" }).getAttribute("href")).toBe("/portal/yukle");
   });
 
@@ -107,7 +108,6 @@ describe("QueueBoard", () => {
             publishError: "Error validating access token · type=OAuthException · code=190 · fbtrace_id=Ab1",
           }),
         ]}
-        requireApproval
       />
     );
     expect(screen.getByText("Instagram bağlantısı geçersiz. Video sırada bekliyor.")).toBeTruthy();
@@ -126,32 +126,21 @@ describe("QueueBoard", () => {
             publishError: "Container c1 durumu ERROR: Media upload has failed with error code 2207026",
           }),
         ]}
-        requireApproval
       />
     );
     expect(screen.getByText("Instagram videoyu kabul etmedi. Video sırada bekliyor.")).toBeTruthy();
     expect(screen.getByText("Ne yapmalıyım?")).toBeTruthy();
   });
 
-  it("onay bekleyen kartta caption'ın altında 'Onaylarsan: …'", () => {
-    render(
-      <QueueBoard
-        cards={[card("a", { status: "pending" })]}
-        requireApproval
-        pendingEtas={{ a: "Onaylarsan: Yarın 19:00" }}
-      />
-    );
-    expect(screen.getByText("Onaylarsan: Yarın 19:00")).toBeTruthy();
-  });
-
-  it("tahmini zaman rozetin yanında yazar", () => {
-    render(<QueueBoard cards={[card("a", { status: "approved" })]} requireApproval etas={{ a: "Yarın 19:00" }} />);
+  it("tahmini zaman rozetin yanında yazar — bekleyen (onaysız) kartta da", () => {
+    render(<QueueBoard cards={[card("a", { status: "pending" })]} etas={{ a: "Yarın 19:00" }} />);
     expect(screen.getByText("Yarın 19:00")).toBeTruthy();
+    expect(screen.queryByText(/Onaylarsan/)).toBeNull();
   });
 
   it("caption hazırlanırken kartta metin yerine durum yazar", () => {
     render(
-      <QueueBoard cards={[card("a", { captionStatus: "generating", caption: "" })]} requireApproval />
+      <QueueBoard cards={[card("a", { captionStatus: "generating", caption: "" })]} />
     );
     expect(screen.getAllByText(/Caption hazırlanıyor/).length).toBeGreaterThan(0);
   });
@@ -166,27 +155,22 @@ describe("moveBody", () => {
 });
 
 describe("portalBadges", () => {
-  it("onay kapalıyken 'Onay bekliyor' gösterilmez — video onay beklemeyecek", () => {
-    const labels = (requireApproval: boolean) =>
-      portalBadges({ status: "pending", captionStatus: "ready", publishStatus: "idle" }, requireApproval).map(
-        (b) => b.label
-      );
-    expect(labels(true)).toContain("Onay bekliyor");
-    expect(labels(false)).not.toContain("Onay bekliyor");
+  it("K33: status hiçbir rozet üretmez — ne 'Onay bekliyor' ne 'Onaylı' ne 'Reddedildi'", () => {
+    for (const status of ["pending", "approved", "rejected"] as const) {
+      expect(portalBadges({ status, captionStatus: "ready", publishStatus: "idle" })).toEqual([]);
+    }
   });
 
-  it("yayın hatası 'Yayınlanamadı' rozeti çıkarır; yanına 'Onaylı' eklenmez", () => {
-    const labels = portalBadges(
-      { status: "approved", captionStatus: "ready", publishStatus: "failed" },
-      true
-    ).map((b) => b.label);
+  it("yayın hatası 'Yayınlanamadı' rozeti çıkarır", () => {
+    const labels = portalBadges({ status: "approved", captionStatus: "ready", publishStatus: "failed" }).map(
+      (b) => b.label
+    );
     expect(labels).toEqual(["Yayınlanamadı"]);
   });
 
-  it("tonlar mobil tasarımın rozetleri: Onaylı lacivert, Onay bekliyor şeftali, hazırlanıyor gri", () => {
-    const tone = (input: Parameters<typeof portalBadges>[0]) => portalBadges(input, true)[0].tone;
-    expect(tone({ status: "approved", captionStatus: "ready", publishStatus: "idle" })).toBe("navy");
-    expect(tone({ status: "pending", captionStatus: "ready", publishStatus: "idle" })).toBe("peach");
+  it("tonlar: yayınlandı lacivert, hazırlanıyor gri, hata kırmızı", () => {
+    const tone = (input: Parameters<typeof portalBadges>[0]) => portalBadges(input)[0].tone;
+    expect(tone({ status: "approved", captionStatus: "ready", publishStatus: "published" })).toBe("navy");
     expect(tone({ status: "pending", captionStatus: "generating", publishStatus: "idle" })).toBe("gray");
     expect(tone({ status: "approved", captionStatus: "ready", publishStatus: "failed" })).toBe("red");
   });

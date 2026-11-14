@@ -15,7 +15,6 @@ export const PUBLISH_SETTINGS_DEFAULTS: PublishSettingsView = {
   slots: ["19:00"],
   days: [1, 2, 3, 4, 5, 6, 7],
   timezone: "Europe/Istanbul",
-  requireApproval: true,
   paused: false,
   notifyEmail: null,
 };
@@ -25,7 +24,6 @@ export function toSettingsView(settings: PublishSettings): PublishSettingsView {
     slots: settings.slots,
     days: settings.days,
     timezone: settings.timezone,
-    requireApproval: settings.requireApproval,
     paused: settings.paused,
     notifyEmail: settings.notifyEmail,
   };

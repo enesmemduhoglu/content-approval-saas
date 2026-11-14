@@ -3,13 +3,12 @@ import { notFound } from "next/navigation";
 import { getClientScopedDb, isCaptionStuck } from "@/lib/client-scoped-db";
 import { toDetail } from "@/lib/portal-media";
 import { requirePortalSession } from "@/lib/portal-page";
-import { estimateIfApproved, estimatePublishTimes } from "@/lib/portal-schedule";
+import { estimatePublishTimes } from "@/lib/portal-schedule";
 import { shortDateTime, slotLabel } from "@/lib/portal-format";
 import { PortalBadges } from "@/components/portal/portal-badges";
 import { VideoActions } from "@/components/portal/video-actions";
 import { PublishErrorCard } from "@/components/portal/publish-error-card";
 import { explainPublishError } from "@/lib/portal-publish-error";
-import { reviewNext } from "@/lib/portal-review";
 import { isInstagramBlocked } from "@/lib/portal-instagram";
 import { IconChevronLeft, IconClock, IconExternal, IconHourglass } from "@/components/portal/icons";
 import { calendarDaysUntil, deletionLabel, videoStaysLabel } from "@/lib/retention-rules";
@@ -30,7 +29,6 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
   // Başka müşterinin videosu da "yok": kapsamlı sorgu satırı hiç döndürmez.
   if (!video || video.status === "draft") notFound();
   const detail = await toDetail(video, session.clientId);
-  const requireApproval = settings?.requireApproval ?? true;
   const timezone = settings?.timezone ?? "Europe/Istanbul";
 
   // Yayın satırı: kuyruk ekranıyla AYNI tahmin (`projectSchedule`). Takvimde
@@ -67,8 +65,6 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
     when = detail.publishedAt ? shortDateTime(detail.publishedAt, timezone) : "Instagram'da";
   } else if (detail.publishStatus === "publishing") {
     when = "Şu an yayınlanıyor";
-  } else if (detail.status === "rejected") {
-    when = "Reddedildi · yayınlanmaz";
   } else if (detail.publishStatus === "failed" && inQueue) {
     // Başarısız video tick'te kendiliğinden yeniden denenmez; "Tekrar dene" bekler.
     when = "Tekrar denemeni bekliyor";
@@ -84,10 +80,6 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
     when = "Yayınlar duraklatıldı";
   } else if (captionBusy) {
     when = "Caption hazır olunca takvime girer";
-  } else if (detail.status === "pending" && requireApproval) {
-    // V7 tasarımı: "Onaylarsan 27 Eyl · 19:00" — yalnızca bu video onaylansa.
-    const ifApproved = estimateIfApproved(queue, settings, now).get(detail.id);
-    when = ifApproved ? `Onaylarsan ${slotLabel(ifApproved, timezone, now)}` : "Onaylayınca takvime girer";
   } else {
     when = "Takvimde değil";
   }
@@ -100,7 +92,7 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
           Kuyruk
         </Link>
         <span className="p-badges">
-          <PortalBadges video={detail} requireApproval={requireApproval} large limit={1} />
+          <PortalBadges video={detail} large limit={1} />
         </span>
       </div>
 
@@ -153,19 +145,7 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
           {position >= 0 && <span className="p-when-side">Sırada {position + 1}.</span>}
         </div>
 
-        {detail.status === "rejected" && detail.rejectionReason ? (
-          <div className="p-note p-note--danger p-expiry-note">
-            <span>Red nedeni: {detail.rejectionReason}</span>
-            {expiry && (
-              <>
-                <hr />
-                {expiry}
-              </>
-            )}
-          </div>
-        ) : (
-          expiry && <div className="p-note p-note--danger">{expiry}</div>
-        )}
+        {expiry && <div className="p-note p-note--danger">{expiry}</div>}
         {publishError && <PublishErrorCard error={publishError} />}
         {detail.captionStatus === "failed" && detail.captionError && (
           <p className="p-note p-note--danger">Caption üretilemedi: {detail.captionError}</p>
@@ -186,8 +166,6 @@ export default async function PortalVideoPage({ params }: { params: Promise<{ id
           captionStatus={detail.captionStatus}
           publishStatus={detail.publishStatus}
           inQueue={inQueue}
-          requireApproval={requireApproval}
-          review={requireApproval ? reviewNext(queue, detail.id) : undefined}
           captionStuck={isCaptionStuck(video, now)}
           retryNote={
             publishError?.retryUseless

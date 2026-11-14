@@ -122,7 +122,7 @@ describe("PushToggle — durumlar", () => {
   it("başlık, alt metin ve erişilebilir anahtar", async () => {
     setEnv();
     render(<PushToggle />);
-    expect(screen.getByText("Yayınlandı, yayınlanamadı, onay bekleyen videolar.")).toBeTruthy();
+    expect(screen.getByText("Yayınlandı, yayınlanamadı, kuyruk bitiyor.")).toBeTruthy();
     const sw = await readyToggle();
     expect(sw.getAttribute("aria-checked")).toBe("false");
   });

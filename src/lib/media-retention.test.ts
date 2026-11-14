@@ -175,15 +175,15 @@ describe("kuyruk dışı sayacı (outsideAt) — portal veri katmanı", () => {
     return getClientScopedDb({ clientId, clientUserId: user.id });
   }
 
-  it("red ve kuyruktan çıkarma sayacı başlatır; geri alma ve sona atma durdurur", async () => {
+  it("kuyruktan çıkarma sayacı başlatır; sona atma ve (K33 öncesi) reddi geri alma durdurur", async () => {
     const s = await scoped();
-    const a = await createPortalPost(agencyId, clientId, { status: "pending" });
+    // Portalda red artık üretilmiyor (K33); eski reddedilmiş kayıt elle kuruluyor.
+    const a = await createPortalPost(agencyId, clientId, { status: "rejected", queuePosition: null });
+    await db.post.update({ where: { id: a.id }, data: { outsideAt: new Date() } });
     const b = await createPortalPost(agencyId, clientId, { status: "approved" });
     const stamp = async (id: string) => (await db.post.findUniqueOrThrow({ where: { id } })).outsideAt;
 
-    expect(await s.posts.decide(a.id, "reject", "1.1.1.1", null)).not.toBeNull();
-    expect(await stamp(a.id)).toBeInstanceOf(Date);
-    expect(await s.posts.restoreRejected(a.id, { approve: false, position: null, ip: "1.1.1.1" })).toBe(true);
+    expect(await s.posts.restoreRejected(a.id, "1.1.1.1")).toBe(true);
     expect(await stamp(a.id)).toBeNull();
 
     expect(await s.posts.removeFromQueue(b.id)).toBe(true);
