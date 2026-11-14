@@ -8,8 +8,9 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
    onaylar, reddeder ya da revizyon ister. Karar zaman damgası ve IP ile kayda geçer,
    onaylanan post Instagram'a yayınlanır.
 2. **Müşteri portalı / video kuyruğu (PWA).** Sayfa sahibi telefonuna kurduğu
-   uygulamadan video yükler; caption otomatik üretilir; kuyruğu sıralar, onaylar ve
-   videolar seçtiği gün ve saatlerde Instagram Reels olarak kendiliğinden yayınlanır.
+   uygulamadan video yükler; caption otomatik üretilir; kuyruğu sıralar ve videolar
+   seçtiği gün ve saatlerde Instagram Reels olarak kendiliğinden yayınlanır. Portalda
+   ayrı bir onay adımı yok (K33): caption'ı hazır video sırası gelince yayınlanır.
 
 **Canlı:** https://content-approval-saas.vercel.app
 
@@ -51,18 +52,17 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
   10–15 hashtag üretir; kod tarafında doğrulanır; not ile ("daha kısa olsun") yeniden üretme
 - **Kuyruk** — sürükle-bırak sıralama (mobilde oklar), tahmini yayın zamanları,
   "Sıradaki yayın" kartı, **kuyruk kaç gün yeter** göstergesi
-- **Karar** — onayla (→ sıradakine geç) / reddet / reddi **geri al** / kuyruktan çıkar /
-  sona at / hatalı yayını tekrar dene / kuyruk dışı videoyu **kalıcı sil**
+- **Kuyruk işlemleri** — kuyruktan çıkar / sona at / kuyruğa geri al / hatalı yayını
+  tekrar dene / kuyruk dışı videoyu **kalıcı sil**. Onay/red yok (K33): tick sırası gelen
+  videoyu yayından hemen önce `auto_approved` olarak kendisi onaylar ve audit'e yazar
 - **Yayın ayarları** (`PublishSettings`) — yayın **günleri** × saatleri (slot), saat
-  dilimi, onay zorunlu mu (kapalıysa sırası gelen video otomatik onaylanır ve
-  `auto_approved` olarak audit'e yazılır), duraklatma, bildirim e-postası
+  dilimi, duraklatma, bildirim e-postası
 - **Slot tabanlı yayın** — her slot saati için önceden kurulmuş tek seferlik bir QStash
   mesajı `/api/queue/tick`'i tam o anda çağırır (periyodik kontrol yok — bkz. V11);
   vadesi gelen slotta kuyruktaki sıradaki uygun video Reels olarak yayınlanır; 1 saatten
   fazla kaçmış slot telafi edilmez
-- **Bildirimler** — e-posta **ve Web Push**: yayınlandı, yayın hatası, "onaylı video
-  yok", caption'lar hazır, **günlük özet** (onay bekleyenler, yarın ne yayınlanacak,
-  kuyruk bugün/yarın bitiyor)
+- **Bildirimler** — e-posta **ve Web Push**: yayınlandı, yayın hatası, slot boş geçti,
+  **günlük özet** (yarın ne yayınlanacak, kuyruk bugün/yarın bitiyor)
 - **Geçmiş** — yayınlananlar (Instagram linkiyle) ve başarısızlar; okunur hata metinleri;
   Instagram bağlantısı kopmuşsa uyarı
 
@@ -104,14 +104,14 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
       │                                                           │
       │                               POST /api/queue/caption/[postId]   (QStash imzası)
       │                                 fal Whisper (R2 imzalı URL) + Claude (kareler + transkript)
-      │                                 └─▶ captionStatus = ready · Web Push "caption'lar hazır"
+      │                                 └─▶ captionStatus = ready
       │
-      └─ ayarlar: PublishSettings (günler × saatler, onay modu, duraklat)
+      └─ ayarlar: PublishSettings (günler × saatler, duraklat)
 
 [QStash, slot saatinde tek seferlik] ──▶ /api/queue/tick   (QStash imzası; elle: Bearer CRON_SECRET)
       kurulum: ayar kaydı · günlük pending-reminders · POST /api/queue/arm → QueueWake (6 gün ufuk)
       bitmemiş iş (bütçe doldu / Instagram işliyor) → tick kendine 60/120 sn'lik takip kurar
-      dueSlots → SlotRun INSERT (UNIQUE = tek kazanan) → pickNext → (onay kapalıysa auto_approved)
+      dueSlots → SlotRun INSERT (UNIQUE = tek kazanan) → pickNext → auto_approved (K33)
       └─▶ publishApprovedPost() → Reels (R2 imzalı URL) · takılı Reels'i resumePublish
       └─▶ sonuç e-postası + Web Push (müşteri) · hata: ajans ekibi + ALERT_EMAIL
 
@@ -132,7 +132,8 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
 - **Dört yayın tetikleyicisi** (onay yolu, `publish-scheduled` cron'u, onay sayfasındaki
   "tekrar dene", kuyruk tick'i) aynı `publishApprovedPost`'tan ve aynı koşullu UPDATE
   kilidinden geçer — tek kazanan garanti, onaysız post hiçbir yoldan yayınlanmaz.
-  Portal postu (`source = portal`) onaylanınca **anında yayınlanmaz**; slotunu bekler.
+  Portal postu (`source = portal`) hiçbir zaman anında yayınlanmaz; slotunu bekler ve
+  onayını slot anında tick yazar.
 - **İki ayrı kimlik.** Ajans NextAuth oturumuyla, müşteri portalı kendi çereziyle girer;
   ikisi hiçbir noktada birbirinin yerine geçmez. Portal yalnızca müşterinin **kendi
   yüklediği** videoları görür; ajansın hazırladığı postlar onay linki akışında kalır.

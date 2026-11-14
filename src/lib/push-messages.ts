@@ -39,20 +39,8 @@ export function slotEmptyPush(input: {
   slotAt: Date;
   timezone: string;
   reason: SlotEmptyReason;
-  pendingCount?: number;
 }): PushPayload {
   const at = formatTime(input.slotAt, input.timezone);
-  if (input.reason === "no_approved") {
-    return {
-      title: "Bu saatte onaylı video yoktu",
-      body:
-        input.pendingCount && input.pendingCount > 0
-          ? `${at} yayını yapılmadı. ${input.pendingCount} video onayını bekliyor.`
-          : `${at} yayını yapılmadı.`,
-      url: "/portal",
-      tag: "slot-bos",
-    };
-  }
   if (input.reason === "blocked") {
     return {
       title: "Yayın yapılamadı: Instagram bağlantısı",
@@ -71,7 +59,6 @@ export function slotEmptyPush(input: {
 
 export function digestPush(input: {
   timezone: string;
-  pendingCount: number | null;
   upcoming: { slotAt: Date; caption: string }[];
   runwayLow?: DigestRunway | null;
 }): PushPayload | null {
@@ -95,14 +82,6 @@ export function digestPush(input: {
       body:
         (captionHead(first.caption, 80) || "Sıradaki video") +
         (more > 0 ? ` (+${more} video daha)` : ""),
-      url: "/portal",
-      tag: "gunluk-ozet",
-    };
-  }
-  if (input.pendingCount && input.pendingCount > 0) {
-    return {
-      title: `${input.pendingCount} video onayını bekliyor`,
-      body: "Onaylı video olmadığı için yarın yayın yapılmayacak.",
       url: "/portal",
       tag: "gunluk-ozet",
     };

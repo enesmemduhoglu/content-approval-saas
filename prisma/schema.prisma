@@ -208,8 +208,11 @@ model PublishSettings {
   days     Int[]    @default([1, 2, 3, 4, 5, 6, 7])
 
   /**
-   * Varsayılan AÇIK — güvenli taraf (K3). Kapalıyken sırası gelen video onay
-   * beklemeden yayınlanır ve `ApprovalAudit`e `auto_approved` yazılır.
+   * KULLANILMIYOR (K33, 2026-11-14): portalda müşteri onayı kaldırıldı, kod bu
+   * kolonu ne okuyor ne yazıyor; tick her videoyu `auto_approved` ile onaylar.
+   * Kolon aynı PR'da düşürülmedi: PR'a push edilince preview build göçü prod'a
+   * uygular ve o sırada canlıdaki ESKİ kod bu kolonu okuyor. Ayrı bir PR'da
+   * kaldırılacak (TODOS.md).
    */
   requireApproval Boolean @default(true)
   paused          Boolean @default(false)

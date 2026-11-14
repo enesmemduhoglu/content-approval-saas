@@ -58,10 +58,9 @@ export function moveBody(order: string[], index: number): { beforeId?: string; a
   return body;
 }
 
-function cardTone(card: QueueCard, requireApproval: boolean): "busy" | "failed" | "pending" | null {
+function cardTone(card: QueueCard): "busy" | "failed" | null {
   if (card.captionStatus === "pending" || card.captionStatus === "generating") return "busy";
   if (card.publishStatus === "failed" || card.captionStatus === "failed") return "failed";
-  if (card.status === "pending" && requireApproval && card.captionStatus === "ready") return "pending";
   return null;
 }
 
@@ -70,23 +69,19 @@ function SortableRow({
   index,
   total,
   busy,
-  requireApproval,
   eta,
-  pendingEta,
   onStep,
 }: {
   card: QueueCard;
   index: number;
   total: number;
   busy: boolean;
-  requireApproval: boolean;
   eta?: ReactNode;
-  pendingEta?: ReactNode;
   onStep: (id: string, delta: -1 | 1) => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id, disabled: busy });
-  const tone = cardTone(card, requireApproval);
+  const tone = cardTone(card);
 
   return (
     <li
@@ -128,7 +123,7 @@ function SortableRow({
         )}
         <span className="p-qcard-body">
           <span className="p-qcard-meta">
-            <PortalBadges video={card} requireApproval={requireApproval} />
+            <PortalBadges video={card} />
             {eta ? <span className="p-eta">{eta}</span> : null}
           </span>
           {tone === "busy" ? (
@@ -154,7 +149,6 @@ function SortableRow({
               <span className={`p-qcard-caption${card.caption.trim() ? "" : " p-qcard-caption--muted"}`}>
                 {captionHead(card)}
               </span>
-              {pendingEta ? <span className="p-eta">{pendingEta}</span> : null}
             </>
           )}
         </span>
@@ -194,16 +188,11 @@ function SortableRow({
  */
 export function QueueBoard({
   cards,
-  requireApproval,
   etas,
-  pendingEtas,
 }: {
   cards: QueueCard[];
-  requireApproval: boolean;
   /** Kart id'si → tahmini yayın zamanı metni ("Yarın 19:00"); takvimde olmayan kartta yok. */
   etas?: Record<string, ReactNode>;
-  /** Onay bekleyen kart id'si → "Onaylarsan: Yarın 19:00" (`estimateIfApproved`). */
-  pendingEtas?: Record<string, ReactNode>;
 }) {
   const router = useRouter();
   const [order, setOrder] = useState(() => cards.map((c) => c.id));
@@ -302,9 +291,7 @@ export function QueueBoard({
                   index={index}
                   total={ids.length}
                   busy={busy}
-                  requireApproval={requireApproval}
                   eta={etas?.[id]}
-                  pendingEta={pendingEtas?.[id]}
                   onStep={onStep}
                 />
               );

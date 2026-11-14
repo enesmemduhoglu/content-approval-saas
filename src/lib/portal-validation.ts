@@ -25,7 +25,6 @@ export type PublishSettingsInput = {
    */
   days?: number[];
   timezone: string;
-  requireApproval: boolean;
   paused: boolean;
   notifyEmail: string | null;
 };
@@ -95,9 +94,9 @@ export function validatePublishSettings(
   if (typeof timezone !== "string" || !isValidTimezone(timezone)) {
     return { ok: false, field: "timezone", error: "Geçersiz saat dilimi" };
   }
-  if (typeof input.requireApproval !== "boolean") {
-    return { ok: false, field: "requireApproval", error: "Onay ayarı açık ya da kapalı olmalı" };
-  }
+  // `requireApproval` artık okunmuyor (K33): portalda onay yok. Önbellekteki
+  // eski PWA alanı göndermeye devam edebilir; 400 yerine yok sayılır ki eski
+  // istemci ayarlarını kaydedebilsin.
   if (typeof input.paused !== "boolean") {
     return { ok: false, field: "paused", error: "Duraklatma ayarı açık ya da kapalı olmalı" };
   }
@@ -119,7 +118,6 @@ export function validatePublishSettings(
       slots: sorted,
       ...(days ? { days } : {}),
       timezone,
-      requireApproval: input.requireApproval,
       paused: input.paused,
       notifyEmail,
     },

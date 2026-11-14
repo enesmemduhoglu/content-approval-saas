@@ -30,7 +30,7 @@ async function portalLogin(page: Page, user: { id: string; email: string }) {
   await page.waitForURL((url) => url.pathname === "/portal");
 }
 
-test("portal: kodla giriş → kuyruk → video detayı → onay (yüklemesi tamamlanmış video)", async ({
+test("portal: kodla giriş → kuyruk → video detayı → caption düzenleme; onay adımı yok (K33)", async ({
   page,
 }) => {
   const { agencyId, clientId, user } = await seedPortalClient();
@@ -48,13 +48,23 @@ test("portal: kodla giriş → kuyruk → video detayı → onay (yüklemesi tam
   await page.waitForURL(`**/portal/video/${video.id}`);
   await expect(page.getByRole("textbox", { name: /caption/i })).toHaveValue("E2E portal caption 🎬");
 
-  await page.getByRole("button", { name: "Onayla" }).click();
-  await expect(page.getByRole("status").getByText("Onaylandı")).toBeVisible();
-  expect((await readVideo(video.id)).status).toBe("approved");
+  // K33: portalda onay/red yok — video sırası gelince tick'in otomatik onayıyla yayınlanır.
+  await expect(page.getByRole("button", { name: "Onayla" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reddet" })).toHaveCount(0);
+  await expect(page.getByText("Onay bekliyor")).toHaveCount(0);
 
-  // Yenilemeden sonra ekran DB ile tutarlı: karar düğmesi yok, rozet "Onaylı".
+  // Müşterinin yayından önceki tek müdahalesi caption: düzenlenir, DB'ye yazılır,
+  // durum değişmez.
+  await page.getByRole("textbox", { name: /caption/i }).fill("Düzeltilmiş caption");
+  await page.getByRole("button", { name: "Caption'ı kaydet" }).click();
+  await expect(page.getByRole("status").getByText("Caption kaydedildi")).toBeVisible();
+  const saved = await readVideo(video.id);
+  expect(saved.caption).toBe("Düzeltilmiş caption");
+  expect(saved.status).toBe("pending");
+
+  // Yenilemeden sonra da onay düğmesi ya da rozeti yok.
   await page.reload();
-  await expect(page.getByText("Onaylı", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /caption/i })).toHaveValue("Düzeltilmiş caption");
   await expect(page.getByRole("button", { name: "Onayla" })).toHaveCount(0);
 
   // Kapsam: yabancı videonun adresi bu oturumda yok sayılır. HTTP kodu 200
@@ -83,7 +93,9 @@ test("portal: takılı caption (10 dk+ pending) detaydan yeniden üretilir ve i�
   const dialog = page.getByRole("alertdialog", { name: "Yeniden üretme onayı" });
   await expect(dialog).toContainText("yeniden başlatılacak");
   await dialog.getByRole("button", { name: "Evet, yeniden üret" }).click();
-  await expect(page.getByText("Yeni caption hazırlanıyor")).toBeVisible();
+  // `next dev` regenerate route'unu bu ilk istekte derliyor (Windows'ta 5 sn'yi aşıyor);
+  // varsayılan 5 sn'lik bekleme derlemeyi hata sanıyordu.
+  await expect(page.getByText("Yeni caption hazırlanıyor")).toBeVisible({ timeout: 30_000 });
 
   // HTTP 200 yetmez (`captionQueued: false` da 200): mesaj gerçekten çıkmış olmalı.
   await expect

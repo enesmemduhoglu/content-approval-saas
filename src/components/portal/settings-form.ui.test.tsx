@@ -12,7 +12,6 @@ const initial: SettingsValue = {
   slots: ["19:00"],
   days: [1, 2, 3, 4, 5, 6, 7],
   timezone: "Europe/Istanbul",
-  requireApproval: true,
   paused: false,
   notifyEmail: null,
 };
@@ -29,48 +28,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Onay anahtarı: `role="switch"`, durumu `aria-checked`'te. */
-function approvalSwitch(): HTMLElement {
-  return screen.getByRole("switch", { name: "Yayından önce onay iste" });
-}
-
 const isOn = (el: HTMLElement) => el.getAttribute("aria-checked") === "true";
 
-describe("SettingsForm — onayı kapatırken uyarı", () => {
-  it("anahtar kapatılınca onay HEMEN kapanmaz; önce uyarı çıkar", () => {
+describe("SettingsForm", () => {
+  it("K33: onay anahtarı yok, kayıt gövdesinde requireApproval yok", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ settings: initial }), { status: 200 }));
     render(<SettingsForm initial={initial} defaultNotifyEmail="musteri@ornek.com" />);
-    fireEvent.click(approvalSwitch());
-
-    expect(screen.getByRole("alertdialog", { name: "Onayı kapatma uyarısı" })).toBeTruthy();
-    expect(isOn(approvalSwitch())).toBe(true);
-    // Uyarı açıkken kaydetme kapalı: yarım kalmış bir kararla ayar yazılmasın.
-    expect((screen.getByRole("button", { name: "Kaydet" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("'Vazgeç' onayı açık bırakır", () => {
-    render(<SettingsForm initial={initial} defaultNotifyEmail={null} />);
-    fireEvent.click(approvalSwitch());
-    fireEvent.click(screen.getByRole("button", { name: "Vazgeç" }));
-    expect(isOn(approvalSwitch())).toBe(true);
-    expect(screen.queryByRole("alertdialog")).toBeNull();
-  });
-
-  it("'Anladım' sonrası kayıt requireApproval: false gönderir", async () => {
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ settings: { ...initial, requireApproval: false } }), { status: 200 })
-    );
-    render(<SettingsForm initial={initial} defaultNotifyEmail={null} />);
-    fireEvent.click(approvalSwitch());
-    fireEvent.click(screen.getByRole("button", { name: "Anladım, onayı kapat" }));
-    expect(isOn(approvalSwitch())).toBe(false);
-    expect(screen.getByText(/Onay kapalı: videolar sırası gelince/)).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: /onay/i })).toBeNull();
+    expect(screen.queryByText(/onay/i)).toBeNull();
+    // Yayın bölümünde kalan anahtar duraklatma.
+    expect(screen.getByRole("switch", { name: "Yayını duraklat" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/portal/settings");
     expect(init.method).toBe("PUT");
-    expect(JSON.parse(init.body)).toMatchObject({ requireApproval: false, slots: ["19:00"] });
+    const body = JSON.parse(init.body);
+    expect(body).toMatchObject({ slots: ["19:00"], paused: false });
+    expect(body).not.toHaveProperty("requireApproval");
     expect(await screen.findByText("Ayarlar kaydedildi.")).toBeTruthy();
   });
 

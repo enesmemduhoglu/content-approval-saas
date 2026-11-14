@@ -20,7 +20,6 @@ export type SettingsValue = {
   /** ISO hafta günleri (1 = Pazartesi … 7 = Pazar), sıralı. */
   days: number[];
   timezone: string;
-  requireApproval: boolean;
   paused: boolean;
   notifyEmail: string | null;
 };
@@ -87,10 +86,8 @@ function Switch({
 }
 
 /**
- * Yayın ayarları. Onayı KAPATMAK geri alınabilir ama etkisi anlık ve görünmez:
- * bir sonraki slotta sıradaki video kimse bakmadan yayınlanır. Bu yüzden
- * anahtarı kapatmak tek başına yetmiyor; ayrı bir "anladım" adımı isteniyor
- * (README §7 "kapatırken uyarı").
+ * Yayın ayarları. K33'e kadar burada "yayından önce onay iste" anahtarı da
+ * vardı; portalda onay kalkınca anahtar ve onu kapatırken sorulan uyarı gitti.
  *
  * Görünüm V7 mobil tasarımı (saat çipleri, anahtarlar). Değişiklikler yine tek
  * "Kaydet"le gidiyor: anahtar başına anında kayıt, yarım kalmış bir saat
@@ -108,8 +105,6 @@ export function SettingsForm({
   const [days, setDays] = useState<number[]>(initial.days);
   const [dayGuard, setDayGuard] = useState(false);
   const timezone = PORTAL_TIMEZONE;
-  const [requireApproval, setRequireApproval] = useState(initial.requireApproval);
-  const [confirmingOff, setConfirmingOff] = useState(false);
   const [paused, setPaused] = useState(initial.paused);
   const [notifyEmail, setNotifyEmail] = useState(initial.notifyEmail ?? "");
   const [saving, setSaving] = useState(false);
@@ -180,7 +175,6 @@ export function SettingsForm({
           slots,
           days,
           timezone,
-          requireApproval,
           paused,
           notifyEmail: notifyEmail.trim() || null,
         }),
@@ -317,78 +311,17 @@ export function SettingsForm({
               {timezoneLabel(timezone)} ·{" "}
               {paused
                 ? "yayın duraklatıldı; devam ettirince bu saatlerde sürer"
-                : "onaylı video yoksa slot boş geçer"}
+                : "kuyrukta video yoksa slot boş geçer"}
             </p>
           </div>
         </div>
       </section>
 
-      <section className="p-set" aria-labelledby="ayar-onay">
-        <h2 className="p-kicker p-kicker--accent" id="ayar-onay">
-          ONAY VE YAYIN
+      <section className="p-set" aria-labelledby="ayar-yayin">
+        <h2 className="p-kicker p-kicker--accent" id="ayar-yayin">
+          YAYIN
         </h2>
         <div className="p-set-card p-set-card--rows">
-          <div className="p-set-row">
-            <div className="p-set-text">
-              <span className="p-set-title" id="ayar-onay-baslik">
-                Yayından önce onay iste
-              </span>
-              <span className="p-set-sub" id="ayar-onay-aciklama">
-                Kapalıysa sırası gelen video onaysız yayınlanır.
-              </span>
-            </div>
-            <Switch
-              checked={requireApproval}
-              labelId="ayar-onay-baslik"
-              descId="ayar-onay-aciklama"
-              onChange={(next) => {
-                if (next) {
-                  setRequireApproval(true);
-                  setConfirmingOff(false);
-                } else {
-                  // Kapatma hemen uygulanmaz; önce uyarı.
-                  setConfirmingOff(true);
-                }
-              }}
-            />
-          </div>
-          {confirmingOff && requireApproval && (
-            <div className="p-set-row p-set-row--stack">
-              <div className="p-confirm" role="alertdialog" aria-label="Onayı kapatma uyarısı">
-                <p>
-                  Onay kapalıyken sırası gelen video <strong>sen bakmadan</strong> Instagram&apos;a
-                  yayınlanır — caption&apos;ı hazırsa onay beklenmez. Her yayından sonra e-posta
-                  gelir ama yayını geri almak Instagram&apos;dan elle silmeyi gerektirir.
-                </p>
-                <div className="p-confirm-actions">
-                  <button
-                    type="button"
-                    className="p-btn p-btn--solid-danger"
-                    onClick={() => {
-                      setRequireApproval(false);
-                      setConfirmingOff(false);
-                    }}
-                  >
-                    Anladım, onayı kapat
-                  </button>
-                  <button
-                    type="button"
-                    className="p-btn p-btn--outline"
-                    onClick={() => setConfirmingOff(false)}
-                  >
-                    Vazgeç
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          {!requireApproval && (
-            <div className="p-set-row p-set-row--stack">
-              <p className="p-note p-note--warn">
-                Onay kapalı: videolar sırası gelince onay beklemeden yayınlanır.
-              </p>
-            </div>
-          )}
           <div className="p-set-row">
             <div className="p-set-text">
               <span className="p-set-title" id="ayar-durakla-baslik">
@@ -456,7 +389,7 @@ export function SettingsForm({
       <button
         type="submit"
         className="p-btn p-btn--primary p-btn--block"
-        disabled={saving || confirmingOff}
+        disabled={saving}
       >
         {saving ? "Kaydediliyor…" : "Kaydet"}
       </button>

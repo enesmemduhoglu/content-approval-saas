@@ -1,6 +1,5 @@
 import { sendAlert } from "@/lib/alerts";
 import { db } from "@/lib/db";
-import { notifyCaptionsReady } from "@/lib/push";
 import {
   getObjectBytes,
   keyBelongsToClient,
@@ -197,11 +196,9 @@ export async function runCaption(
         where: { id: postId, captionStatus: "generating" },
         data: { captionStatus: "ready", caption: checked.caption, captionError: null },
       });
-      // V7c: "onayına hazır" bildirimi — toplu ve kısmalı (`push.ts`); throw
-      // etmez. Yazım BU çağrıda olduysa: devredilmiş eski çağrının geç
-      // gelen sonucu ikinci bir bildirim tetiklemesin.
-      if (written.count === 1) await notifyCaptionsReady(post.clientId);
-      else if (await isGone(postId)) return DELETED;
+      // Yazım bu çağrıda olmadıysa post o arada silinmiş olabilir. (K33 öncesi
+      // burada "onayına hazır" bildirimi vardı; portalda onay yok.)
+      if (written.count !== 1 && (await isGone(postId))) return DELETED;
       // altText şimdilik SAKLANMIYOR: şemada portal postu için alan yok
       // (`PostImage.altText` görsel satırına ait, Reels'te satır yok). Dönüşte
       // tutuluyor ki şema kararı verildiğinde tek satırla yazılsın.

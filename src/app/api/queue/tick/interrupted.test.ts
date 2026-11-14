@@ -132,7 +132,13 @@ describe("tick: yayın ortasında DB kopması", () => {
 
   it("yetim SlotRun (postu idle, 3 saatlik) → tick kapatır", async () => {
     const { agency, client } = await seed();
-    const idle = await createQueuePost(agency.id, client.id, { status: "pending" });
+    // Caption'ı hazırlanıyor: o anki slotta seçilmesin ki post idle kalsın. K33
+    // öncesi bunu onaysız (`pending`) olmak sağlıyordu; artık bekleyen video da
+    // seçilir, seçilirse `publishing`e geçer ve satır haklı olarak bekletilir.
+    const idle = await createQueuePost(agency.id, client.id, {
+      status: "pending",
+      captionStatus: "generating",
+    });
     await db.slotRun.create({
       data: {
         clientId: client.id,

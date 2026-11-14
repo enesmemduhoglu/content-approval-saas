@@ -86,7 +86,7 @@ describe("şablonlar", () => {
     expect(text).toContain("sıradaki video");
   });
 
-  it("slot boş: üç neden, üç ayrı konu ve metin; yerel saat", () => {
+  it("slot boş: iki neden, iki ayrı konu ve metin; yerel saat", () => {
     const base = {
       to: "c@x.test",
       clientName: "Furkan",
@@ -94,13 +94,13 @@ describe("şablonlar", () => {
       timezone: "Europe/Istanbul",
       portalUrl: null,
     };
-    expect(slotEmptySubject({ reason: "no_approved" })).toMatch(/onaylı video yoktu/);
     expect(slotEmptySubject({ reason: "empty" })).toMatch(/video kalmadı/);
     expect(slotEmptySubject({ reason: "blocked" })).toMatch(/Instagram/);
 
-    const noApproved = renderSlotEmpty({ ...base, reason: "no_approved", pendingCount: 3 }).text;
-    expect(noApproved).toContain("19:00");
-    expect(noApproved).toContain("3 video onayını bekliyor");
+    // K33: portalda onay yok — boş slot metni hiçbir zaman "onay" demez.
+    const empty = renderSlotEmpty({ ...base, reason: "empty" }).text;
+    expect(empty).toContain("19:00");
+    expect(empty).not.toMatch(/onay/i);
 
     const blocked = renderSlotEmpty({
       ...base,
@@ -111,12 +111,11 @@ describe("şablonlar", () => {
     expect(blocked).toContain("kuyrukta yerinde");
   });
 
-  it("günlük özet: yarının yayınları yerel saatle, kapak görseli, bekleyen sayısı", () => {
+  it("günlük özet: yarının yayınları yerel saatle, kapak görseli; onaydan söz etmez", () => {
     const input = {
       to: "c@x.test",
       clientName: "Furkan",
       timezone: "Europe/Istanbul",
-      pendingCount: 2,
       upcoming: [
         {
           slotAt: new Date("2026-09-26T16:00:00Z"),
@@ -128,22 +127,14 @@ describe("şablonlar", () => {
     };
     const { text, html } = renderQueueDigest(input);
     expect(text).toContain("Yarın 19:00: “Yarının videosu”");
-    expect(text).toContain("2 video onayını bekliyor");
+    expect(text).not.toMatch(/onay/i);
     expect(html).toContain('<img src="https://r2.example/f.jpg?X-Amz-Signature=s"');
     expect(queueDigestSubject(input)).toBe("Yarın 1 video yayınlanacak");
-    expect(queueDigestSubject({ upcoming: [], pendingCount: 4 })).toBe("4 video onayını bekliyor");
   });
 
-  it("günlük özet: yarın onaylı video yoksa bunu açıkça söyler", () => {
-    const { text } = renderQueueDigest({
-      to: "c@x.test",
-      clientName: "Furkan",
-      timezone: "Europe/Istanbul",
-      pendingCount: 1,
-      upcoming: [],
-      portalUrl: null,
-    });
-    expect(text).toContain("yarın yayın yapılmayacak");
+  it("günlük özet: yarın video yok ama kuyruk bitiyorsa konu o", () => {
+    const runwayLow = { days: 1, emptyFrom: new Date("2026-09-26T16:00:00Z") };
+    expect(queueDigestSubject({ upcoming: [], runwayLow })).toBe("Kuyruk bugün bitiyor");
   });
 });
 

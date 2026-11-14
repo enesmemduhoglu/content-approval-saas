@@ -7,7 +7,7 @@ import {
 } from "@/lib/email-queue";
 import { queueRunway } from "@/lib/portal-schedule";
 import { RUNWAY_LOW_DAYS } from "@/lib/portal-format";
-import { isEligible, localParts, projectSchedule } from "@/lib/queue";
+import { localParts, projectSchedule } from "@/lib/queue";
 import { findQueueClients, loadQueue } from "@/lib/queue-db";
 import { notifyClientUsers } from "@/lib/push";
 import { digestPush } from "@/lib/push-messages";
@@ -17,11 +17,9 @@ import { MAX_GET_URL_TTL_SECONDS, keyBelongsToClient, signGetUrl } from "@/lib/s
  * Video kuyruğu (V4) — günlük müşteri e-postası (README §6, K4).
  *
  * Tek e-postada iki bilgi:
- *  (a) onay AÇIK müşteride "N video onayını bekliyor" — her video için ayrı
- *      mail yerine günde bir özet;
- *  (b) her iki modda "yarın HH:MM'de şu yayınlanacak" + kapak karesi — onay
- *      kapalıyken kullanıcının son görme ve sırayı değiştirme şansı bu;
- *  (c) onaylı videolar en fazla `RUNWAY_LOW_DAYS` gün yetiyorsa "kuyruk
+ *  (a) "yarın HH:MM'de şu yayınlanacak" + kapak karesi — portalda onay
+ *      olmadığı için (K33) kullanıcının son görme ve sırayı değiştirme şansı bu;
+ *  (b) yayınlanabilecek videolar en fazla `RUNWAY_LOW_DAYS` gün yetiyorsa "kuyruk
  *      bugün/yarın bitiyor" — portaldaki göstergeyle aynı hesap (`queueRunway`).
  *      Ayrı bir cron ve "gönderildi" damgası yerine günlük özete eklendi:
  *      zaten günde bir kez gidiyor.
@@ -103,10 +101,6 @@ export async function runQueueDigest(now: Date = new Date()): Promise<QueueDiges
       }
 
       const queue = await loadQueue(client.id);
-      const pendingCount = settings.requireApproval
-        ? queue.filter((post) => post.status === "pending" && isEligible(post, false)).length
-        : null;
-
       const byId = new Map(queue.map((post) => [post.id, post]));
       const projected = projectSchedule(queue, settings, now, PROJECTION_LIMIT).filter(
         (slot) => dayKey(localParts(slot.slotAt, settings.timezone)) === tomorrowKey
@@ -121,24 +115,24 @@ export async function runQueueDigest(now: Date = new Date()): Promise<QueueDiges
         });
       }
 
-      // Kuyruk bitmek üzere mi (c). Hiç onaylı video yoksa (`approved: null`)
-      // bu değil: o durumu slotun kendisi "boş kaldı" diye anlatıyor.
-      const approved = queueRunway(queue, settings, now)?.approved;
+      // Kuyruk bitmek üzere mi (c). Yayınlanabilecek video hiç yoksa
+      // (`runway: null`) bu değil: o durumu slotun kendisi "boş kaldı" diye
+      // anlatıyor.
+      const runway = queueRunway(queue, settings, now)?.runway;
       const runwayLow: DigestRunway | null =
-        approved && approved.days <= RUNWAY_LOW_DAYS
-          ? { days: approved.days, emptyFrom: approved.emptyFrom }
+        runway && runway.days <= RUNWAY_LOW_DAYS
+          ? { days: runway.days, emptyFrom: runway.emptyFrom }
           : null;
 
       // Anlatacak bir şey yoksa mail yok — "yarın hiçbir şey yok" her gün gelirse
-      // okunmaz olur. (Onay bekleyen yoksa ve yarın slot boşsa, slotun kendisi
-      // geldiğinde "boş kaldı" e-postası zaten gidiyor.)
-      if (upcoming.length === 0 && !(pendingCount && pendingCount > 0) && !runwayLow) continue;
+      // okunmaz olur. (Yarın slot boşsa, slotun kendisi geldiğinde "boş kaldı"
+      // e-postası zaten gidiyor.)
+      if (upcoming.length === 0 && !runwayLow) continue;
 
       const result = await sendQueueDigestEmail({
         to: queueRecipient(settings, client.email),
         clientName: client.name,
         timezone: settings.timezone,
-        pendingCount,
         upcoming,
         runwayLow,
         portalUrl: portalUrl(),
@@ -148,7 +142,7 @@ export async function runQueueDigest(now: Date = new Date()): Promise<QueueDiges
       // E-postanın sonucundan bağımsız; throw etmez. Tekrar koruması e-postayla
       // aynı `sentKeys` — e-posta gitmezse ve cron aynı gün yeniden tetiklenirse
       // bildirim ikinci kez gidebilir (bilinen, kabul edilmiş: K17).
-      const push = digestPush({ timezone: settings.timezone, pendingCount, upcoming, runwayLow });
+      const push = digestPush({ timezone: settings.timezone, upcoming, runwayLow });
       if (push) await notifyClientUsers(client.id, push);
 
       if (result.sent) {

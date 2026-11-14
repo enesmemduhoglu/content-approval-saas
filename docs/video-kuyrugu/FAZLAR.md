@@ -7,7 +7,15 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-11-07 (portal: takılı caption düğmesi + yükleme imzası geri alma — `fix/portal-takili-caption-ve-imza`)
+- **Son güncelleme:** 2026-11-14 (portal onayı kaldırıldı, K33 — `feat/portal-onay-kaldir`)
+- **2026-11-14 K33 — portalda onay yok.** Onayla/Reddet, onay anahtarı, "onay
+  bekliyor" rozet/e-posta/push, "Onaylarsan" tahmini kalktı; tick her videoyu
+  `auto_approved` ile onaylayıp yayınlar. **Canlıya çıkınca Furkan'ın kuyrukta
+  bekleyen (onaysız) videoları da sırası gelince yayınlanır.** Kalan adım:
+  `requireApproval` kolonunu ayrı PR'da düşür (TODOS). Aynı gün yapılan sağlık
+  yoklaması: canlı portal sayfaları 200, `/api/health` ok, QStash DLQ boş, 1 Kasım'dan
+  beri her tick 200. **Prod DB okuması izin denetimine takıldı** — açık SlotRun,
+  takılı `publishing` ve token yenilemesi DB'den doğrulanamadı.
 - **2026-11-07 portal düzeltmeleri** (bir ajan incelemesinden, testle yeniden üretildi):
   - Yüklemede QStash düşerse caption `pending` kalıyordu; sunucu 10 dk sonra
     `regenerate`'i kabul ediyordu ama portal düğmeyi `pending`de hep gizliyordu.
@@ -57,7 +65,8 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
   doğrulaması, K17 özet tekrar koruması, K15 altText, V7d ertelendi). Kullanıcı
   2026-09-28'de başka bir işe geçti; bunlar kullanıcı başlatınca.
 - **Dikkat:** Furkan'ın Instagram token'ı 2026-11-24'te bitiyor; yenileme cron'u 20 gün
-  kala (~2026-11-04) devreye girer — o hafta yenilendiğini kontrol et.
+  kala (~2026-11-04) devreye girer — o hafta yenilendiğini kontrol et. **2026-11-14'te
+  hâlâ doğrulanmadı** (prod DB okuması engellendi); panelden bitiş tarihine bak.
 - **Canlıda kurulu:** Vercel env (R2, QStash US, fal, Anthropic — Production + Preview),
   QStash schedule (`*/5 * * * *` → `POST /api/queue/tick`), R2 CORS + lifecycle (yarım
   çok parçalı yükleme 2 gün sonra iptal), Furkan'ın `captionStyle`'ı ve `Client.app*`

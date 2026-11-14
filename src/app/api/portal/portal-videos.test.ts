@@ -19,7 +19,8 @@ vi.mock("@/lib/qstash", async (importOriginal) => ({
   enqueueCaption: vi.fn(async () => ({ queued: true, messageId: "m-1" })),
 }));
 vi.mock("@/lib/alerts", () => ({ sendAlert: vi.fn(async () => undefined) }));
-// Onay yayın tetiklememeli: modül mock'lanıyor ki olası bir çağrı yakalansın.
+// Portal route'ları yayın tetiklememeli (yayını tick yapar): modül
+// mock'lanıyor ki olası bir çağrı yakalansın.
 vi.mock("@/lib/publish-post", () => ({
   publishApprovedPost: vi.fn(),
   resumePublish: vi.fn(),
@@ -48,7 +49,6 @@ import { GET as listVideos } from "./videos/route";
 import { DELETE as deleteVideo, GET as getVideo, PATCH as patchVideo } from "./videos/[id]/route";
 import { POST as completeVideo } from "./videos/[id]/complete/route";
 import { POST as moveVideo } from "./videos/[id]/move/route";
-import { POST as decideVideo } from "./videos/[id]/decision/route";
 import { POST as removeVideo } from "./videos/[id]/remove/route";
 import { POST as retryVideo } from "./videos/[id]/retry/route";
 import { POST as toEndVideo } from "./videos/[id]/to-end/route";
@@ -105,13 +105,13 @@ describe("kapılar (oturum → checkOrigin → hız sınırı)", () => {
   });
 
   it("yabancı Origin 403 — ve hiçbir şey yazılmaz", async () => {
-    const video = await createPortalPost(agencyId, clientId);
-    const res = await decideVideo(
-      post(`/api/portal/videos/${video.id}/decision`, { action: "approve" }, { origin: "https://kotu.example" }),
+    const video = await createPortalPost(agencyId, clientId, { queuePosition: 4 });
+    const res = await removeVideo(
+      post(`/api/portal/videos/${video.id}/remove`, {}, { origin: "https://kotu.example" }),
       idParams(video.id)
     );
     expect(res.status).toBe(403);
-    expect((await db.post.findUniqueOrThrow({ where: { id: video.id } })).status).toBe("pending");
+    expect((await db.post.findUniqueOrThrow({ where: { id: video.id } })).queuePosition).toBe(4);
   });
 
   it(`hız sınırı: aynı müşteriden ${PORTAL_RATE_LIMIT_MAX + 1}. istek 429`, async () => {
@@ -347,18 +347,21 @@ describe("GET liste ve detay", () => {
     expect(data.queue[0].coverUrl).toContain(`clients/${clientId}/frames/`);
   });
 
-  it("kuyruk kartı tahmini yayın anını taşır — onay açıkken onaysız video takvimde yok", async () => {
+  it("kuyruk kartı tahmini yayın anını taşır — K33: onaysız video da takvimde, caption'ı hazırlanan yok", async () => {
+    // Eski (K33 öncesi) satır `requireApproval: true` taşıyor; artık okunmuyor.
     await db.publishSettings.create({
       data: { clientId, slots: ["19:00"], timezone: "Europe/Istanbul", requireApproval: true },
     });
     const approved = await createPortalPost(agencyId, clientId, { queuePosition: 1, status: "approved" });
     const waiting = await createPortalPost(agencyId, clientId, { queuePosition: 2 });
+    const busy = await createPortalPost(agencyId, clientId, { queuePosition: 3, captionStatus: "generating" });
     const data = await (await listVideos(portalRequest("/api/portal/videos", { cookie }))).json();
     const byId = Object.fromEntries(
       data.queue.map((v: { id: string; estimatedSlotAt: string | null }) => [v.id, v.estimatedSlotAt])
     );
     expect(byId[approved.id]).not.toBeNull();
-    expect(byId[waiting.id]).toBeNull();
+    expect(byId[waiting.id]).not.toBeNull();
+    expect(byId[busy.id]).toBeNull();
   });
 
   it("ayar satırı yoksa tahmin yok (tick o müşteriyi taramaz)", async () => {
@@ -513,149 +516,75 @@ describe("POST move — sıralama", () => {
   });
 });
 
-// ─── Onay / red ───────────────────────────────────────────────────────────
+// ─── K33 öncesi reddedilmiş videoyu geri al ───────────────────────────────
 
-describe("POST decision — onay yayın tetiklemez", () => {
-  it("onay: status approved, audit IP'yle yazılır, yayın ÇAĞRILMAZ, video kuyrukta kalır", async () => {
-    const agencyWithIg = await createClient(agencyId, {
-      instagramUserId: "17841400000000000",
-      instagramAccessToken: "IGAA-test-token",
-    });
-    const igCookie = portalCookie(await createClientUser(agencyWithIg.id));
-    const v = await createPortalPost(agencyId, agencyWithIg.id, { queuePosition: 3 });
-
-    const res = await decideVideo(
-      portalRequest(`/api/portal/videos/${v.id}/decision`, {
-        method: "POST",
-        cookie: igCookie,
-        body: { action: "approve" },
-        ip: "7.7.7.7",
-      }),
-      idParams(v.id)
-    );
-    expect(res.status).toBe(200);
-    const row = await db.post.findUniqueOrThrow({ where: { id: v.id } });
-    expect(row.status).toBe("approved");
-    expect(row.publishStatus).toBe("idle");
-    expect(row.queuePosition).toBe(3);
-    expect(publishApprovedPost).not.toHaveBeenCalled();
-    const audit = await db.approvalAudit.findFirstOrThrow({ where: { postId: v.id } });
-    expect(audit).toMatchObject({ action: "approved", ip: "7.7.7.7" });
-  });
-
-  it("ikinci karar 409 (koşullu UPDATE), audit tek satır", async () => {
-    const v = await createPortalPost(agencyId, clientId);
-    await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "approve" }), idParams(v.id));
-    const again = await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "reject" }), idParams(v.id));
-    expect(again.status).toBe(409);
-    expect(await db.approvalAudit.count({ where: { postId: v.id } })).toBe(1);
-  });
-
-  it("caption hazır değilken onay 409", async () => {
-    const v = await createPortalPost(agencyId, clientId, { captionStatus: "generating" });
-    const res = await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "approve" }), idParams(v.id));
-    expect(res.status).toBe(409);
-    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("pending");
-  });
-
-  it("red: gerekçe yazılır, video kuyruktan çıkar", async () => {
-    const v = await createPortalPost(agencyId, clientId);
-    await decideVideo(
-      post(`/api/portal/videos/${v.id}/decision`, { action: "reject", reason: "Ses kötü" }),
-      idParams(v.id)
-    );
-    const row = await db.post.findUniqueOrThrow({ where: { id: v.id } });
-    expect(row).toMatchObject({ status: "rejected", rejectionReason: "Ses kötü", queuePosition: null });
-  });
-
-  it("geçersiz action 400", async () => {
-    const v = await createPortalPost(agencyId, clientId);
-    const res = await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "publish" }), idParams(v.id));
-    expect(res.status).toBe(400);
-  });
-
-  it("red yanıtı videonun eski sırasını döner (portaldaki 'Geri al' için)", async () => {
-    const v = await createPortalPost(agencyId, clientId, { queuePosition: 7 });
-    const res = await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "reject" }), idParams(v.id));
-    expect(await res.json()).toEqual({ status: "rejected", previousPosition: 7 });
-  });
-});
-
-// ─── Reddi geri al ────────────────────────────────────────────────────────
-
-describe("POST restore — reddedilen videoyu kuyruğa geri alır", () => {
-  const restore = (id: string, body: unknown, extra: { origin?: string } = {}) =>
+describe("POST restore — K33 öncesi reddedilmiş videoyu kuyruğun sonuna alır", () => {
+  const restore = (id: string, body: unknown = {}, extra: { origin?: string } = {}) =>
     restoreVideo(post(`/api/portal/videos/${id}/restore`, body, extra), idParams(id));
 
-  async function rejectedAt(position: number) {
-    const v = await createPortalPost(agencyId, clientId, { queuePosition: position });
-    await decideVideo(post(`/api/portal/videos/${v.id}/decision`, { action: "reject", reason: "Ses kötü" }), idParams(v.id));
+  /** Portalda red artık üretilmiyor; eski kayıt elle kuruluyor. */
+  async function legacyRejected(overrides: { captionStatus?: "ready" | "failed" } = {}) {
+    const v = await createPortalPost(agencyId, clientId, {
+      queuePosition: null,
+      status: "rejected",
+      ...overrides,
+    });
+    await db.post.update({ where: { id: v.id }, data: { rejectionReason: "Ses kötü" } });
     return v;
   }
 
-  it("'Geri al' (position ile): onay bekler hâlde ESKİ yerine döner, red nedeni temizlenir", async () => {
-    const a = await createPortalPost(agencyId, clientId, { queuePosition: 1 });
-    const b = await rejectedAt(2);
-    const c = await createPortalPost(agencyId, clientId, { queuePosition: 3 });
-
-    const res = await restore(b.id, { approve: false, position: 2 });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: "pending" });
-    expect(await queueOrder()).toEqual([a.id, b.id, c.id]);
-    const row = await db.post.findUniqueOrThrow({ where: { id: b.id } });
-    expect(row).toMatchObject({ status: "pending", rejectionReason: null });
-    const actions = (await db.approvalAudit.findMany({ where: { postId: b.id } })).map((r) => r.action);
-    expect(actions.sort()).toEqual(["rejected", "restored"]);
-  });
-
-  it("position yoksa sona eklenir; approve: true onaylı döner ve defterde 'approved' da var", async () => {
-    const v = await rejectedAt(1);
+  it("sona `pending` döner, red nedeni temizlenir, defterde yalnızca 'restored' (onay yazılmaz)", async () => {
+    const v = await legacyRejected();
     const other = await createPortalPost(agencyId, clientId, { queuePosition: 2 });
 
-    expect((await restore(v.id, { approve: true })).status).toBe(200);
+    const res = await restore(v.id);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "pending" });
     expect(await queueOrder()).toEqual([other.id, v.id]);
-    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("approved");
+    const row = await db.post.findUniqueOrThrow({ where: { id: v.id } });
+    expect(row).toMatchObject({ status: "pending", rejectionReason: null, outsideAt: null });
     const actions = (await db.approvalAudit.findMany({ where: { postId: v.id } })).map((r) => r.action);
-    expect(actions.sort()).toEqual(["approved", "rejected", "restored"]);
+    expect(actions).toEqual(["restored"]);
   });
 
-  it("caption hazır değilken onaylı dönüş 409, video reddedilmiş kalır", async () => {
-    const v = await createPortalPost(agencyId, clientId, { queuePosition: null, status: "rejected", captionStatus: "failed" });
-    const res = await restore(v.id, { approve: true });
-    expect(res.status).toBe(409);
-    expect((await res.json()).error).toBe("Caption hazır olmadan video onaylanamaz");
-    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("rejected");
-    // Onay bekleyen olarak alınabilir.
-    expect((await restore(v.id, { approve: false })).status).toBe(200);
+  it("eski PWA'nın gönderdiği { approve: true, position } yok sayılır — onaylı dönmez, sona eklenir", async () => {
+    const first = await createPortalPost(agencyId, clientId, { queuePosition: 1 });
+    const v = await legacyRejected();
+    expect((await restore(v.id, { approve: true, position: 0 })).status).toBe(200);
+    expect(await queueOrder()).toEqual([first.id, v.id]);
+    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("pending");
+  });
+
+  it("caption'ı üretilememiş video da geri alınır (onay şartı yok)", async () => {
+    const v = await legacyRejected({ captionStatus: "failed" });
+    expect((await restore(v.id)).status).toBe(200);
   });
 
   it("reddedilmemiş video 409 (kuyruktaki de, çıkarılmış olan da — onun yolu 'sona at')", async () => {
     const queued = await createPortalPost(agencyId, clientId, { queuePosition: 1 });
     const removed = await createPortalPost(agencyId, clientId, { queuePosition: null });
-    expect((await restore(queued.id, { approve: false })).status).toBe(409);
-    expect((await restore(removed.id, { approve: false })).status).toBe(409);
+    expect((await restore(queued.id)).status).toBe(409);
+    expect((await restore(removed.id)).status).toBe(409);
     expect(await db.approvalAudit.count()).toBe(0);
   });
 
   it("ikinci geri alma 409 (koşullu UPDATE), defterde tek 'restored'", async () => {
-    const v = await rejectedAt(1);
-    expect((await restore(v.id, { approve: false })).status).toBe(200);
-    expect((await restore(v.id, { approve: false })).status).toBe(409);
+    const v = await legacyRejected();
+    expect((await restore(v.id)).status).toBe(200);
+    expect((await restore(v.id)).status).toBe(409);
     expect(await db.approvalAudit.count({ where: { postId: v.id, action: "restored" } })).toBe(1);
   });
 
-  it("gövde doğrulaması: approve boolean, position sonlu sayı", async () => {
-    const v = await rejectedAt(1);
-    expect((await restore(v.id, {})).status).toBe(400);
-    expect((await restore(v.id, { approve: "evet" })).status).toBe(400);
-    expect((await restore(v.id, { approve: false, position: "2" })).status).toBe(400);
+  it("başka origin'den 403 (CSRF), video yerinde", async () => {
+    const v = await legacyRejected();
+    expect((await restore(v.id, {}, { origin: "https://evil.example" })).status).toBe(403);
     expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("rejected");
   });
 
-  it("başka origin'den 403 (CSRF), video yerinde", async () => {
-    const v = await rejectedAt(1);
-    expect((await restore(v.id, { approve: false }, { origin: "https://evil.example" })).status).toBe(403);
-    expect((await db.post.findUniqueOrThrow({ where: { id: v.id } })).status).toBe("rejected");
+  it("yayın tetiklenmez — sırası gelince tick yayınlar", async () => {
+    const v = await legacyRejected();
+    await restore(v.id);
+    expect(publishApprovedPost).not.toHaveBeenCalled();
   });
 });
 
@@ -710,7 +639,7 @@ describe("kuyruktan çıkar / tekrar dene / sona at", () => {
 });
 
 describe("POST regenerate", () => {
-  it("caption'ı pending'e çeker, notla kuyruğa atar; onaylıysa onay geri alınır", async () => {
+  it("caption'ı pending'e çeker, notla kuyruğa atar; K33: onaylı videonun status'u değişmez", async () => {
     const v = await createPortalPost(agencyId, clientId, { status: "approved" });
     const res = await regenerateVideo(
       post(`/api/portal/videos/${v.id}/regenerate`, { note: "daha kısa olsun" }),
@@ -718,7 +647,7 @@ describe("POST regenerate", () => {
     );
     expect(res.status).toBe(200);
     const row = await db.post.findUniqueOrThrow({ where: { id: v.id } });
-    expect(row).toMatchObject({ captionStatus: "pending", status: "pending" });
+    expect(row).toMatchObject({ captionStatus: "pending", status: "approved" });
     expect(enqueueCaption).toHaveBeenCalledWith(v.id, { note: "daha kısa olsun" });
   });
 

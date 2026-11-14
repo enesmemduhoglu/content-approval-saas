@@ -222,7 +222,7 @@ describe("video kuyruğu (V4)", () => {
   it("portal postu tek tek hatırlatılmaz; günlük kuyruk özeti gider", async () => {
     const agency = await createAgency();
     const client = await createClient(agency.id);
-    await createPublishSettings(client.id, { requireApproval: true });
+    await createPublishSettings(client.id);
     const post = await createQueuePost(agency.id, client.id, { status: "pending" });
     // Linki ölmüş ve günlerdir bekleyen bir ajans postu olsaydı iki bildirim
     // birden giderdi; portal postunda ikisi de gitmemeli.
@@ -237,7 +237,7 @@ describe("video kuyruğu (V4)", () => {
     expect(body.queueDigest).toMatchObject({ sent: 1 });
     expect(mockReminder).not.toHaveBeenCalled();
     expect(mockAgencyNotice).not.toHaveBeenCalled();
-    expect(vi.mocked(sendRawEmail).mock.calls[0][0].subject).toBe("1 video onayını bekliyor");
+    expect(vi.mocked(sendRawEmail).mock.calls[0][0].subject).toMatch(/^Kuyruk (bugün|yarın) bitiyor$/);
   });
 });
 
