@@ -52,7 +52,7 @@ service worker'a dayanıyor; V7d Android'e özel olduğu için en sonda.
 - CSP (`next.config.ts`): `worker-src` / `manifest-src` tanımsız →
   `script-src 'self'` / `default-src 'self'`'e düşer; aynı kaynaktan servis
   edilen worker ve manifest izinli. `connect-src 'self' https://*.r2.cloudflarestorage.com`.
-- R2 CORS: yalnızca `https://content-approval-saas.vercel.app` ve
+- R2 CORS: `https://portal.enesmemduhoglu.tech`, `https://content-approval-saas.vercel.app` ve
   `http://localhost:3000`; `ExposeHeaders: ETag` **var** (V7b için gerekli).
 - Yükleme: tek parça imzalı PUT (`upload-form.tsx` → `putWithProgress`),
   dosyalar sırayla.

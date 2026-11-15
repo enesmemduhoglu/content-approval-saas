@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { eskiAdresYonlendirmeleri } from "./src/lib/eski-adres";
 
 /**
  * Güvenlik başlıkları.
@@ -113,6 +114,10 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+  },
+  // Build anında okunur: APP_URL değişince redeploy şart (zaten öyle).
+  async redirects() {
+    return eskiAdresYonlendirmeleri(process.env.APP_URL);
   },
   experimental: {
     // İstemci yönlendirici önbelleği: dinamik bir sayfaya 30 sn içinde yeniden

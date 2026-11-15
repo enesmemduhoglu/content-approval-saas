@@ -1,6 +1,6 @@
 # TODOS
 
-Son güncelleme: 2026-09-28 · Canlı: https://content-approval-saas.vercel.app
+Son güncelleme: 2026-11-15 · Canlı: https://portal.enesmemduhoglu.tech (eski `*.vercel.app` adresi sayfaları oraya yönlendirir, API eski adreste de çalışır)
 
 **Depo PUBLIC** (`gh repo view` → `PUBLIC`). Bu dosyayı herkes okuyabiliyor:
 

@@ -179,6 +179,14 @@ gönderilmesi meşru bir kurtarma yolu. Kod tek soru sorar: *içerik şu an canl
 
 ## Tuzaklar
 
+**`vercel.app` Türkiye'de mobil operatörde engellenebiliyor.** 2026-11'de portal
+LTE'de açılmadı, VPN'le açıldı; sunucu sağlamdı. Uygulama bu yüzden
+`portal.enesmemduhoglu.tech`'te (`APP_URL`). Kullanıcıya giden hiçbir linke
+`*.vercel.app` yazma. Eski prod hostu sayfaları yeni adrese yönlendirir ama
+`/api/**`'yi BİLEREK yönlendirmez (`src/lib/eski-adres.ts`): furi'nin
+`Authorization`'lı çağrısı ve önceden kurulmuş QStash mesajları eski adresi
+çağırıyor, başka origin'e yönlendirme ikisini de sessizce kırardı.
+
 **`.env.local` iki ayrı veritabanı adresi tutuyor:** `DATABASE_URL` → localhost:5455
 (yerel), `POSTGRES_URL` → prod Neon. Prisma varsayılanıyla bağlanan bir betik prod'a
 değil yerele düşer. `scripts/` altındaki betikler bu yüzden bağlandıkları hostu sorgudan
