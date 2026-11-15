@@ -194,6 +194,9 @@ sayfanın mevcut illüstrasyonunu verdi: yeşil halka ve beyaz köşeler görsel
 kendi krem zeminiyle (`#F2E4D3`) dolduruldu, yüze odaklı kare kesit alındı,
 set `scripts/pwa-ikon-uret.mjs` ile üretildi (`public/icons/furkan-teacher/`).
 Yeni model çağrısı yok.
+**2026-11-15 güncellemesi:** kullanıcı yüz kesiti yerine halkalı tam görseli
+istedi; set aynı klasörde `--zemin=#F2E4D3 --zemini-boya` ile yeniden üretildi
+(halka dışındaki beyaz köşeler krem), SW önbellek sürümü v3'e çıktı.
 
 ### K28 · 2026-09-26 · Yayın günleri: tek gün kümesi × tek saat listesi (V8)
 Kullanıcı her gün yayın istemeyebilir ("yalnız Pzt/Per/Cum", "yalnız

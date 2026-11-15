@@ -51,7 +51,11 @@
  */
 
 // v2: çevrimdışı sayfasının "Tekrar dene" linki `?sw=1` taşıyor (2026-11-01).
-const SURUM = "v2";
+// v3: furkan-teacher ikon seti aynı klasörde yeniden üretildi (2026-11-15).
+// İkonlar önbellek-önce servis edildiği için eski kopya ancak önbellek
+// silinince düşer; klasör adı müşterinin `appIconBase`'inde (prod DB) yazılı
+// olduğundan yeni klasör açmak yerine sürüm artırıldı.
+const SURUM = "v3";
 const ONBELLEK_ONEKI = "portal-kabuk-";
 const ONBELLEK = ONBELLEK_ONEKI + SURUM;
 const CEVRIMDISI_URL = "/portal/cevrimdisi";
