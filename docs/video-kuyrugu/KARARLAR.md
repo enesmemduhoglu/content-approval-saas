@@ -326,6 +326,17 @@ kolonu okuyor (CLAUDE.md "PR'a push = prod şema göçü"). Kod kolonu ne okuyor
 yazıyor; ayar ucu gövdede gelirse yok sayıyor (önbellekteki eski PWA
 gönderebilir). Kolonu düşüren göç ayrı bir PR — TODOS.md.
 
+### K34 · 2026-11-15 · Oturumsuz cihazda dağıtımın varsayılan müşterisi
+Uygulama `portal.enesmemduhoglu.tech`'e taşındı (`vercel.app` mobil operatörde
+engelli). K29 izi origin'e bağlı olduğu için eski adreste kaldı: Furkan yeni
+adresi açıp girişten önce "Ana Ekrana Ekle"ye bastı, iOS nötr "Kuyruk" adını
+ve varsayılan ikonu kopyaladı. Kullanıcı kararı: adres Furkan'ın, giriş
+yapılmamış cihaz da onun adı ve ikonuyla görmeli. `PORTAL_DEFAULT_CLIENT_ID`
+(env, prod'da Furkan'ın müşteri id'si) oturum ve izden SONRA, nötr
+varsayılandan ÖNCE gelir; yalnızca ad/ikon/renk verir, hiçbir yetki vermez.
+Env boşsa K23'ün nötr kimliği aynen geçerli. İz env'i ezer (aynı cihazda son
+giriş yapılan müşteri), silinmiş müşterinin izi env'e düşer.
+
 ---
 
 ## Açık sorular
