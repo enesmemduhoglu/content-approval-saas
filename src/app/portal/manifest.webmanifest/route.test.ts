@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/lib/db";
 import { resolvePortalApp, DEFAULT_PORTAL_APP } from "@/lib/portal-app";
 import {
@@ -201,6 +201,61 @@ describe("GET /portal/manifest.webmanifest — oturumsuz, iz çerezli (K29)", ()
   it("iz yalnızca ad/ikon/renk verir — müşteri e-postası manifest'e çıkmaz", async () => {
     const client = await db.client.findUniqueOrThrow({ where: { id: clientA.id } });
     const { body } = await fetchManifest(portalTraceCookie(clientA.id));
+    expect(JSON.stringify(body)).not.toContain(client.email);
+  });
+});
+
+describe("GET /portal/manifest.webmanifest — dağıtımın varsayılan müşterisi (K34)", () => {
+  // Regresyon (2026-11-15): yeni alan adında iz çerezi yoktu; girişten önce
+  // ana ekrana eklenen portal "Kuyruk" adı ve varsayılan ikonla kuruldu.
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("oturumsuz, izsiz: PORTAL_DEFAULT_CLIENT_ID müşterisinin adı ve ikonu", async () => {
+    vi.stubEnv("PORTAL_DEFAULT_CLIENT_ID", clientA.id);
+    const { body } = await fetchManifest();
+    expect(body.name).toBe("Furkan Teacher");
+    expect(body.short_name).toBe("Furkan");
+    expect(body.icons[0].src).toBe("/icons/furkan-teacher/icon-192.png");
+  });
+
+  it("env boşsa davranış eskisi gibi: nötr varsayılan (K23)", async () => {
+    vi.stubEnv("PORTAL_DEFAULT_CLIENT_ID", "  ");
+    const { body } = await fetchManifest();
+    expect(body).toMatchObject({ name: "Video Kuyruğu", short_name: "Kuyruk" });
+  });
+
+  it("env olmayan bir müşteriyi gösteriyorsa nötr varsayılan", async () => {
+    vi.stubEnv("PORTAL_DEFAULT_CLIENT_ID", "olmayan-musteri");
+    const { res, body } = await fetchManifest();
+    expect(res.status).toBe(200);
+    expect(body.name).toBe("Video Kuyruğu");
+  });
+
+  it("iz env'i ezer: bu cihazda son giriş yapılan müşteri kazanır", async () => {
+    vi.stubEnv("PORTAL_DEFAULT_CLIENT_ID", clientA.id);
+    const { body } = await fetchManifest(portalTraceCookie(clientB.id));
+    expect(body.name).toBe("B Uygulaması");
+  });
+
+  it("silinmiş müşterinin izi env müşterisine düşer", async () => {
+    vi.stubEnv("PORTAL_DEFAULT_CLIENT_ID", clientA.id);
+    const cookie = portalTraceCookie(clientB.id);
+    await db.client.delete({ where: { id: clientB.id } });
+    const { body } = await fetchManifest(cookie);
+    expect(body.name).toBe("Furkan Teacher");
+  });
+
+  it("oturum env'i ezer", async () => {
+    const userB = await createClientUser(clientB.id);
+    vi.stubEnv("PORTAL_DEFAULT_CLIENT_ID", clientA.id);
+    const { body } = await fetchManifest(portalCookie(userB));
+    expect(body.name).toBe("B Uygulaması");
+  });
+
+  it("yalnızca ad/ikon/renk — varsayılan müşterinin e-postası manifest'e çıkmaz", async () => {
+    vi.stubEnv("PORTAL_DEFAULT_CLIENT_ID", clientA.id);
+    const client = await db.client.findUniqueOrThrow({ where: { id: clientA.id } });
+    const { body } = await fetchManifest();
     expect(JSON.stringify(body)).not.toContain(client.email);
   });
 });

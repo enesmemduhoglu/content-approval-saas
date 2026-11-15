@@ -241,6 +241,7 @@ caption işi kendiliğinden koşmaz; elle tetiklemek için:
 | `ANTHROPIC_API_KEY` | portal | Claude ile caption üretimi. Boşsa caption `failed` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | — | Web Push (`VAPID_SUBJECT` örn. `mailto:...`). Biri bile eksikse push atlanır (loglanır), portaldaki bildirim anahtarı "kullanılamıyor" durumuna geçer |
 | `PORTAL_DAILY_UPLOAD_LIMIT` | — | Müşteri başına 24 saatte yükleme tavanı (varsayılan 40) |
+| `PORTAL_DEFAULT_CLIENT_ID` | — | Hiç giriş yapılmamış cihazda portalın (giriş ekranı, ana ekran adı/ikonu, manifest) gösterdiği müşteri kimliği. Boşsa nötr "Kuyruk" (K34) |
 | `NEON_API_KEY` / `NEON_PROJECT_ID` | — | Günlük Neon compute kullanımı kontrolü; kotanın %70'inde `ALERT_EMAIL`'e uyarı. Boşsa kontrol atlanır |
 | `NEON_CU_HOURS_QUOTA` | — | Aylık CU-saat kotası (varsayılan 100, ücretsiz plan) |
 

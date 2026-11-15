@@ -15,9 +15,10 @@ import { findClientAppForLoginScreen, getClientScopedDb } from "@/lib/client-sco
  * Uygulama adı ve ikonu SAYFAYA ÖZEL (K23). Çözüm sırası: oturum varsa
  * oturumun müşterisi; yoksa bu cihazda en son giriş yapılan müşterinin imzalı
  * izi (K29 — oturumu düşmüş kullanıcı kendi uygulamasını nötr bir markayla
- * açmasın); o da yoksa nötr varsayılan. iOS adı ve ikonu "Ana Ekrana Ekle"
- * anında kopyalayıp bir daha güncellemediği için kullanıcıya uygulamayı GİRİŞ
- * YAPTIKTAN SONRA eklemesi söylenir (V7-pwa §4.1).
+ * açmasın); yoksa `PORTAL_DEFAULT_CLIENT_ID` (K34); o da yoksa nötr
+ * varsayılan. iOS adı ve ikonu "Ana Ekrana Ekle" anında kopyalayıp bir daha
+ * güncellemediği için kullanıcıya uygulamayı GİRİŞ YAPTIKTAN SONRA eklemesi
+ * söylenir (V7-pwa §4.1) — K34 bu talimata uyulmadığında da doğru markayı verir.
  */
 
 export type PortalApp = {
@@ -82,12 +83,13 @@ export function resolvePortalApp(client: ClientAppFields | null): PortalApp {
 }
 
 /**
- * Uygulama kimliği: oturum kazanır; oturum yoksa iz çerezi (K29), o da
- * çözülmezse (imza tutmuyor, süresi dolmuş, müşteri silinmiş) varsayılan.
+ * Uygulama kimliği: oturum kazanır; oturum yoksa iz çerezi (K29); o da
+ * çözülmezse (iz yok, imza tutmuyor, süresi dolmuş, müşteri silinmiş)
+ * dağıtımın varsayılan müşterisi (K34); o da yoksa nötr varsayılan.
  *
- * İz yalnızca BURADA okunuyor ve yalnızca ad/ikon/renk üretiyor; oturum ve
- * veri erişimi kararları ona hiç bakmıyor. `request`: route handler çerezi
- * başlıktan okur, server component `next/headers`'tan.
+ * İz ve varsayılan müşteri yalnızca BURADA okunuyor ve yalnızca ad/ikon/renk
+ * üretiyor; oturum ve veri erişimi kararları onlara hiç bakmıyor. `request`:
+ * route handler çerezi başlıktan okur, server component `next/headers`'tan.
  */
 export async function loadPortalApp(
   session: ClientSession | null,
@@ -98,8 +100,32 @@ export async function loadPortalApp(
     return resolvePortalApp(client);
   }
   const tracedClientId = await readPortalTraceClientId(request);
-  if (!tracedClientId) return DEFAULT_PORTAL_APP;
-  return resolvePortalApp(await findClientAppForLoginScreen(tracedClientId));
+  if (tracedClientId) {
+    const traced = await findClientAppForLoginScreen(tracedClientId);
+    if (traced) return resolvePortalApp(traced);
+  }
+  return loadDeploymentDefaultApp();
+}
+
+/**
+ * K34 — `PORTAL_DEFAULT_CLIENT_ID`: hiç giriş yapılmamış cihazın göreceği
+ * müşteri kimliği.
+ *
+ * Neden: iz çerezi origin'e bağlı. Uygulama 2026-11-15'te yeni alan adına
+ * taşınınca Furkan'ın telefonundaki iz eski adreste kaldı; yeni adresi açıp
+ * girişten önce "Ana Ekrana Ekle"ye basınca iOS nötr "Kuyruk" adını ve
+ * varsayılan ikonu kopyaladı — ve iOS bunu bir daha güncellemiyor. Adres
+ * fiilen tek bir müşteriye verildiği için giriş ekranının o müşterinin
+ * markasıyla açılması doğru olan.
+ *
+ * K23'ün "oturumsuz nötr kimlik" kuralı varsayılan olarak korunuyor: env boşsa
+ * davranış aynen eski. Değer yalnızca bilerek yazılır ve yalnızca ad/ikon/renk
+ * verir (adres zaten o müşterinin; e-posta vb. hiçbir alan seçilmez).
+ */
+async function loadDeploymentDefaultApp(): Promise<PortalApp> {
+  const clientId = process.env.PORTAL_DEFAULT_CLIENT_ID?.trim();
+  if (!clientId) return DEFAULT_PORTAL_APP;
+  return resolvePortalApp(await findClientAppForLoginScreen(clientId));
 }
 
 /**
