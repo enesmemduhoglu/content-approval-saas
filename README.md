@@ -12,7 +12,7 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
    seçtiği gün ve saatlerde Instagram Reels olarak kendiliğinden yayınlanır. Portalda
    ayrı bir onay adımı yok (K33): caption'ı hazır video sırası gelince yayınlanır.
 
-**Canlı:** https://content-approval-saas.vercel.app
+**Canlı:** https://portal.enesmemduhoglu.tech (eski adres `content-approval-saas.vercel.app` sayfaları buraya yönlendirir)
 
 ## Özellikler
 
