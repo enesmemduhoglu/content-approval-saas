@@ -202,10 +202,6 @@ export function getClientScopedDb(session: ClientSession) {
       findById: (id: string): Promise<PortalVideo | null> =>
         db.post.findFirst({ where: { id, ...scope }, select: PORTAL_VIDEO_SELECT }),
 
-      /** Günlük yükleme tavanı: taslaklar da sayılır — tamamlanmamış yükleme de bir R2 imzası harcadı. */
-      countCreatedSince: (since: Date): Promise<number> =>
-        db.post.count({ where: { ...scope, createdAt: { gte: since } } }),
-
       /**
        * Dosya başına bir TASLAK post. `status: draft` bilinçli: yükleme
        * tamamlanana kadar post hiçbir akışa (onay, tick, hatırlatma) görünmez

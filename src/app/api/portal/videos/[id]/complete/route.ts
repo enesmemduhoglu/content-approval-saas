@@ -50,9 +50,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Toplu yüklemede her video ayrı `complete` atıyor (20 video = 20 istek);
+  // Toplu yüklemede her video ayrı `complete` atıyor (50 video = 50 istek);
   // genel portal tavanı yerine daha geniş ama yine MÜŞTERİ anahtarlı bir
-  // tavan. Toplam iş zaten günlük yükleme tavanı ve `status: draft` koşuluyla
+  // tavan. Toplam iş zaten depolama tavanı (K35) ve `status: draft` koşuluyla
   // (her taslak bir kez tamamlanır) sınırlı.
   // Kapı sırası: oturum → checkOrigin → hız sınırı (bkz. portal-route.ts).
   const guard = await portalMutationGuard(request, { action: "complete", max: 120 });

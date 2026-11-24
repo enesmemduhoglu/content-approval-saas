@@ -8,12 +8,15 @@ import {
   validateUploadFiles,
 } from "@/lib/portal-validation";
 import {
+  ALL_CLIENTS_PREFIX,
   abortMultipartUpload,
   createMultipartUpload,
   frameKey,
+  prefixUsage,
   r2Configured,
   signPutUrl,
 } from "@/lib/storage-r2";
+import { uploadBlockedReason } from "@/lib/storage-usage";
 
 /**
  * Video kuyruğu (V3) — yükleme başlatma (README §7 "Yükle" 1. adım).
@@ -22,8 +25,8 @@ import {
  * (video + 6 kare). Dosyanın kendisi bu fonksiyondan GEÇMEZ: Vercel'in 4.5 MB
  * gövde sınırı var, video 300 MB olabilir.
  *
- * Toplu yükleme TEK istekte başlar (20 dosyaya kadar): dosya başına istek
- * atılsaydı 20 videoluk bir yükleme hız sınırına tek başına çarpardı.
+ * Toplu yükleme TEK istekte başlar (50 dosyaya kadar): dosya başına istek
+ * atılsaydı 50 videoluk bir yükleme hız sınırına tek başına çarpardı.
  *
  * V7b: `MULTIPART_THRESHOLD_BYTES` ve üstündeki video çok parçalı yüklenir —
  * burada R2'de yükleme açılır, kimliği (`uploadId`) taslağa yazılır ve
@@ -31,16 +34,6 @@ import {
  * `videos/[id]/parts`'tan, parça parça ve süreli alınır. Küçük dosyanın tek
  * PUT yolu aynen duruyor.
  */
-
-/**
- * Müşteri başına 24 saatlik yükleme tavanı. Hız sınırı dakikayı korur; bu
- * tavan günü korur — sızmış bir portal oturumunun R2'nin 10 GB ücretsiz
- * katmanını bir gecede doldurmasını engelleyen şey bu.
- */
-function dailyUploadLimit(): number {
-  const raw = Number(process.env.PORTAL_DAILY_UPLOAD_LIMIT);
-  return Number.isInteger(raw) && raw > 0 ? raw : 40;
-}
 
 export async function POST(request: Request) {
   // Kapı sırası: oturum → checkOrigin → hız sınırı (bkz. portal-route.ts).
@@ -63,19 +56,33 @@ export async function POST(request: Request) {
 
   const scoped = getClientScopedDb(guard.session);
 
+  // Depolama tavanı (K35): adet değil doluluk. Eskiden müşteri başına günde 40
+  // videoydu; asıl korunan şey R2'nin ücretsiz katmanı olduğu için ölçü de o.
+  // Doluluk R2'den ANLIK okunuyor (gösterge ile aynı `prefixUsage`; yarım
+  // çok parçalı yüklemelerin parçaları dahil) — DB'de boyut tutmak her silme
+  // yolunda senkron gerektirirdi. Bucket'ın tamamı sayılıyor, müşteri öneki
+  // değil: kota bucket'a ait. Yanıta yalnızca boş yer çıkıyor, kimin ne
+  // yüklediği değil.
+  //
   // Kota deseni (F7): 429 değil 403 — bu bir hız sınırı değil, tavan. Say-sonra-
-  // yaz yarışa açık (iki eşzamanlı istek tavanı birkaç dosya aşabilir);
-  // amaç kötüye kullanımı durdurmak, tek dosyayı bile geçirmemek değil.
-  const limit = dailyUploadLimit();
-  const used = await scoped.posts.countCreatedSince(new Date(Date.now() - 24 * 60 * 60 * 1000));
-  if (used + parsed.files.length > limit) {
+  // yaz yarışa açık (iki eşzamanlı seçim birlikte geçebilir); 1 GB'lık pay
+  // bunun için (bkz. storage-usage.ts).
+  let usedBytes: number;
+  try {
+    usedBytes = (await prefixUsage(ALL_CLIENTS_PREFIX)).totalBytes;
+  } catch (error) {
+    // Okunamayan doluluk "sığar" sayılmaz: tavanın tek işi taşmayı önlemek.
+    // İmzalama da aynı R2'ye gidiyor, yani bu anda yükleme zaten yürümezdi.
+    console.error("[portal-upload] depolama doluluğu okunamadı:", (error as Error).message);
     return NextResponse.json(
-      {
-        error: `Günlük yükleme tavanı ${limit} video. Bugün ${Math.max(limit - used, 0)} video daha yükleyebilirsin.`,
-        field: "files",
-      },
-      { status: 403 }
+      { error: "Depolama şu an yanıt vermiyor, biraz sonra tekrar dene" },
+      { status: 502 }
     );
+  }
+  const incomingBytes = parsed.files.reduce((sum, file) => sum + file.size, 0);
+  const blocked = uploadBlockedReason(usedBytes, incomingBytes);
+  if (blocked) {
+    return NextResponse.json({ error: blocked, field: "files" }, { status: 403 });
   }
 
   const drafts = await scoped.posts.createDrafts(parsed.files);

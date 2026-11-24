@@ -29,7 +29,7 @@ import {
 
 /**
  * Parça imzası yüklemenin en sık isteği: 300 MB = 38 parça, 20'lik gruplarla
- * ve kopmalarda yeniden imzayla. 20 videoluk bir toplu yükleme genel portal
+ * ve kopmalarda yeniden imzayla. 50 videoluk bir toplu yükleme genel portal
  * tavanına (60/dk) takılmasın; anahtar yine MÜŞTERİ.
  */
 const PARTS_RATE_LIMIT_MAX = 240;

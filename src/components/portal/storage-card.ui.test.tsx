@@ -19,16 +19,16 @@ describe("StorageCard", () => {
     render(<StorageCard state={{ kind: "ready", view: storageView(usage(1.4 * GB)) }} />);
     expect(screen.getByRole("heading", { name: "DEPOLAMA" })).toBeTruthy();
     expect(screen.getByText("1,4 GB")).toBeTruthy();
-    expect(screen.getByText("/ 10 GB")).toBeTruthy();
+    expect(screen.getByText("/ 9 GB")).toBeTruthy();
     const meter = screen.getByRole("meter");
-    expect(meter.getAttribute("aria-valuenow")).toBe("14");
+    expect(meter.getAttribute("aria-valuenow")).toBe("15.6");
     expect(meter.className).not.toContain("p-storage--");
     expect(screen.getByText(/^Yaklaşık \d+ video daha sığar$/)).toBeTruthy();
   });
 
   it("%80 üstü uyarı tonu, dolu olunca tehlike tonu", () => {
     const { rerender } = render(
-      <StorageCard state={{ kind: "ready", view: storageView(usage(8.6 * GB)) }} />
+      <StorageCard state={{ kind: "ready", view: storageView(usage(7.6 * GB)) }} />
     );
     expect(screen.getByRole("meter").className).toContain("p-storage--warn");
     expect(screen.getByText(/^Yer azalıyor/)).toBeTruthy();
@@ -36,7 +36,7 @@ describe("StorageCard", () => {
     rerender(<StorageCard state={{ kind: "ready", view: storageView(usage(10.2 * GB)) }} />);
     expect(screen.getByRole("meter").className).toContain("p-storage--full");
     expect(screen.getByRole("meter").getAttribute("aria-valuenow")).toBe("100");
-    expect(screen.getByText("Yer doldu. Kuyruk dışındaki videoları silebilirsin.")).toBeTruthy();
+    expect(screen.getByText("Yer doldu, yeni video yüklenemez. Kuyruk dışındaki videoları silebilirsin.")).toBeTruthy();
   });
 
   it("okunamadı: kart kalır, sayı yerine açıklama", () => {

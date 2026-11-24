@@ -7,6 +7,8 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
     r2Configured: vi.fn(() => true),
     signPutUrl: vi.fn(async (key: string) => `https://acc.r2.cloudflarestorage.com/put/${key}`),
     createMultipartUpload: vi.fn(async () => "upload-1"),
+    // Depolama tavanı (K35) bucket doluluğunu R2'den okuyor; varsayılan boş.
+    prefixUsage: vi.fn(async () => ({ totalBytes: 0, videoBytes: 0, videoCount: 0, frameBytes: 0 })),
   };
 });
 

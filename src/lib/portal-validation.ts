@@ -126,8 +126,13 @@ export function validatePublishSettings(
 
 // ─── Yükleme ────────────────────────────────────────────────────────────────
 
-/** Tek istekte başlatılabilecek dosya sayısı — toplu yükleme (20 video) tek istekte sığsın. */
-export const MAX_FILES_PER_UPLOAD = 20;
+/**
+ * Tek istekte başlatılabilecek dosya sayısı — toplu yükleme (50 video) tek
+ * istekte sığsın. İstemci seçicisi de bu sabiti kullanıyor (`MAX_FILES`):
+ * ayrı sayılar ayrışınca seçici kabul edip sunucu 400 dönüyordu.
+ * Toplam yer bu sayıyla değil depolama tavanıyla sınırlı (K35).
+ */
+export const MAX_FILES_PER_UPLOAD = 50;
 export const FRAME_COUNT = 6;
 /** Tarayıcının çıkardığı JPEG kare için üst sınır; daha büyüğü kareye benzemiyor. */
 export const MAX_FRAME_BYTES = 2 * 1024 * 1024;

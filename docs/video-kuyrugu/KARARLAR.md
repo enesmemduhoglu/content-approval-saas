@@ -254,8 +254,9 @@ gerektirirdi, V9 temizliği sayesinde liste tek istek. Birimler 1000 tabanlı
 (Cloudflare paneli gibi), ondalık Türkçe virgül (yükleme ekranındaki
 `fileSize` de virgüle geçti). "Kaç video daha" = kalan / (video + kare) ortalaması;
 3 videodan az örnekte sabit 75 MB. %80'de "Yer azalıyor", bir video bile
-sığmıyorsa "Yer doldu". **Yükleme engellenmez** (kullanıcı kararı): R2 10 GB'ı
-aşınca yüklemeyi durdurmaz, aşanı ücretlendirir; gösterge yalnızca haber verir.
+sığmıyorsa "Yer doldu". ~~**Yükleme engellenmez** (kullanıcı kararı): R2 10 GB'ı
+aşınca yüklemeyi durdurmaz, aşanı ücretlendirir; gösterge yalnızca haber verir.~~
+→ K35: 9 GB'ta yükleme kapanır, gösterge de 9 GB'a göre sayar.
 Kota bucket'ın tamamı — ikinci müşteri gelirse bölünmeli.
 Cloudflare panelindeki "Bucket Size" güvenilmez: 29 Eyl'de 2.14 GB derken
 gerçek 1.4 GB'tı (Metrics grafiği: 28 Eyl öğlen anlık tepe, sonra düz); doğru
@@ -336,6 +337,24 @@ yapılmamış cihaz da onun adı ve ikonuyla görmeli. `PORTAL_DEFAULT_CLIENT_ID
 varsayılandan ÖNCE gelir; yalnızca ad/ikon/renk verir, hiçbir yetki vermez.
 Env boşsa K23'ün nötr kimliği aynen geçerli. İz env'i ezer (aynı cihazda son
 giriş yapılan müşteri), silinmiş müşterinin izi env'e düşer.
+
+### K35 · 2026-11-24 · Günlük adet tavanı yerine depolama tavanı; tek seferde 50 video
+Kullanıcı kararı: "tek seferde 50 video yüklenebilsin; 10 GB'ın 9'u dolunca
+daha video yüklenemesin, günlük sınır koyma." Müşteri başına 24 saatte 40
+video tavanı (`PORTAL_DAILY_UPLOAD_LIMIT`) kaldırıldı: koruduğu şey R2'nin
+ücretsiz katmanıydı, ölçü de artık o. `POST /api/portal/upload` bucket'ın
+TAMAMININ doluluğunu R2'den anlık okur (`prefixUsage("clients/")`, K31'deki
+liste; yarım çok parçalı parçalar dahil) ve mevcut + seçimin beyan edilen
+toplamı 9 GB'ı aşarsa 403 döner, taslak yazmaz. Okunamazsa 502 (sığar
+sayılmaz). 1 GB pay: tavan say-sonra-yaz (eşzamanlı iki seçim birlikte
+geçebilir), boyut istemcinin beyanı (`complete` yalnızca 300 MB üst sınırını
+doğruluyor) ve kareler hesapta yok. Ayarlar göstergesi de 9 GB'a göre sayıyor
+ki "yaklaşık N video daha sığar" gerçekten yüklenebilecek sayı olsun. Tek
+seferlik sınır 20 → 50 (`MAX_FILES_PER_UPLOAD`; istemci seçicisi aynı sabiti
+kullanıyor). 50 dosyada `complete` (120/dk) ve `parts` (240/dk) hız tavanları
+yetiyor. Kabul edilen risk: sızmış bir oturum günlük sınır olmadan bucket'ı
+9 GB'a kadar bir seferde doldurabilir — ücretli katmana taşamaz, yalnızca
+yüklemeyi kilitler; temizlik (K30) ve "Sil" yer açar.
 
 ---
 
