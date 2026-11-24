@@ -237,7 +237,14 @@ describe("video kuyruğu (V4)", () => {
     expect(body.queueDigest).toMatchObject({ sent: 1 });
     expect(mockReminder).not.toHaveBeenCalled();
     expect(mockAgencyNotice).not.toHaveBeenCalled();
-    expect(vi.mocked(sendRawEmail).mock.calls[0][0].subject).toMatch(/^Kuyruk (bugün|yarın) bitiyor$/);
+    // Konu koşu saatine bağlı ve iki sonuç da doğru: bugünün yayın saati
+    // henüz gelmediyse tek video bugün gider, yarın boş kalır → "Kuyruk bugün
+    // bitiyor"; geçtiyse video yarına kayar → "Yarın 1 video yayınlanacak".
+    // Yalnızca ilki beklenince test akşam (CI 18:44 UTC) düşüyordu. Konu
+    // seçiminin kendisi `queueDigestSubject`in birim testinde.
+    expect(vi.mocked(sendRawEmail).mock.calls[0][0].subject).toMatch(
+      /^(Kuyruk (bugün|yarın) bitiyor|Yarın 1 video yayınlanacak)$/
+    );
   });
 });
 
