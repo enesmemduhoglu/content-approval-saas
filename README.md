@@ -46,7 +46,8 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
 - **Yükleme** — galeriden seçince başlar; 16 MB üstü dosyalar **8 MB'lık parçalarla**
   doğrudan R2'ye (3 paralel parça), uygulamadan çıkıp dönünce ya da aynı dosya yeniden
   seçilince **kaldığı yerden devam** (IndexedDB); ekran kilidi (wakeLock); aynı videonun
-  ikinci kez yüklenmesine uyarı; en fazla 300 MB; müşteri başına günlük yükleme tavanı
+  ikinci kez yüklenmesine uyarı; en fazla 300 MB; tek seferde en fazla 50 video; R2 9 GB dolunca
+  yeni yükleme kapanır (günlük adet tavanı yok)
 - **Otomatik caption** — tarayıcı videodan 6 kare çıkarır; sunucuda fal Whisper
   transkript + Claude (kareler + transkript + müşterinin caption stili) açıklama ve
   10–15 hashtag üretir; kod tarafında doğrulanır; not ile ("daha kısa olsun") yeniden üretme
@@ -169,7 +170,7 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
 - **Dosya doğrulaması içerikten:** yüklenen görselin tipi ilk baytlardan tespit edilir;
   portal videosu `complete`'te `HeadObject` ile boyut ve tip olarak sunucuda doğrulanır.
 - **Kötüye kullanım supapları:** ajans başına müşteri/post/günlük post/davet kotası
-  (`src/lib/quota.ts`); müşteri başına 24 saatte portal yükleme tavanı.
+  (`src/lib/quota.ts`); portal yüklemesi için R2 doluluk tavanı (9 GB, `src/lib/storage-usage.ts`).
 - **Test girişi izolasyonu:** Credentials provider yalnızca `ENABLE_TEST_AUTH=1` **ve**
   `NODE_ENV !== "production"` iken vardır.
 
@@ -212,7 +213,7 @@ caption işi kendiliğinden koşmaz; elle tetiklemek için:
 ### Ortam değişkenleri
 
 > `.env.example` yalnızca ajans tarafını içeriyor; video kuyruğu değişkenleri (R2, QStash,
-> fal, Anthropic, VAPID, `PORTAL_DAILY_UPLOAD_LIMIT`) orada henüz yok — bu tablo esastır.
+> fal, Anthropic, VAPID) orada henüz yok — bu tablo esastır.
 
 **Çekirdek**
 
@@ -240,7 +241,6 @@ caption işi kendiliğinden koşmaz; elle tetiklemek için:
 | `FAL_KEY` | portal | fal Whisper transkripti. Boşsa caption `failed` |
 | `ANTHROPIC_API_KEY` | portal | Claude ile caption üretimi. Boşsa caption `failed` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | — | Web Push (`VAPID_SUBJECT` örn. `mailto:...`). Biri bile eksikse push atlanır (loglanır), portaldaki bildirim anahtarı "kullanılamıyor" durumuna geçer |
-| `PORTAL_DAILY_UPLOAD_LIMIT` | — | Müşteri başına 24 saatte yükleme tavanı (varsayılan 40) |
 | `PORTAL_DEFAULT_CLIENT_ID` | — | Hiç giriş yapılmamış cihazda portalın (giriş ekranı, ana ekran adı/ikonu, manifest) gösterdiği müşteri kimliği. Boşsa nötr "Kuyruk" (K34) |
 | `NEON_API_KEY` / `NEON_PROJECT_ID` | — | Günlük Neon compute kullanımı kontrolü; kotanın %70'inde `ALERT_EMAIL`'e uyarı. Boşsa kontrol atlanır |
 | `NEON_CU_HOURS_QUOTA` | — | Aylık CU-saat kotası (varsayılan 100, ücretsiz plan) |

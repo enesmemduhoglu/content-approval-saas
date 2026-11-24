@@ -1,18 +1,41 @@
 import type { PrefixUsage } from "@/lib/storage-r2";
 
 /**
- * Portal depolama göstergesi (Ayarlar) — saf kurallar ve metinler.
+ * Portal depolama göstergesi (Ayarlar) ve yükleme tavanı — saf kurallar ve metinler.
  *
- * Kota R2 ücretsiz katmanı: 10 GB. Bucket'ın tamamı bu; tek müşteri olduğu
- * için müşterinin payı da bu (ikinci müşteri gelirse kota bölünmeli).
- * 10 GB'ta hiçbir şey ENGELLENMİYOR — R2 aşan kısmı ücretlendirir, yükleme
- * sürer; gösterge yalnızca haber verir (kullanıcı kararı, 2026-09-29).
+ * Kota 9 GB: R2 ücretsiz katmanı 10 GB, 1 GB pay — tavan say-sonra-yaz
+ * (eşzamanlı iki seçim birlikte geçebilir) ve kareler bayt bayt
+ * öngörülemiyor; pay bunların ücretli katmana taşmasını önlüyor. Bu
+ * doluluğa ulaşınca yeni yükleme KAPANIR (K35, 2026-11-24; K31'in "engelleme
+ * yok" kararını ve günlük adet tavanını değiştirdi). Gösterge aynı sayıyı
+ * gösteriyor ki "yaklaşık N video daha sığar" gerçekten yüklenebilecek
+ * sayı olsun.
+ *
+ * Bucket'ın tamamı bu; tek müşteri olduğu için müşterinin payı da bu (ikinci
+ * müşteri gelirse kota bölünmeli). Tavan bu yüzden bucket'ın tamamına,
+ * gösterge müşterinin önekine bakıyor — bugün ikisi aynı sayı.
  *
  * Birimler 1000 tabanlı (GB = 10⁹ bayt): Cloudflare paneli de böyle sayıyor,
  * iki sayı yan yana konunca tutsun.
  */
 
-export const STORAGE_QUOTA_BYTES = 10 * 1000 ** 3;
+export const STORAGE_QUOTA_BYTES = 9 * 1000 ** 3;
+
+/**
+ * Yükleme tavanı: seçilen dosyalar mevcut dolulukla birlikte kotaya sığıyor
+ * mu. `null` = sığıyor; değilse kullanıcıya gösterilecek metin. Boyutlar
+ * istemcinin beyanı — `complete` gerçek boyutu yalnızca 300 MB üst sınırına
+ * karşı doğruluyor, yani beyanı küçük gösteren bir istemci tavanı bir
+ * seçimlik aşabilir; sonraki seçim R2'deki gerçek doluluğu görür.
+ */
+export function uploadBlockedReason(usedBytes: number, incomingBytes: number): string | null {
+  if (usedBytes + incomingBytes <= STORAGE_QUOTA_BYTES) return null;
+  const quota = `${STORAGE_QUOTA_BYTES / 1000 ** 3} GB`;
+  if (usedBytes >= STORAGE_QUOTA_BYTES) {
+    return `Depolama alanı doldu (${quota}). Yeni video yüklemek için kuyruk dışındaki videoları silebilirsin.`;
+  }
+  return `Seçtiğin videolar depolamaya sığmıyor: ${formatStorage(STORAGE_QUOTA_BYTES - usedBytes)} boş yer var, seçim ${formatStorage(incomingBytes)}. Daha az video seç.`;
+}
 
 /**
  * Ortalamayı üç videodan azına dayandırmak yanıltır (tek 26 MB'lık video
@@ -67,7 +90,7 @@ export function storageView(usage: PrefixUsage): StorageView {
 
   const line =
     level === "full"
-      ? "Yer doldu. Kuyruk dışındaki videoları silebilirsin."
+      ? "Yer doldu, yeni video yüklenemez. Kuyruk dışındaki videoları silebilirsin."
       : level === "warn"
         ? `Yer azalıyor · yaklaşık ${videosLeft} video daha sığar`
         : `Yaklaşık ${videosLeft} video daha sığar`;

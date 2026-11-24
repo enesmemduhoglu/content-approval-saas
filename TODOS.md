@@ -117,7 +117,7 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
       `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `QSTASH_URL`,
       `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`,
       `FAL_KEY`, `ANTHROPIC_API_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
-      `VAPID_SUBJECT`, `PORTAL_DAILY_UPLOAD_LIMIT` dosyada yok. Sıfırdan kurulum
+      `VAPID_SUBJECT` dosyada yok. Sıfırdan kurulum
       bunları yalnızca `docs/video-kuyrugu/`'dan öğrenebiliyor.
 - [ ] **D8 · Test boşlukları.** `src/lib/scoped-db.ts` (907 satır, panel IDOR
       korumasının tamamı) ve `src/lib/quota.ts` için ayrı birim testi yok, yalnızca

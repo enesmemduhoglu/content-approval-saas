@@ -7,7 +7,12 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-11-14 (portal onayı kaldırıldı, K33 — `feat/portal-onay-kaldir`)
+- **Son güncelleme:** 2026-11-24 (depolama tavanı, K35 — `feat/depolama-tavani`)
+- **2026-11-24 K35 — günlük 40 video tavanı kalktı, yerine R2 doluluğu 9 GB.**
+  Tek seferde 50 video (önce 20). Yükleme başlatma bucket'ın tamamını R2'den
+  anlık sayar; mevcut + seçim 9 GB'ı aşarsa 403. Ayarlar göstergesi "/ 9 GB".
+  Prod'da o gün: 13 video dosyası, 703 MB. Vercel'deki `PORTAL_DAILY_UPLOAD_LIMIT`
+  env'i (varsa) artık okunmuyor, silinebilir.
 - **2026-11-14 K33 — portalda onay yok.** Onayla/Reddet, onay anahtarı, "onay
   bekliyor" rozet/e-posta/push, "Onaylarsan" tahmini kalktı; tick her videoyu
   `auto_approved` ile onaylayıp yayınlar. **Canlıya çıkınca Furkan'ın kuyrukta

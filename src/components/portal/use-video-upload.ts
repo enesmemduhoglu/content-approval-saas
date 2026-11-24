@@ -26,6 +26,7 @@ import {
 } from "@/lib/multipart-client";
 import { deleteResume, loadResume, pruneResume, saveResume } from "@/lib/upload-resume-store";
 import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES } from "@/lib/validation";
+import { MAX_FILES_PER_UPLOAD } from "@/lib/portal-validation";
 import type { DuplicateMatch } from "@/lib/portal-duplicate";
 
 /**
@@ -103,7 +104,7 @@ type Prepared = {
   resume: ResumeRecord | null;
 };
 
-export const MAX_FILES = 20;
+export const MAX_FILES = MAX_FILES_PER_UPLOAD;
 
 /** Dışa açık: görünüm "bekleyen" durumları (turuncu kart) bu metinlerle ayırt ediyor. */
 export const STATUS_TEXT: Record<Exclude<MultipartStatus, "uploading">, string> = {

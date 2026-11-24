@@ -109,9 +109,12 @@ export function frameKey(clientId: string, postId: string, index: number): strin
 }
 
 /** Müşterinin bütün nesnelerinin öneki; depolama göstergesi bunu toplar. */
+/** Tüm müşterilerin nesneleri bunun altında — bucket geneli depolama tavanı buna bakar. */
+export const ALL_CLIENTS_PREFIX = "clients/";
+
 export function clientStoragePrefix(clientId: string): string {
   assertId(clientId, "clientId");
-  return `clients/${clientId}/`;
+  return `${ALL_CLIENTS_PREFIX}${clientId}/`;
 }
 
 /** İmzalı URL üretmeden önceki son kapı: anahtar bu müşterinin önekinde mi? */

@@ -10,6 +10,8 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
     signDisplayUrl: vi.fn(async (key: string) => `https://acc.r2.cloudflarestorage.com/get/${key}`),
     headObject: vi.fn(async () => ({ size: 1000, contentType: "video/mp4" })),
     deleteObject: vi.fn(async () => true),
+    // Depolama tavanı (K35) bucket doluluğunu R2'den okuyor; varsayılan boş.
+    prefixUsage: vi.fn(async () => ({ totalBytes: 0, videoBytes: 0, videoCount: 0, frameBytes: 0 })),
   };
 });
 // Kısmi: V11 ayar kaydı `qstashClient`/`appUrl`i de kullanıyor (token yok →
@@ -28,7 +30,9 @@ vi.mock("@/lib/publish-post", () => ({
 
 import { db } from "@/lib/db";
 import { resetRateLimiter } from "@/lib/rate-limit";
-import { deleteObject, headObject, r2Configured } from "@/lib/storage-r2";
+import { deleteObject, headObject, prefixUsage, r2Configured } from "@/lib/storage-r2";
+import { STORAGE_QUOTA_BYTES } from "@/lib/storage-usage";
+import { MAX_FILES_PER_UPLOAD } from "@/lib/portal-validation";
 import { enqueueCaption } from "@/lib/qstash";
 import { sendAlert } from "@/lib/alerts";
 import { publishApprovedPost } from "@/lib/publish-post";
@@ -70,7 +74,8 @@ beforeEach(async () => {
   vi.mocked(r2Configured).mockReturnValue(true);
   vi.mocked(deleteObject).mockReset();
   vi.mocked(deleteObject).mockResolvedValue(true);
-  delete process.env.PORTAL_DAILY_UPLOAD_LIMIT;
+  vi.mocked(prefixUsage).mockReset();
+  vi.mocked(prefixUsage).mockResolvedValue({ totalBytes: 0, videoBytes: 0, videoCount: 0, frameBytes: 0 });
   const agency = await createAgency();
   const client = await createClient(agency.id);
   agencyId = agency.id;
@@ -177,9 +182,51 @@ describe("POST /api/portal/upload", () => {
     expect(res.status).toBe(400);
   });
 
-  it("günlük yükleme tavanı aşılırsa 403, taslak yazılmaz", async () => {
-    process.env.PORTAL_DAILY_UPLOAD_LIMIT = "2";
-    await createPortalPost(agencyId, clientId);
+  // ─── Depolama tavanı (K35): adet değil doluluk ───────────────────────────
+  const usage = (totalBytes: number) => ({ totalBytes, videoBytes: totalBytes, videoCount: 1, frameBytes: 0 });
+  const MB = 1000 ** 2;
+
+  it("doluluk bucket'ın TAMAMINDAN okunur, müşteri önekinden değil", async () => {
+    const res = await upload(post("/api/portal/upload", { files: [{ contentType: "video/mp4", size: 10 }] }));
+    expect(res.status).toBe(201);
+    expect(prefixUsage).toHaveBeenCalledWith("clients/");
+  });
+
+  it("günlük adet tavanı yok: 24 saatte 40'tan fazla video yüklenebilir", async () => {
+    for (let i = 0; i < 45; i++) await createPortalPost(agencyId, clientId);
+    const res = await upload(post("/api/portal/upload", { files: [{ contentType: "video/mp4", size: 10 }] }));
+    expect(res.status).toBe(201);
+  });
+
+  it("depolama doluysa 403 ve 'doldu' metni, taslak yazılmaz", async () => {
+    vi.mocked(prefixUsage).mockResolvedValue(usage(STORAGE_QUOTA_BYTES));
+    const res = await upload(post("/api/portal/upload", { files: [{ contentType: "video/mp4", size: 10 }] }));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.field).toBe("files");
+    expect(body.error).toMatch(/doldu/);
+    expect(await db.post.count()).toBe(0);
+  });
+
+  it("seçimin TOPLAMI boş yere sığmıyorsa 403 — tek tek sığsalar da", async () => {
+    vi.mocked(prefixUsage).mockResolvedValue(usage(STORAGE_QUOTA_BYTES - 250 * MB));
+    const res = await upload(
+      post("/api/portal/upload", {
+        files: [
+          { contentType: "video/mp4", size: 150 * MB },
+          { contentType: "video/mp4", size: 150 * MB },
+        ],
+      })
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/sığmıyor/);
+    expect(await db.post.count()).toBe(0);
+  });
+
+  it("tam sınıra kadar dolduran seçim geçer", async () => {
+    // Küçük boyutlar bilerek: 16 MB üstü çok parçalı yola girer (o yol
+    // portal-multipart.test.ts'te); burada yalnızca sınırın kendisi sınanıyor.
+    vi.mocked(prefixUsage).mockResolvedValue(usage(STORAGE_QUOTA_BYTES - 20));
     const res = await upload(
       post("/api/portal/upload", {
         files: [
@@ -188,8 +235,26 @@ describe("POST /api/portal/upload", () => {
         ],
       })
     );
-    expect(res.status).toBe(403);
-    expect(await db.post.count()).toBe(1);
+    expect(res.status).toBe(201);
+    expect(await db.post.count()).toBe(2);
+  });
+
+  it("doluluk okunamazsa 502 — 'sığar' sayılmaz, taslak yazılmaz", async () => {
+    vi.mocked(prefixUsage).mockRejectedValue(new Error("R2 kapalı"));
+    const res = await upload(post("/api/portal/upload", { files: [{ contentType: "video/mp4", size: 10 }] }));
+    expect(res.status).toBe(502);
+    expect(await db.post.count()).toBe(0);
+  });
+
+  it(`tek seferde ${MAX_FILES_PER_UPLOAD} video kabul, bir fazlası 400`, async () => {
+    expect(MAX_FILES_PER_UPLOAD).toBe(50);
+    const files = (n: number) => Array.from({ length: n }, () => ({ contentType: "video/mp4", size: 10 }));
+    const over = await upload(post("/api/portal/upload", { files: files(51) }));
+    expect(over.status).toBe(400);
+    expect(await db.post.count()).toBe(0);
+    const ok = await upload(post("/api/portal/upload", { files: files(50) }));
+    expect(ok.status).toBe(201);
+    expect((await ok.json()).items).toHaveLength(50);
   });
 
   it("R2 yapılandırılmamışsa 503 — sessizce taslak üretmez", async () => {

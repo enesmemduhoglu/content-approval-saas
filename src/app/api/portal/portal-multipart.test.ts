@@ -23,6 +23,8 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => {
     ),
     completeMultipartUpload: vi.fn(async () => undefined),
     abortMultipartUpload: vi.fn(async () => undefined),
+    // Depolama tavanı (K35) bucket doluluğunu R2'den okuyor; varsayılan boş.
+    prefixUsage: vi.fn(async () => ({ totalBytes: 0, videoBytes: 0, videoCount: 0, frameBytes: 0 })),
   };
 });
 // Kısmi: V11 ayar kaydı `qstashClient`/`appUrl`i de kullanıyor (token yok →
@@ -155,11 +157,10 @@ describe("POST /api/portal/upload — çok parçalı", () => {
     expect(await db.post.count()).toBe(0);
   });
 
-  it("imzalama patlarsa 502: açılan yükleme iptal, bu istekteki taslaklar silinir, eski taslak kalır, kota yenmez", async () => {
+  it("imzalama patlarsa 502: açılan yükleme iptal, bu istekteki taslaklar silinir, eski taslak kalır", async () => {
     // Eskiden imzalama geri alma bloğunun dışındaydı: istisna 500 olarak
-    // kaçıyor, taslaklar 24 saat tavanda kalıyordu (aynı seçim 403 alıyordu).
-    process.env.PORTAL_DAILY_UPLOAD_LIMIT = "3";
-    try {
+    // kaçıyor, taslaklar 24 saat ortada kalıyordu.
+    {
       const existing = await createPortalPost(agencyId, clientId, { status: "draft", queuePosition: null });
       const files = [
         { contentType: "video/mp4", size: 2 * MB },
@@ -172,11 +173,9 @@ describe("POST /api/portal/upload — çok parçalı", () => {
       expect(abortMultipartUpload).toHaveBeenCalledWith(expect.stringContaining(`clients/${clientId}/videos/`), "r2-upload-id");
       expect((await db.post.findMany({ where: { clientId }, select: { id: true } })).map((p) => p.id)).toEqual([existing.id]);
 
-      // Aynı seçim yeniden denenebiliyor: tavan (3) = eski taslak + 2 yeni.
+      // Aynı seçim yeniden denenebiliyor.
       const retry = await upload(post("/api/portal/upload", { files }));
       expect(retry.status).toBe(201);
-    } finally {
-      delete process.env.PORTAL_DAILY_UPLOAD_LIMIT;
     }
   });
 });
