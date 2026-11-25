@@ -7,16 +7,18 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-11-25 (V12a reklam altyapısı, K36 — `feat/v12-reklam-altyapi`)
-- **2026-11-25 V12 — reklam görselleri (K36), altyapı PR'ı açık, arayüz yok.**
-  Göç `20261125120000_reklam_gorselleri` toplayıcı: reklam varsayılan kapalı,
-  eski SlotRun'lar `video`. Boş DB ve prod benzeri veriyle sınandı.
-  `/api/portal/ads/**` uçları, tick'in reklam saati ve uyandırma hazır. Portal
-  ekranı (V12b) henüz yok, yani reklam bugün yalnızca API ile açılabilir.
-  **Sıradaki:** V12b (aşağıda).
-  **Canlıdan önce elle:** Instagram'ın R2 imzalı URL'den görsel container
-  açabildiğini yayınsız doğrula. Video için V1'de doğrulanmıştı, görsel için hiç
-  denenmedi.
+- **Son güncelleme:** 2026-11-25 (V12b reklam arayüzü, K36 — `feat/v12b-reklam-arayuzu`)
+- **2026-11-25 V12 — reklam görselleri (K36).** V12a (#101) merge edildi; göç
+  prod'da, reklam varsayılan kapalı. V12b (portal arayüzü) PR'da. Yerelde
+  boşaltılmış env + e2e DB ile denendi: ekranlar, ayar kaydı, tekrar dene.
+  R2 kapalıydı, yani gerçek yükleme yerelde denenmedi; o yol testli.
+  **Canlıya açmadan önce elle (sırayla):**
+  1. Instagram'ın R2 imzalı URL'den görsel container açabildiğini yayınsız
+     doğrula. Video için V1'de doğrulanmıştı, görsel için hiç denenmedi.
+  2. Furkan'ın portalında Reklamlar → 1–2 görsel yükle → ayarı aç.
+  3. İlk reklam saatinde `SlotRun(kind: ad, published)` ve Instagram'da post gör.
+  **Yapılmadı:** V7 tasarım kanvasına "Reklamlar" satırı eklenmedi (ekran
+  doğrudan koddan; mevcut kart/sheet dili).
 - **2026-11-24 K35 — günlük 40 video tavanı kalktı, yerine R2 doluluğu 9 GB.**
   Tek seferde 50 video (önce 20). Yükleme başlatma bucket'ın tamamını R2'den
   anlık sayar; mevcut + seçim 9 GB'ı aşarsa 403. Ayarlar göstergesi "/ 9 GB".
@@ -253,10 +255,10 @@ yalnızca slot saatinde kurulmuş tek seferlik mesajla uyanıyor.
   üç cron'un crash dalı).
 - `neon-usage.ts`: %70 erken uyarısı.
 
-### V12 — Reklam görselleri 🟡 · K36
+### V12 — Reklam görselleri ✅ (canlı doğrulama bekliyor) · K36
 Tek sayfalık reklam görselleri videoların arasına ek paylaşım olarak çıkar:
 "her N–M videoda bir", kendi saatinde, her görsel bir kez.
-- **V12a — altyapı (`feat/v12-reklam-altyapi`).**
+- **V12a — altyapı (#101).**
   - Göç: `Post.isAd`/`imageKey`, `SlotRun.kind` + UNIQUE `(clientId, slotAt, kind)`,
     `PublishSettings.ad*`.
   - `ads.ts` (saf kurallar), `jpeg-size.ts`.
@@ -264,16 +266,16 @@ Tek sayfalık reklam görselleri videoların arasına ek paylaşım olarak çık
   - Uyandırmada `adWakeSlot`.
   - `/api/portal/ads/{upload,[id]/complete,[id],[id]/retry,settings}`.
   - Temizlik yolları: taslak, panel silme, `r2-denetim`.
-- **V12b — portal arayüzü (sıradaki).**
-  - `/portal/reklamlar`: ayar kartı (Sabit / Aralık sıklık seçici, reklam saati,
-    varsayılan metin), çoklu görsel seçimi (JPEG değilse ya da büyükse canvas'tan
-    yeniden kodla, oranı tutmayanı seçimde reddet), havuz ızgarası (sıradaki rozeti,
-    metin düzenle, sil, hata + tekrar dene).
-  - Kuyrukta "sıradaki reklam ~N video sonra" (`projectNextAd`).
-  - Geçmişte "Reklam" rozeti.
-  - Nav sekmesi.
-  - V7 kanvasına "Reklamlar" satırı.
-  - Veri katmanı hazır: `client-scoped-db > ads.list`, `ads.publishedVideosSince`.
+- **V12b — portal arayüzü (`feat/v12b-reklam-arayuzu`).**
+  - `/portal/reklamlar`: "Sıradaki reklam" kartı, ayar formu (`ad-settings-form`:
+    Sabit / Aralık, reklam saati, varsayılan metin), yükleyici (`ad-uploader` +
+    `ad-image-client`: oran seçimde, JPEG değilse ya da 8 MB üstüyse canvas'tan
+    yeniden kodlama), havuz (`ad-pool`: 4:5 ızgara, Sıradaki/Hata rozeti, alttan
+    sayfada metin düzenle / sil / tekrar dene, yayınlananlar).
+  - Kuyrukta "Sıradaki reklam: 3 video sonra · Cuma · 21:00" satırı
+    (`portal-ads.ts > nextAdProjection`).
+  - Geçmişte reklamlar videolarla aynı listede, "Reklam" rozetiyle.
+  - Alt sekme çubuğu beş sekme: Kuyruk · Reklamlar · Yükle · Geçmiş · Ayarlar.
 
 ## Uçtan uca doğrulama senaryosu (V5)
 

@@ -29,9 +29,10 @@ Plan, kararlar ve **oturum devri** burada DEĞİL:
 [`KARARLAR.md`](docs/video-kuyrugu/KARARLAR.md) · [`V7-pwa.md`](docs/video-kuyrugu/V7-pwa.md).
 Buraya yalnızca sıradaki geliştirmeler düşülür.
 
-- [ ] **V12b — reklam görselleri portal arayüzü (K36).** Altyapı V12a'da. Kapsam
-      `docs/video-kuyrugu/FAZLAR.md` → V12b. Canlıdan önce Instagram'ın R2
-      imzalı URL'den **görsel** container açabildiği yayınsız doğrulanmalı.
+- [ ] **V12 reklam görselleri — canlı doğrulama (K36).** Kod master'da (V12a #101,
+      V12b). Kalan adımlar `docs/video-kuyrugu/FAZLAR.md` → oturum devri: önce
+      Instagram'ın R2 imzalı URL'den **görsel** container açabildiği yayınsız
+      doğrulanmalı, sonra Furkan'ın portalında ilk reklam.
       Bilinçli kapsam dışı (kullanıcı kararı, K36):
       - havuz sırasını değiştirme: sıra yükleme sırası;
       - yayınlanmış reklamı yeniden kullanma: havuz biter, reklam durur;
