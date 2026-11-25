@@ -137,3 +137,14 @@ export function explainPublishError(raw: string | null | undefined): PublishErro
   const kind = text ? classifyPublishError(text) : "unknown";
   return { kind, ...TEXT[kind], raw: text };
 }
+
+/**
+ * V12b — reklam görselinin hata başlığı. Sınıflandırma aynı (Instagram'ın
+ * hataları medya türünden bağımsız), ama metinler video için yazılmış:
+ * reklam kartında "videoyu indiremedi" demek kullanıcıyı yanlış dosyaya
+ * baktırır. Yalnızca başlık: gövde/yapılacaklar Reels kurallarını anlatıyor,
+ * reklam kartı onları göstermiyor.
+ */
+export function adPublishErrorTitle(raw: string | null | undefined): string {
+  return explainPublishError(raw).title.replace("videoyu", "görseli");
+}

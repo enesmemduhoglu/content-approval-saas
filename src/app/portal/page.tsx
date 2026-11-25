@@ -16,7 +16,9 @@ import { PortalShell } from "@/components/portal/portal-shell";
 import { QueueBoard, type QueueCard } from "@/components/portal/queue-board";
 import { OutsideList } from "@/components/portal/outside-list";
 import { InstallHint } from "@/components/portal/install-hint";
-import { IconClock, IconPlay } from "@/components/portal/icons";
+import { IconClock, IconMegaphone, IconPlay } from "@/components/portal/icons";
+import { isAdEligible } from "@/lib/ads";
+import { adProjectionText, nextAdProjection } from "@/lib/portal-ads";
 import { isInstagramBlocked } from "@/lib/portal-instagram";
 import { calendarDaysUntil, deletionLabel } from "@/lib/retention-rules";
 
@@ -140,15 +142,28 @@ export default async function PortalQueuePage() {
   const session = await requirePortalSession();
   const scoped = getClientScopedDb(session);
   const now = new Date();
-  const [client, queue, outside, settings, { app }, instagram] = await Promise.all([
+  const [client, queue, outside, settings, { app }, instagram, ads] = await Promise.all([
     scoped.client.get(),
     scoped.posts.listQueue(),
     scoped.posts.listOutside(),
     scoped.settings.get(),
     getPortalContext(),
     scoped.client.instagramHealth(now),
+    scoped.ads.list(),
   ]);
   const blocked = isInstagramBlocked(instagram);
+  // V12b: reklam açıksa kuyrukta tek satır — reklam ek paylaşım, videoların
+  // sırasını değiştirmiyor; ayrıntısı Reklamlar sekmesinde.
+  const adProjection = settings?.adsEnabled
+    ? await nextAdProjection({
+        scoped,
+        settings,
+        queue,
+        poolSize: ads.filter((ad) => isAdEligible(ad)).length,
+        instagramBlocked: blocked,
+        now,
+      })
+    : null;
   const timezone = settings?.timezone ?? "Europe/Istanbul";
   const [queueCards, outsideCards] = await Promise.all([
     cardsFor(queue, session.clientId, timezone, now),
@@ -234,6 +249,14 @@ export default async function PortalQueuePage() {
       brand={{ name: client?.name ?? app.name, iconSrc: `${app.iconBase}/icon-192.png` }}
     >
       {nextView}
+      {adProjection && (
+        <Link href="/portal/reklamlar" className="p-next-ad">
+          <IconMegaphone size={18} />
+          <span>
+            Sıradaki reklam: <strong>{adProjectionText(adProjection, timezone, now)}</strong>
+          </span>
+        </Link>
+      )}
       {instagram.state === "expiring" && settings && !settings.paused && (
         <p className="p-note p-note--warn" role="status">
           <IconClock size={18} />

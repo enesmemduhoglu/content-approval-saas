@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { getClientScopedDb } from "@/lib/client-scoped-db";
 import { toCard, type PortalVideoCard } from "@/lib/portal-media";
+import { toAdCards } from "@/lib/portal-ads";
 import { requirePortalSession } from "@/lib/portal-page";
 import { historyGroup, shortDateTime } from "@/lib/portal-format";
-import { explainPublishError } from "@/lib/portal-publish-error";
+import { adPublishErrorTitle, explainPublishError } from "@/lib/portal-publish-error";
 import { PortalShell } from "@/components/portal/portal-shell";
 import { HistoryTabs } from "@/components/portal/history-tabs";
 import { IconChevronRight, IconClock, IconExternal, IconVideo } from "@/components/portal/icons";
@@ -11,7 +12,17 @@ import { calendarDaysUntil, videoStaysLabel } from "@/lib/retention-rules";
 
 export const dynamic = "force-dynamic";
 
-function Cover({ card }: { card: PortalVideoCard }) {
+/**
+ * Geçmişin satırı: video kartı ya da (V12b) reklam görseli. Reklam ayrı bir
+ * sekmede değil, yayınlandığı yerde: kullanıcı profilinde gördüğü sırayı
+ * burada da görsün. Reklamın dosyası silinmediği için "N gün daha" notu yok.
+ */
+type HistoryCard = Pick<
+  PortalVideoCard,
+  "id" | "caption" | "coverUrl" | "publishedAt" | "igPermalink" | "publishError" | "slotAt" | "updatedAt"
+> & { videoKeptUntil: Date | null; isAd: boolean; failed: boolean };
+
+function Cover({ card }: { card: HistoryCard }) {
   return card.coverUrl ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={card.coverUrl} alt="" className="p-hcover" loading="lazy" />
@@ -24,12 +35,12 @@ function Cover({ card }: { card: PortalVideoCard }) {
 
 /** Kartları "BU HAFTA / GEÇEN HAFTA / EYLÜL 2026" başlıkları altında, sıra korunarak gruplar. */
 function grouped(
-  cards: PortalVideoCard[],
-  dateOf: (card: PortalVideoCard) => Date | null,
+  cards: HistoryCard[],
+  dateOf: (card: HistoryCard) => Date | null,
   timezone: string,
   now: Date
-): { label: string; cards: PortalVideoCard[] }[] {
-  const out: { label: string; cards: PortalVideoCard[] }[] = [];
+): { label: string; cards: HistoryCard[] }[] {
+  const out: { label: string; cards: HistoryCard[] }[] = [];
   for (const card of cards) {
     const at = dateOf(card);
     const label = at ? historyGroup(at, timezone, now) : "TARİHSİZ";
@@ -48,14 +59,41 @@ function grouped(
 export default async function PortalHistoryPage() {
   const session = await requirePortalSession();
   const scoped = getClientScopedDb(session);
-  const [history, settings] = await Promise.all([scoped.posts.listHistory(), scoped.settings.get()]);
+  const [history, settings, adRows] = await Promise.all([
+    scoped.posts.listHistory(),
+    scoped.settings.get(),
+    scoped.ads.list(),
+  ]);
   const timezone = settings?.timezone ?? "Europe/Istanbul";
   const now = new Date();
-  const cards = await Promise.all(history.map((v) => toCard(v, session.clientId)));
-  const published = cards.filter((c) => c.publishStatus !== "failed");
-  const failed = cards.filter((c) => c.publishStatus === "failed");
+  const videoCards: HistoryCard[] = (
+    await Promise.all(history.map((v) => toCard(v, session.clientId)))
+  ).map((c) => ({ ...c, isAd: false, failed: c.publishStatus === "failed" }));
+  const ads = await toAdCards(adRows, session.clientId);
+  // Reklam listesi `updatedAt` taşımıyor; hata alan reklamın tarihi yükleme anı.
+  const createdById = new Map(adRows.map((row) => [row.id, row.createdAt]));
+  const adCards: HistoryCard[] = [...ads.published, ...ads.pool.filter((c) => c.state === "failed")].map(
+    (c) => ({
+      id: c.id,
+      caption: c.caption,
+      coverUrl: c.coverUrl,
+      publishedAt: c.publishedAt,
+      igPermalink: c.igPermalink,
+      publishError: c.publishError,
+      slotAt: null,
+      updatedAt: createdById.get(c.id) ?? now,
+      videoKeptUntil: null,
+      isAd: true,
+      failed: c.state === "failed",
+    })
+  );
   // Başarısız videonun yayın tarihi yok; denendiği slot, o da yoksa son değişiklik.
-  const failedAt = (c: PortalVideoCard) => c.slotAt ?? c.updatedAt;
+  const failedAt = (c: HistoryCard) => c.slotAt ?? c.updatedAt;
+  const byDateDesc = (dateOf: (c: HistoryCard) => Date | null) => (a: HistoryCard, b: HistoryCard) =>
+    (dateOf(b)?.getTime() ?? 0) - (dateOf(a)?.getTime() ?? 0);
+  const all = [...videoCards, ...adCards];
+  const published = all.filter((c) => !c.failed).sort(byDateDesc((c) => c.publishedAt));
+  const failed = all.filter((c) => c.failed).sort(byDateDesc(failedAt));
 
   const publishedPanel =
     published.length === 0 ? (
@@ -72,7 +110,10 @@ export default async function PortalHistoryPage() {
                   {card.publishedAt && (
                     <span className="p-hcard-date">{shortDateTime(card.publishedAt, timezone)}</span>
                   )}
-                  <span className="p-hcard-caption">{card.caption || "Caption yok"}</span>
+                  <span className="p-hcard-caption">
+                    {card.isAd && <span className="p-badge p-badge--sand">Reklam</span>}{" "}
+                    {card.caption || "Caption yok"}
+                  </span>
                   {card.videoKeptUntil && (
                     // V9: video yayından 2 gün sonra R2'den kalkar; kapak kalır.
                     <span className="p-hcard-stays">
@@ -110,12 +151,23 @@ export default async function PortalHistoryPage() {
           <ul className="p-list">
             {group.cards.map((card) => (
               <li key={card.id}>
-                <Link href={`/portal/video/${card.id}`} className="p-hcard p-hcard--failed">
+                <Link
+                  // Reklamın detay sayfası yok; tekrar dene havuz ekranında.
+                  href={card.isAd ? "/portal/reklamlar" : `/portal/video/${card.id}`}
+                  className="p-hcard p-hcard--failed"
+                >
                   <Cover card={card} />
                   <span className="p-hcard-body">
                     <span className="p-hcard-date">{shortDateTime(failedAt(card), timezone)}</span>
-                    <span className="p-hcard-caption">{card.caption || "Caption yok"}</span>
-                    <span className="p-hcard-error">{explainPublishError(card.publishError).title}</span>
+                    <span className="p-hcard-caption">
+                      {card.isAd && <span className="p-badge p-badge--sand">Reklam</span>}{" "}
+                      {card.caption || "Caption yok"}
+                    </span>
+                    <span className="p-hcard-error">
+                      {card.isAd
+                        ? adPublishErrorTitle(card.publishError)
+                        : explainPublishError(card.publishError).title}
+                    </span>
                     <span className="sr-only">Tekrar dene ya da sona at</span>
                   </span>
                   <span className="p-square-link" aria-hidden="true">

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { IconClock, IconGear, IconPlus, IconQueue } from "@/components/portal/icons";
+import { IconClock, IconGear, IconMegaphone, IconPlus, IconQueue } from "@/components/portal/icons";
 
 type Tab = { href: string; label: string; icon: (active: boolean) => ReactNode };
 
@@ -13,6 +13,12 @@ const TABS: Tab[] = [
     label: "Kuyruk",
     // Aktif sekmede çizgi kalınlaşıyor (maket): renk tek başına durum taşımasın.
     icon: (active) => <IconQueue strokeWidth={active ? 2 : 1.8} />,
+  },
+  {
+    // V12b: Yükle hapı ortada kalsın diye Kuyruk'un yanında.
+    href: "/portal/reklamlar",
+    label: "Reklamlar",
+    icon: (active) => <IconMegaphone strokeWidth={active ? 2 : 1.8} />,
   },
   {
     href: "/portal/yukle",

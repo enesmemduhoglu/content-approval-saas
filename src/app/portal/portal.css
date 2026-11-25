@@ -230,8 +230,9 @@ body:has(.portal-root) {
   max-width: calc(var(--p-col) - 24px);
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
+  /* V12b: beşinci sekme Reklamlar. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
 }
 
 .portal-root .p-tab {
@@ -2554,4 +2555,103 @@ body:has(.portal-root) {
 .p-ucard--skipped .p-ucard-thumb,
 .p-ucard--skipped .p-ucard-name {
   opacity: 0.55;
+}
+
+/* ─── V12b — Reklamlar (K36) ────────────────────────────────────────────────
+ * Havuz 4:5 küçük resim ızgarası (reklam görselleri dikey); dokunulan kart
+ * alttan açılan sayfada büyür. Renkler kuyruk kartlarıyla aynı dil: sıradaki
+ * lacivert rozet, hata kırmızı kenar. */
+
+.p-adgrid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.portal-root .p-adtile {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  padding: 0;
+  border: 1px solid var(--p-line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--p-sand);
+  cursor: pointer;
+}
+
+.p-adtile img,
+.p-adtile-empty {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.p-adtile--failed {
+  outline: 2px solid var(--p-danger-line);
+  outline-offset: -2px;
+}
+
+.p-adtile-no {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(14, 32, 56, 0.72);
+  color: #faf6e9;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+
+.p-adtile-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+}
+
+.p-adsheet-img {
+  display: block;
+  width: 100%;
+  max-height: 46vh;
+  object-fit: contain;
+  border-radius: 14px;
+  background: var(--p-sand);
+}
+
+.p-adgap {
+  display: flex;
+}
+
+.p-adgap-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--p-ink);
+}
+
+.portal-root .p-adgap-input {
+  width: 64px;
+  height: 44px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.p-next-ad {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--p-body-2);
+  text-decoration: none;
 }

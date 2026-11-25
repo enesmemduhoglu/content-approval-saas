@@ -16,10 +16,11 @@ function tabs() {
 }
 
 describe("PortalTabBar — alt sekme çubuğu", () => {
-  it("dört sekme, doğru adreslerle ve sırayla", () => {
+  it("beş sekme, doğru adreslerle ve sırayla (Yükle ortada)", () => {
     render(<PortalTabBar />);
     expect(tabs().map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["Kuyruk", "/portal"],
+      ["Reklamlar", "/portal/reklamlar"],
       ["Yükle", "/portal/yukle"],
       ["Geçmiş", "/portal/gecmis"],
       ["Ayarlar", "/portal/ayarlar"],

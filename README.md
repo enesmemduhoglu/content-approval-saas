@@ -58,6 +58,10 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
   videoyu yayından hemen önce `auto_approved` olarak kendisi onaylar ve audit'e yazar
 - **Yayın ayarları** (`PublishSettings`) — yayın **günleri** × saatleri (slot), saat
   dilimi, duraklatma, bildirim e-postası
+- **Reklamlar** (V12, K36) — tek sayfalık reklam görselleri videoların arasına **ek
+  paylaşım** olarak çıkar: "her N videoda bir" ya da "N–M videoda bir, rastgele",
+  kendi reklam saatinde, yükleme sırasıyla, her görsel bir kez. Varsayılan reklam
+  metni + reklama özel metin. JPEG, ≤ 8 MB, oran 4:5…1.91:1 (yüklemede denetlenir)
 - **Slot tabanlı yayın** — her slot saati için önceden kurulmuş tek seferlik bir QStash
   mesajı `/api/queue/tick`'i tam o anda çağırır (periyodik kontrol yok — bkz. V11);
   vadesi gelen slotta kuyruktaki sıradaki uygun video Reels olarak yayınlanır; 1 saatten

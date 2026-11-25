@@ -175,3 +175,11 @@ export const IconCopy = (p: IconProps) => (
     <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
   </Svg>
 );
+
+/** Megafon — Reklamlar sekmesi (V12b). */
+export const IconMegaphone = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 10v4a1 1 0 0 0 1 1h2l6 4V5L7 9H5a1 1 0 0 0-1 1Z" />
+    <path d="M16.5 9a4 4 0 0 1 0 6M8 15l1 4.5" />
+  </Svg>
+);
