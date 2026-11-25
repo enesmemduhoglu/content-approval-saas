@@ -14,8 +14,11 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
   prod token, yayınsız): imzalı URL'den `image_url` container 9,4 sn'de açıldı ve
   `FINISHED` oldu. Ölçüm ajans görsel yayınındaki ~8,5 sn'yle aynı, tick'in
   bütçesine sığıyor.
+  **Havuz dolu (2026-11-25):** 56 reklam `scripts/reklam-yukle.mjs --apply` ile
+  Furkan'ın havuzuna yüklendi: `seri/01–50`, sonra `ozel-ders/1, 2, 3, 4, 6, 8b`.
+  Hepsi `pending/idle`, prod'dan okunarak doğrulandı. Reklam ayarı KAPALI.
   **Kalan (portalda, elle):**
-  1. Furkan'ın portalında Reklamlar → 1–2 görsel yükle → ayarı aç.
+  1. Reklamlar → reklamı aç, sıklık / reklam saati / varsayılan metin → Kaydet.
   2. İlk reklam saatinde `SlotRun(kind: ad, published)` ve Instagram'da post gör.
   **Yapılmadı:** V7 tasarım kanvasına "Reklamlar" satırı eklenmedi (ekran
   doğrudan koddan; mevcut kart/sheet dili).

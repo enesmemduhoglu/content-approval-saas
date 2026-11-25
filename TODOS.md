@@ -31,8 +31,9 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
 
 - [ ] **V12 reklam görselleri — ilk canlı reklam (K36).** Kod master'da (#101,
       #102). Instagram'ın R2 imzalı URL'den görsel çektiği doğrulandı (2026-11-25).
-      Kalan: Furkan'ın portalında görsel yükleyip reklamı açmak ve ilk reklam
-      saatinde yayını görmek (`docs/video-kuyrugu/FAZLAR.md` → oturum devri).
+      56 görsel havuza yüklendi (`scripts/reklam-yukle.mjs`). Kalan: portalda
+      reklamı açmak ve ilk reklam saatinde yayını görmek
+      (`docs/video-kuyrugu/FAZLAR.md` → oturum devri).
       Bilinçli kapsam dışı (kullanıcı kararı, K36):
       - havuz sırasını değiştirme: sıra yükleme sırası;
       - yayınlanmış reklamı yeniden kullanma: havuz biter, reklam durur;
