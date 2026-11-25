@@ -125,6 +125,7 @@ export function createAdPost(
     createdAt?: Date;
     imageKey?: string;
     publishedAt?: Date | null;
+    adPosition?: number | null;
   } = {}
 ) {
   counter += 1;
@@ -142,6 +143,7 @@ export function createAdPost(
       imageKey: overrides.imageKey ?? `clients/${clientId}/ads/a${counter}.jpg`,
       sourceName: overrides.sourceName ?? `${String(counter).padStart(2, "0")}.jpg`,
       publishedAt: overrides.publishedAt ?? null,
+      adPosition: overrides.adPosition ?? null,
       ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
     },
   });

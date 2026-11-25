@@ -103,6 +103,8 @@ export type AdItem = {
   publishStatus: PublishStatus;
   createdAt: Date;
   sourceName: string | null;
+  /** V12c — portalda verilen sıra; boş = sonda, yükleme sırasıyla. */
+  adPosition: number | null;
 };
 
 /**
@@ -119,12 +121,16 @@ export function isAdEligible(item: AdItem): boolean {
 const nameCollator = new Intl.Collator("tr", { numeric: true, sensitivity: "base" });
 
 /**
- * Yükleme sırası. Toplu yüklemedeki 50 taslak aynı milisaniyede doğabildiği
- * için ikinci anahtar dosya adı, sayısal karşılaştırmayla ("2.jpg" < "10.jpg"):
- * 01…50 diye numaralanmış seri yüklendiği sırayla çıksın.
+ * Havuz sırası. Önce portalda verilen konum (`adPosition`, V12c — basılı tutup
+ * sürükleyerek); konumu olmayan (göçten önce eski kodun yazdığı) sona. Sonra
+ * yükleme sırası: toplu yüklemedeki 50 taslak aynı milisaniyede doğabildiği
+ * için dosya adı sayısal karşılaştırmayla ("2.jpg" < "10.jpg").
  */
 export function compareAds(a: AdItem, b: AdItem): number {
+  const pa = a.adPosition ?? Number.POSITIVE_INFINITY;
+  const pb = b.adPosition ?? Number.POSITIVE_INFINITY;
   return (
+    (pa === pb ? 0 : pa < pb ? -1 : 1) ||
     a.createdAt.getTime() - b.createdAt.getTime() ||
     nameCollator.compare(a.sourceName ?? "", b.sourceName ?? "") ||
     a.id.localeCompare(b.id)

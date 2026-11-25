@@ -184,6 +184,14 @@ describe("reklam saati — vadesi geldiyse", () => {
     expect(subjects()).not.toContain(AD_POOL_EMPTY_SUBJECT);
   });
 
+  it("portalda öne alınmış reklam yükleme sırası yerine seçilir (V12c)", async () => {
+    const { agency, client } = await seed();
+    await createAdPost(agency.id, client.id, { sourceName: "01.jpg", adPosition: 1024 });
+    const moved = await createAdPost(agency.id, client.id, { sourceName: "50.jpg", adPosition: 512 });
+    await tick();
+    expect((await db.post.findUniqueOrThrow({ where: { id: moved.id } })).publishStatus).toBe("published");
+  });
+
   it("reklama özel metin varsayılanın yerine geçer", async () => {
     const { agency, client } = await seed();
     const ad = await createAdPost(agency.id, client.id, { caption: "Bu reklamın kendi metni" });

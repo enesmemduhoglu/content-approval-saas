@@ -378,6 +378,15 @@ bir portal postu ve `queuePosition`ı hep null. Reklamı video kuyruğuna koymak
 kuyruğun her sorgusuna `isAd` filtresi eklemek demekti. Ters yön (portal video
 metotlarına `isAd: false`) tek yerde: `client-scoped-db` kapsamı.
 
+Havuz sırası (V12c, kullanıcı isteği): ilk sürümde yükleme sırasıydı ve
+değiştirilemiyordu. Artık `Post.adPosition` (Float, `queuePosition` deseni)
+var ve portalda basılı tutup sürükleyerek değişiyor
+(`POST /api/portal/ads/[id]/move`, saf hesap `portal-order.ts > planMove`).
+Ayrı kolon, çünkü `queuePosition`ı paylaşmak reklamı video kuyruğuna sokardı.
+Konum yükleme taslağında, seçim sırasıyla veriliyor: yükleyici görselleri
+paralel tamamlıyor, konum tamamlanmada verilseydi sıra "hangisi önce bitti"ye
+dönerdi. Göç mevcut havuzu `createdAt` sırasıyla numaraladı.
+
 İdempotency için `SlotRun`'a `kind` (`video`|`ad`) eklendi, UNIQUE
 `(clientId, slotAt, kind)`. Yetim kapatma ve sonuç kancası böylece reklamda da
 çalışıyor. Vadesi gelmemiş ya da penceresi kaçmış reklam saati için satır

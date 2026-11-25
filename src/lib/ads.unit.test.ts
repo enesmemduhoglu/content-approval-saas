@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareAds,
   counterOnSave,
   dueAdSlots,
   needsReroll,
@@ -41,6 +42,7 @@ function ad(id: string, over: Partial<AdItem> = {}): AdItem {
     publishStatus: "idle",
     createdAt: at("2026-11-01T10:00:00Z"),
     sourceName: `${id}.jpg`,
+    adPosition: null,
     ...over,
   };
 }
@@ -236,5 +238,28 @@ describe("adRatioOk / validateAdCaption", () => {
     expect(validateAdCaption("  ", { required: false })).toEqual({ ok: true, caption: "" });
     expect(validateAdCaption(undefined, { required: true }).ok).toBe(false);
     expect(validateAdCaption(42, { required: false }).ok).toBe(false);
+  });
+});
+
+describe("compareAds / pickNextAd — portalda verilen sıra (V12c)", () => {
+  it("adPosition önce gelir, konumsuzlar sona (yükleme sırasıyla)", () => {
+    const early = at("2026-11-01T09:00:00Z");
+    const pool = [
+      ad("eski", { createdAt: early }), // konumsuz ama en eski
+      ad("b", { adPosition: 2048 }),
+      ad("a", { adPosition: 1024 }),
+      ad("yeni", { createdAt: at("2026-11-01T12:00:00Z") }),
+    ];
+    expect([...pool].sort(compareAds).map((x) => x.id)).toEqual(["a", "b", "eski", "yeni"]);
+  });
+
+  it("eşit konumda yükleme sırası yedeği", () => {
+    const pool = [ad("2", { adPosition: 5, sourceName: "10.jpg" }), ad("1", { adPosition: 5, sourceName: "2.jpg" })];
+    expect([...pool].sort(compareAds).map((x) => x.id)).toEqual(["1", "2"]);
+  });
+
+  it("taşınmış reklam sıradaki olur", () => {
+    const pool = [ad("01", { adPosition: 1024 }), ad("02", { adPosition: 2048 }), ad("50", { adPosition: 512 })];
+    expect(pickNextAd(pool)?.id).toBe("50");
   });
 });

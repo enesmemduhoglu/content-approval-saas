@@ -60,7 +60,7 @@ Küçük sosyal medya ajansları ve içerik üreticileri için **onay + Instagra
   dilimi, duraklatma, bildirim e-postası
 - **Reklamlar** (V12, K36) — tek sayfalık reklam görselleri videoların arasına **ek
   paylaşım** olarak çıkar: "her N videoda bir" ya da "N–M videoda bir, rastgele",
-  kendi reklam saatinde, yükleme sırasıyla, her görsel bir kez. Varsayılan reklam
+  kendi reklam saatinde, havuzdaki sırayla (basılı tutup sürükleyerek değişir), her görsel bir kez. Varsayılan reklam
   metni + reklama özel metin. JPEG, ≤ 8 MB, oran 4:5…1.91:1 (yüklemede denetlenir)
 - **Slot tabanlı yayın** — her slot saati için önceden kurulmuş tek seferlik bir QStash
   mesajı `/api/queue/tick`'i tam o anda çağırır (periyodik kontrol yok — bkz. V11);

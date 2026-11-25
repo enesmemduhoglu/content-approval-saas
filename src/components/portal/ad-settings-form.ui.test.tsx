@@ -6,7 +6,7 @@ const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }));
 
 import { AdSettingsForm, frequencyLabel, gapsFor, modeOf } from "./ad-settings-form";
-import type { AdSettingsView } from "@/lib/portal-ads";
+import { AD_SETTINGS_DEFAULTS, DEFAULT_AD_CAPTION, type AdSettingsView } from "@/lib/portal-ads";
 
 const initial: AdSettingsView = {
   adsEnabled: false,
@@ -122,6 +122,23 @@ describe("AdSettingsForm", () => {
     renderForm();
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
     expect(await screen.findByText("Geçersiz reklam saati")).toBeTruthy();
+  });
+
+  it("varsayılan metin alana dolu gelir ve değiştirilmezse kayıtta gider (V12c)", async () => {
+    fetchMock.mockResolvedValue(ok());
+    render(<AdSettingsForm initial={AD_SETTINGS_DEFAULTS} videoSlots={["19:00"]} scheduleSaved />);
+    expect((screen.getByLabelText("Varsayılan reklam metni") as HTMLTextAreaElement).value).toBe(
+      DEFAULT_AD_CAPTION
+    );
+    fireEvent.click(screen.getByRole("switch", { name: "Reklamları yayınla" }));
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(sentBody().adCaption).toBe(DEFAULT_AD_CAPTION);
+  });
+
+  it("reklam saati çipi tek başına (kaldırma düğmesi yok, ortalı sınıf)", () => {
+    renderForm();
+    expect(screen.getByLabelText("Reklam saati").closest(".p-chip")?.className).toContain("p-chip--solo");
   });
 
   it("yayın saatleri kaydedilmemişse anahtar kapalı ve neden yazılı", () => {

@@ -35,7 +35,6 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
       reklamı açmak ve ilk reklam saatinde yayını görmek
       (`docs/video-kuyrugu/FAZLAR.md` → oturum devri).
       Bilinçli kapsam dışı (kullanıcı kararı, K36):
-      - havuz sırasını değiştirme: sıra yükleme sırası;
       - yayınlanmış reklamı yeniden kullanma: havuz biter, reklam durur;
       - AI ile reklam metni.
 - [ ] **`PublishSettings.requireApproval` kolonunu düşür (K33'ün ikinci adımı).**

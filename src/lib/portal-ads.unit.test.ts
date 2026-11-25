@@ -6,7 +6,15 @@ vi.mock("@/lib/storage-r2", async (importOriginal) => ({
   signDisplayUrl: vi.fn(async (key: string) => `https://r2.test/${key}`),
 }));
 
-import { adProjectionText, toAdCards, toAdSettingsView, AD_SETTINGS_DEFAULTS } from "@/lib/portal-ads";
+import {
+  adProjectionText,
+  toAdCards,
+  toAdSettingsView,
+  AD_SETTINGS_DEFAULTS,
+  DEFAULT_AD_CAPTION,
+} from "@/lib/portal-ads";
+import { validateAdCaption } from "@/lib/portal-validation";
+import type { PublishSettings } from "@prisma/client";
 
 const IST = "Europe/Istanbul";
 const CLIENT = "c1";
@@ -24,6 +32,7 @@ function row(over: Record<string, unknown> = {}) {
     imageKey: `clients/${CLIENT}/ads/a${n}.jpg`,
     sourceName: `${String(n).padStart(2, "0")}.jpg`,
     createdAt: new Date("2026-11-01T10:00:00Z"),
+    adPosition: null as number | null,
     ...over,
   };
 }
@@ -72,5 +81,23 @@ describe("adProjectionText", () => {
 describe("toAdSettingsView", () => {
   it("ayar yoksa varsayılanlar (kapalı)", () => {
     expect(toAdSettingsView(null)).toEqual(AD_SETTINGS_DEFAULTS);
+  });
+});
+
+describe("varsayılan reklam metni (V12c)", () => {
+  it("kayıtlı metin yoksa alan dolu gelir; kaydedilmiş metin aynen kalır", () => {
+    expect(AD_SETTINGS_DEFAULTS.adCaption).toBe(DEFAULT_AD_CAPTION);
+    const row = { adsEnabled: false, adSlot: "21:00", adMinGap: 5, adMaxGap: 10 } as PublishSettings;
+    expect(toAdSettingsView({ ...row, adCaption: null }).adCaption).toBe(DEFAULT_AD_CAPTION);
+    expect(toAdSettingsView({ ...row, adCaption: "Kendi metnim" }).adCaption).toBe("Kendi metnim");
+  });
+
+  it("varsayılan metin reklam doğrulamasından geçer (≤ 2000 karakter, ≤ 30 hashtag)", () => {
+    expect(validateAdCaption(DEFAULT_AD_CAPTION, { required: true })).toEqual({
+      ok: true,
+      caption: DEFAULT_AD_CAPTION,
+    });
+    expect(DEFAULT_AD_CAPTION).toContain("%50");
+    expect(DEFAULT_AD_CAPTION).toContain('"DERS"');
   });
 });
