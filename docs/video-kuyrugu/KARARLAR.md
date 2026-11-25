@@ -386,6 +386,11 @@ YAZILMAZ: reklam çıkmaması sıradan bir gün, "boş slot" bildirimi gürült�
 Uyandırma (K32) yalnızca reklamı açık, duraklatılmamış ve havuzu dolu müşteriye
 kurulur. Maliyeti günde en fazla bir ek uyanma.
 
+Instagram'ın gizli R2'den imzalı URL ile GÖRSEL çekebildiği 2026-11-25'te prod
+token'ıyla, yayın yapılmadan doğrulandı (`scripts/ig-gorsel-dogrula.mjs`):
+container 9,4 sn'de `FINISHED` oldu. Video için K20 döneminde yapılan doğrulamanın
+görsel eşi.
+
 Görsel JPEG olmak zorunda (Instagram `image_url`), ≤ 8 MB, oran 4:5…1.91:1. Oran
 yüklemede sunucuda, JPEG başlığından okunur (`jpeg-size.ts`). Yayınlanan
 reklamın görseli silinmez: geçmişte kapak olarak kalır, 50 görsel ≈ 100 MB.

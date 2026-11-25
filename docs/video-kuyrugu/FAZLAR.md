@@ -7,16 +7,16 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-11-25 (V12b reklam arayüzü, K36 — `feat/v12b-reklam-arayuzu`)
-- **2026-11-25 V12 — reklam görselleri (K36).** V12a (#101) merge edildi; göç
-  prod'da, reklam varsayılan kapalı. V12b (portal arayüzü) PR'da. Yerelde
-  boşaltılmış env + e2e DB ile denendi: ekranlar, ayar kaydı, tekrar dene.
-  R2 kapalıydı, yani gerçek yükleme yerelde denenmedi; o yol testli.
-  **Canlıya açmadan önce elle (sırayla):**
-  1. Instagram'ın R2 imzalı URL'den görsel container açabildiğini yayınsız
-     doğrula. Video için V1'de doğrulanmıştı, görsel için hiç denenmedi.
-  2. Furkan'ın portalında Reklamlar → 1–2 görsel yükle → ayarı aç.
-  3. İlk reklam saatinde `SlotRun(kind: ad, published)` ve Instagram'da post gör.
+- **Son güncelleme:** 2026-11-25 (V12 Instagram görsel doğrulaması, K36)
+- **2026-11-25 V12 — reklam görselleri (K36).** V12a (#101) ve V12b (#102) merge
+  edildi; göç prod'da, reklam varsayılan kapalı.
+  **Instagram ← R2 görsel doğrulandı** (`scripts/ig-gorsel-dogrula.mjs --calistir`,
+  prod token, yayınsız): imzalı URL'den `image_url` container 9,4 sn'de açıldı ve
+  `FINISHED` oldu. Ölçüm ajans görsel yayınındaki ~8,5 sn'yle aynı, tick'in
+  bütçesine sığıyor.
+  **Kalan (portalda, elle):**
+  1. Furkan'ın portalında Reklamlar → 1–2 görsel yükle → ayarı aç.
+  2. İlk reklam saatinde `SlotRun(kind: ad, published)` ve Instagram'da post gör.
   **Yapılmadı:** V7 tasarım kanvasına "Reklamlar" satırı eklenmedi (ekran
   doğrudan koddan; mevcut kart/sheet dili).
 - **2026-11-24 K35 — günlük 40 video tavanı kalktı, yerine R2 doluluğu 9 GB.**
