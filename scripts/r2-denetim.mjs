@@ -21,6 +21,7 @@
  *
  * Sahipsiz sayılan:
  *   • video: hiçbir postun `videoKey`i değil,
+ *   • reklam görseli (V12): hiçbir postun `imageKey`i değil,
  *   • kare: postu yok, ya da post taslak DEĞİL ve kare `frameKeys`te yok
  *     (yayından sonra arşivlenen videonun 1–5. kareleri). Taslağın kareleri
  *     `frameKeys`e yükleme bitince yazılır — taslaklarınkine dokunulmaz.
@@ -89,9 +90,12 @@ const r2 = new S3Client({
 
 const mb = (b) => `${(b / 1024 / 1024).toFixed(1)} MB`;
 
-/** `clients/<clientId>/videos/<postId>.<ext>` ya da `clients/<clientId>/frames/<postId>/<i>.jpg`. */
+/**
+ * `clients/<clientId>/videos/<postId>.<ext>`, `clients/<clientId>/frames/<postId>/<i>.jpg`
+ * ya da (V12) `clients/<clientId>/ads/<postId>.jpg`.
+ */
 function parca(key) {
-  const m = key.match(/^clients\/([^/]+)\/(videos|frames)\/([^/.]+)/);
+  const m = key.match(/^clients\/([^/]+)\/(videos|frames|ads)\/([^/.]+)/);
   return m ? { clientId: m[1], tur: m[2], postId: m[3] } : null;
 }
 
@@ -145,10 +149,19 @@ try {
 
   const posts = await db.post.findMany({
     where: { source: 'portal' },
-    select: { id: true, status: true, videoKey: true, frameKeys: true, uploadId: true, createdAt: true },
+    select: {
+      id: true,
+      status: true,
+      videoKey: true,
+      frameKeys: true,
+      imageKey: true,
+      uploadId: true,
+      createdAt: true,
+    },
   });
   const postById = new Map(posts.map((p) => [p.id, p]));
   const videoKeys = new Set(posts.map((p) => p.videoKey).filter(Boolean));
+  const imageKeys = new Set(posts.map((p) => p.imageKey).filter(Boolean));
 
   const ozet = new Map();
   const sahipsiz = [];
@@ -156,10 +169,13 @@ try {
   for (const n of nesneler) {
     const p = parca(n.key);
     const musteri = p?.clientId ?? '(tanınmayan anahtar)';
-    const s = ozet.get(musteri) ?? { videos: 0, videoB: 0, frames: 0, frameB: 0 };
+    const s = ozet.get(musteri) ?? { videos: 0, videoB: 0, frames: 0, frameB: 0, ads: 0, adB: 0 };
     if (p?.tur === 'videos') {
       s.videos += 1;
       s.videoB += n.size;
+    } else if (p?.tur === 'ads') {
+      s.ads += 1;
+      s.adB += n.size;
     } else {
       s.frames += 1;
       s.frameB += n.size;
@@ -171,7 +187,9 @@ try {
     const yetim =
       p.tur === 'videos'
         ? !videoKeys.has(n.key)
-        : !post || (post.status !== 'draft' && !post.frameKeys.includes(n.key));
+        : p.tur === 'ads'
+          ? !imageKeys.has(n.key)
+          : !post || (post.status !== 'draft' && !post.frameKeys.includes(n.key));
     if (yetim) sahipsiz.push(n);
   }
 
@@ -182,7 +200,9 @@ try {
       ` + ${yarimlar.length} yarım yükleme ${mb(yarimB)}\n`
   );
   for (const [musteri, s] of ozet) {
-    console.log(`  ${musteri}: ${s.videos} video ${mb(s.videoB)} · ${s.frames} kare ${mb(s.frameB)}`);
+    console.log(
+      `  ${musteri}: ${s.videos} video ${mb(s.videoB)} · ${s.frames} kare ${mb(s.frameB)} · ${s.ads} reklam ${mb(s.adB)}`
+    );
   }
 
   const postByUploadId = new Map(posts.filter((p) => p.uploadId).map((p) => [p.uploadId, p]));

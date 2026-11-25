@@ -7,7 +7,16 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-11-24 (depolama tavanı, K35 — `feat/depolama-tavani`)
+- **Son güncelleme:** 2026-11-25 (V12a reklam altyapısı, K36 — `feat/v12-reklam-altyapi`)
+- **2026-11-25 V12 — reklam görselleri (K36), altyapı PR'ı açık, arayüz yok.**
+  Göç `20261125120000_reklam_gorselleri` toplayıcı: reklam varsayılan kapalı,
+  eski SlotRun'lar `video`. Boş DB ve prod benzeri veriyle sınandı.
+  `/api/portal/ads/**` uçları, tick'in reklam saati ve uyandırma hazır. Portal
+  ekranı (V12b) henüz yok, yani reklam bugün yalnızca API ile açılabilir.
+  **Sıradaki:** V12b (aşağıda).
+  **Canlıdan önce elle:** Instagram'ın R2 imzalı URL'den görsel container
+  açabildiğini yayınsız doğrula. Video için V1'de doğrulanmıştı, görsel için hiç
+  denenmedi.
 - **2026-11-24 K35 — günlük 40 video tavanı kalktı, yerine R2 doluluğu 9 GB.**
   Tek seferde 50 video (önce 20). Yükleme başlatma bucket'ın tamamını R2'den
   anlık sayar; mevcut + seçim 9 GB'ı aşarsa 403. Ayarlar göstergesi "/ 9 GB".
@@ -243,6 +252,28 @@ yalnızca slot saatinde kurulmuş tek seferlik mesajla uyanıyor.
 - `db-health.ts`: P1001 → Neon HTTP yoklaması → tek "kota doldu" uyarısı (tick ve
   üç cron'un crash dalı).
 - `neon-usage.ts`: %70 erken uyarısı.
+
+### V12 — Reklam görselleri 🟡 · K36
+Tek sayfalık reklam görselleri videoların arasına ek paylaşım olarak çıkar:
+"her N–M videoda bir", kendi saatinde, her görsel bir kez.
+- **V12a — altyapı (`feat/v12-reklam-altyapi`).**
+  - Göç: `Post.isAd`/`imageKey`, `SlotRun.kind` + UNIQUE `(clientId, slotAt, kind)`,
+    `PublishSettings.ad*`.
+  - `ads.ts` (saf kurallar), `jpeg-size.ts`.
+  - Tick'te `processAdSlot`, `publish-post` R2 görsel dalı.
+  - Uyandırmada `adWakeSlot`.
+  - `/api/portal/ads/{upload,[id]/complete,[id],[id]/retry,settings}`.
+  - Temizlik yolları: taslak, panel silme, `r2-denetim`.
+- **V12b — portal arayüzü (sıradaki).**
+  - `/portal/reklamlar`: ayar kartı (Sabit / Aralık sıklık seçici, reklam saati,
+    varsayılan metin), çoklu görsel seçimi (JPEG değilse ya da büyükse canvas'tan
+    yeniden kodla, oranı tutmayanı seçimde reddet), havuz ızgarası (sıradaki rozeti,
+    metin düzenle, sil, hata + tekrar dene).
+  - Kuyrukta "sıradaki reklam ~N video sonra" (`projectNextAd`).
+  - Geçmişte "Reklam" rozeti.
+  - Nav sekmesi.
+  - V7 kanvasına "Reklamlar" satırı.
+  - Veri katmanı hazır: `client-scoped-db > ads.list`, `ads.publishedVideosSince`.
 
 ## Uçtan uca doğrulama senaryosu (V5)
 

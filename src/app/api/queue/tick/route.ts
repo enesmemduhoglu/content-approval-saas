@@ -1,27 +1,40 @@
 import { NextResponse } from "next/server";
 import { sendAlert } from "@/lib/alerts";
 import { notifyAgencyTeam } from "@/lib/agency-notify";
-import { portalUrl, queueRecipient, sendSlotEmptyEmail, type SlotEmptyReason } from "@/lib/email-queue";
+import { dueAdSlots, pickNextAd, rollGap, videosUntilAd } from "@/lib/ads";
+import {
+  portalUrl,
+  queueRecipient,
+  sendAdPoolEmptyEmail,
+  sendSlotEmptyEmail,
+  type SlotEmptyReason,
+} from "@/lib/email-queue";
 import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
 import { publishApprovedPost, recoverInterruptedPublishes, resumePublish } from "@/lib/publish-post";
 import { notifyClientUsers } from "@/lib/push";
-import { slotEmptyPush } from "@/lib/push-messages";
+import { adPoolEmptyPush, slotEmptyPush } from "@/lib/push-messages";
 import { authorizeQueueRequest } from "@/lib/qstash";
 import { retentionDue, runMediaRetention, type MediaRetentionStats } from "@/lib/media-retention";
 import { reportCrash } from "@/lib/db-health";
 import { followUpDecision, parseWakeKind, scheduleFollowUp } from "@/lib/queue-wake";
 import { SLOT_LOOKBACK_MS, SLOT_WINDOW_MS, dueSlots, pickNext } from "@/lib/queue";
 import {
+  advanceAdCounter,
   attachPostToSlotRun,
   autoApprovePost,
+  claimAdForSlot,
   claimPostForSlot,
   claimSlotRun,
   closeOrphanSlotRuns,
+  countPublishedVideosSince,
   findPortalPublishingPosts,
   findQueueClients,
   finishSlotRun,
+  loadAdPool,
   loadQueue,
+  prepareAdForPublish,
   publishingContainerTimes,
+  releaseAdClaim,
   recentSlotRunTimes,
   type QueueClient,
 } from "@/lib/queue-db";
@@ -40,6 +53,8 @@ import {
  *   5. Koşullu `pending → approved` + `ApprovalAudit(auto_approved)` — portalda
  *      müşteri onayı yok (K33), kararı kuyruk verir.
  *   6. `publishApprovedPost` (throw etmez, kendi kilidi ve onay kontrolü var).
+ * Video slotlarından SONRA reklam saati (V12, K36): son reklamdan beri yeterince
+ * video yayınlandıysa havuzdaki sıradaki görsel ek post olarak çıkar.
  * Ardından `publishing`de kalmış portal videoları `resumePublish` ile ilerletilir.
  * Slot uyandırmasında son iş R2 temizliği (V9, `media-retention.ts`); takipte yok.
  *
@@ -82,6 +97,9 @@ type Stats = {
   resumed: number;
   /** Yarıda kesilip `failed`a çekilen yayınlar + kapatılan yetim SlotRun'lar. */
   recovered: number;
+  /** V12 — reklam saatinde yayınlanan / yayınlanamayan reklam görselleri. */
+  adPublished: number;
+  adFailed: number;
 };
 
 export async function POST(request: Request) {
@@ -117,6 +135,8 @@ async function handle(request: Request) {
     deferred: 0,
     resumed: 0,
     recovered: 0,
+    adPublished: 0,
+    adFailed: 0,
   };
   // Bu tick'te yayını başlatılan postlar: az önce 30 sn yoklandılar, aynı turda
   // tekrar yoklamak yalnızca bütçe yer.
@@ -258,6 +278,148 @@ async function processClient(
     }
     await runSlot(settings, slot.slotAt, now, stats, touched);
   }
+
+  // Video slotlarından SONRA: aynı tick'te ikisi de vadeliyse video önce
+  // yayınlanır ve reklam sayacı onu da sayar. Reklam ek paylaşım — kendi
+  // try'ı yok, müşteri başına sarmalayıcı yeterli; video zaten bitti.
+  await processAdSlot(settings, now, stats, touched, elapsed);
+}
+
+/**
+ * V12 — reklam saati (K36). Vadesi gelmemiş, penceresi kaçmış ya da
+ * yapılacak işi olmayan reklam saati için SATIR YAZILMAZ: reklam ek paylaşım,
+ * "bu saatte reklam çıkmadı" bir hata değil, sıradan gün. Satır yalnızca
+ * gerçekten yayın denendiğinde doğar (idempotency kilidi olarak).
+ */
+async function processAdSlot(
+  settings: QueueClient,
+  now: Date,
+  stats: Stats,
+  touched: Set<string>,
+  elapsed: () => number
+): Promise<void> {
+  if (!settings.adsEnabled || settings.paused) return;
+  const { client } = settings;
+
+  const since = new Date(now.getTime() - 2 * SLOT_WINDOW_MS);
+  const due = dueAdSlots(settings, now, await recentSlotRunTimes(client.id, since, "ad"));
+  if (due.length === 0) return;
+  // Tek reklam saati + 1 saatlik pencere: listede en fazla bir an olur.
+  const slotAt = due[due.length - 1];
+
+  // Sayaç hiç kurulmamışsa (açılışta yazılamadı ya da elle bozuldu) bu tur
+  // onu kurmakla geçer. Geçmişin tamamını saymak ilk reklam saatinde, müşteri
+  // daha ayarı yeni açmışken reklam çıkarırdı.
+  if (!settings.adCountFrom) {
+    await advanceAdCounter({
+      clientId: client.id,
+      expectedFrom: null,
+      now,
+      nextAfter: rollGap(settings.adMinGap, settings.adMaxGap),
+    });
+    return;
+  }
+  const published = await countPublishedVideosSince(client.id, settings.adCountFrom);
+  if (videosUntilAd(published, settings) > 0) return;
+
+  // Instagram tarafı hazır değilse reklam HARCANMAZ ve satır yazılmaz; bunun
+  // bildirimini video slotu zaten atıyor (bir sorun, iki e-posta olmasın).
+  if (!isPublishTarget(client) || isInstagramTokenExpired(client.instagramTokenExpiry)) return;
+
+  if (elapsed() > START_DEADLINE_MS) {
+    // Takip uyandırması (60 sn) hâlâ pencerenin içinde; satır yazılmadığı için onu yeniden görür.
+    stats.deferred += 1;
+    return;
+  }
+
+  const pool = await loadAdPool(client.id);
+  if (!pickNextAd(pool)) return;
+  if (!(await claimSlotRun(client.id, slotAt, { kind: "ad" }))) {
+    stats.lost += 1;
+    return;
+  }
+
+  // Aynı reklamı başka bir reklam saati (ayar değişikliği günü, eşzamanlı
+  // tick) kapmış olabilir; kaybeden sıradakine geçer.
+  const exclude = new Set<string>();
+  for (let attempt = 0; attempt < PICK_ATTEMPTS; attempt += 1) {
+    const next = pickNextAd(pool.filter((ad) => !exclude.has(ad.id)));
+    if (!next) break;
+    if (!(await claimAdForSlot({ clientId: client.id, postId: next.id, slotAt }))) {
+      exclude.add(next.id);
+      continue;
+    }
+    await attachPostToSlotRun(client.id, slotAt, next.id, "ad");
+
+    if (!(await prepareAdForPublish(client.id, next.id, settings.adCaption))) {
+      await releaseAdClaim(client.id, next.id, slotAt);
+      stats.adFailed += 1;
+      await finishSlotRun(
+        client.id,
+        slotAt,
+        { outcome: "failed", detail: "Reklam yayına hazırlanamadı (metin yok ya da durumu değişti)" },
+        "ad"
+      );
+      return;
+    }
+
+    touched.add(next.id);
+    const outcome = await publishApprovedPost(next.id);
+    if (outcome.publishStatus !== "published") {
+      // Sonuç e-postası/push'u ve SlotRun'ın kapanışı `publish-post`un
+      // kancasında; buradaki yazım kanca patladıysa diye (koşullu, ezmez).
+      // Sayaç İLERLEMEZ: reklam çıkmadı, sıradaki reklam saati yeniden dener.
+      stats.adFailed += 1;
+      await finishSlotRun(
+        client.id,
+        slotAt,
+        { outcome: "failed", detail: outcome.publishError ?? `Yayın durumu: ${outcome.publishStatus}` },
+        "ad"
+      );
+      return;
+    }
+
+    stats.adPublished += 1;
+    await finishSlotRun(client.id, slotAt, { outcome: "published" }, "ad");
+    await advanceAdCounter({
+      clientId: client.id,
+      expectedFrom: settings.adCountFrom,
+      now: new Date(),
+      nextAfter: rollGap(settings.adMinGap, settings.adMaxGap),
+    });
+    // Son reklam buydu: tek seferlik bildirim. Tetik bu geçiş olduğu için
+    // ayrı bir "gönderildi" bayrağı gerekmiyor — boş havuzda bir daha
+    // yayın olmaz, bu dal bir daha koşmaz.
+    if (!pickNextAd(await loadAdPool(client.id))) {
+      await notifyAdPoolEmpty(settings);
+    }
+    return;
+  }
+
+  // Her adayı başka bir reklam saati kaptı.
+  await finishSlotRun(
+    client.id,
+    slotAt,
+    { outcome: "empty", detail: "Uygun reklam başka bir saate gitti" },
+    "ad"
+  );
+}
+
+/** "Reklam havuzu boşaldı" e-postası + push — akışı asla düşürmez. */
+async function notifyAdPoolEmpty(settings: QueueClient): Promise<void> {
+  try {
+    const result = await sendAdPoolEmptyEmail({
+      to: queueRecipient(settings, settings.client.email),
+      clientName: settings.client.name,
+      portalUrl: portalUrl(),
+    });
+    if (!result.sent) {
+      console.error(`[queue:tick] havuz boş e-postası gitmedi: ${settings.clientId} (${result.reason})`);
+    }
+  } catch (error) {
+    console.error("[queue:tick] havuz boş e-postası patladı:", error);
+  }
+  await notifyClientUsers(settings.clientId, adPoolEmptyPush());
 }
 
 /** Sahiplenilmiş TEK bir slotu sonuçlandırır. */

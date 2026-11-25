@@ -356,6 +356,40 @@ yetiyor. Kabul edilen risk: sızmış bir oturum günlük sınır olmadan bucket
 9 GB'a kadar bir seferde doldurabilir — ücretli katmana taşamaz, yalnızca
 yüklemeyi kilitler; temizlik (K30) ve "Sil" yer açar.
 
+### K36 · 2026-11-25 · Reklam görselleri portaldan: ek paylaşım, "her N–M videoda bir", tek seferlik (V12)
+Furkan özel ders veriyor. Hesaba giren kişi bunu hemen anlasın diye tek sayfalık
+reklam görselleri (`furi1/_reklam/ozel-ders/seri/`, 50 adet, 2160×2700) videoların
+arasına serpiştirilecek. Önce "elle atarız" denmişti. Ritmi elle tutmak zahmetli
+olduğu için portala alındı. Kullanıcı kararları:
+- **Ek paylaşım.** Reklam video slotunu almaz, kendi saatinde (`adSlot`, video
+  ile aynı yayın günleri) ek post olarak çıkar.
+- **"Her N–M videoda bir".** Hedef `[adMinGap, adMaxGap]` aralığından çekilip
+  saklanır (`adNextAfter`). Sabit mod ("her 5 videoda bir") min = max demek,
+  ayrı mod kolonu yok. Sayaç son reklamdan (`adCountFrom`) beri yayınlanan
+  portal VİDEOSUNU sayar. Hedefe ulaşıldıysa sıradaki reklam saatinde havuzdaki
+  ilk görsel çıkar. Günde en fazla bir reklam.
+- **Sabit metin.** Ayarlardaki varsayılan caption kullanılır; reklama özel metin
+  verilebilir. AI üretimi yok.
+- **Tekrar yok.** Her görsel bir kez yayınlanır. Havuz bitince reklam durur,
+  bir kez "havuz boşaldı" e-postası ve push gider.
+
+Model: reklam `isAd` + `imageKey` (R2, `clients/<id>/ads/<postId>.jpg`) taşıyan
+bir portal postu ve `queuePosition`ı hep null. Reklamı video kuyruğuna koymak,
+kuyruğun her sorgusuna `isAd` filtresi eklemek demekti. Ters yön (portal video
+metotlarına `isAd: false`) tek yerde: `client-scoped-db` kapsamı.
+
+İdempotency için `SlotRun`'a `kind` (`video`|`ad`) eklendi, UNIQUE
+`(clientId, slotAt, kind)`. Yetim kapatma ve sonuç kancası böylece reklamda da
+çalışıyor. Vadesi gelmemiş ya da penceresi kaçmış reklam saati için satır
+YAZILMAZ: reklam çıkmaması sıradan bir gün, "boş slot" bildirimi gürültü olurdu.
+
+Uyandırma (K32) yalnızca reklamı açık, duraklatılmamış ve havuzu dolu müşteriye
+kurulur. Maliyeti günde en fazla bir ek uyanma.
+
+Görsel JPEG olmak zorunda (Instagram `image_url`), ≤ 8 MB, oran 4:5…1.91:1. Oran
+yüklemede sunucuda, JPEG başlığından okunur (`jpeg-size.ts`). Yayınlanan
+reklamın görseli silinmez: geçmişte kapak olarak kalır, 50 görsel ≈ 100 MB.
+
 ---
 
 ## Açık sorular

@@ -85,3 +85,70 @@ export async function createQueuePost(
     },
   });
 }
+
+/** V12 — reklam ayarlarını açar (sayaç `countFrom`dan başlar, hedef `nextAfter`). */
+export function enableAds(
+  clientId: string,
+  overrides: {
+    adSlot: string;
+    nextAfter?: number | null;
+    countFrom?: Date | null;
+    minGap?: number;
+    maxGap?: number;
+    caption?: string | null;
+  }
+) {
+  return db.publishSettings.update({
+    where: { clientId },
+    data: {
+      adsEnabled: true,
+      adSlot: overrides.adSlot,
+      adMinGap: overrides.minGap ?? 5,
+      adMaxGap: overrides.maxGap ?? 10,
+      adNextAfter: overrides.nextAfter === undefined ? 2 : overrides.nextAfter,
+      adCountFrom:
+        overrides.countFrom === undefined ? new Date(Date.now() - 24 * 3600_000) : overrides.countFrom,
+      adCaption: overrides.caption === undefined ? "Özel ders için DM'den yaz! #ingilizce" : overrides.caption,
+    },
+  });
+}
+
+/** V12 — havuzdaki bir reklam görseli (portal postu, kuyrukta DEĞİL). */
+export function createAdPost(
+  agencyId: string,
+  clientId: string,
+  overrides: {
+    sourceName?: string;
+    status?: PostStatus;
+    publishStatus?: PublishStatus;
+    caption?: string;
+    createdAt?: Date;
+    imageKey?: string;
+    publishedAt?: Date | null;
+  } = {}
+) {
+  counter += 1;
+  return db.post.create({
+    data: {
+      agencyId,
+      clientId,
+      source: "portal",
+      isAd: true,
+      caption: overrides.caption ?? "",
+      status: overrides.status ?? "pending",
+      queuePosition: null,
+      captionStatus: null,
+      publishStatus: overrides.publishStatus ?? "idle",
+      imageKey: overrides.imageKey ?? `clients/${clientId}/ads/a${counter}.jpg`,
+      sourceName: overrides.sourceName ?? `${String(counter).padStart(2, "0")}.jpg`,
+      publishedAt: overrides.publishedAt ?? null,
+      ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
+    },
+  });
+}
+
+/** Yayınlanmış portal videosu — reklam sayacının saydığı şey. */
+export async function createPublishedVideo(agencyId: string, clientId: string, publishedAt: Date) {
+  const post = await createQueuePost(agencyId, clientId, { publishStatus: "published" });
+  return db.post.update({ where: { id: post.id }, data: { publishedAt, queuePosition: null } });
+}

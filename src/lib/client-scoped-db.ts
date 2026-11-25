@@ -1,10 +1,16 @@
 import type { Prisma, PublishSettings } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { ClientSession } from "@/lib/client-auth";
-import { clientStoragePrefix, prefixUsage, videoKey, type PrefixUsage } from "@/lib/storage-r2";
+import {
+  adImageKey,
+  clientStoragePrefix,
+  prefixUsage,
+  videoKey,
+  type PrefixUsage,
+} from "@/lib/storage-r2";
 import { planMove, positionAtEnd, type MoveTarget } from "@/lib/portal-order";
 import { renumberPositions } from "@/lib/queue";
-import type { PublishSettingsInput } from "@/lib/portal-validation";
+import type { AdSettingsInput, PublishSettingsInput } from "@/lib/portal-validation";
 import { instagramHealth, type InstagramHealth } from "@/lib/portal-instagram";
 
 /**
@@ -19,6 +25,9 @@ import { instagramHealth, type InstagramHealth } from "@/lib/portal-instagram";
  *     videoları yönetir. Ajansın aynı müşteri için hazırladığı postlar (onay
  *     linki akışı) bu yüzeyden görünmez ve değiştirilemez; onların yetki
  *     modeli ayrı (token + ajans oturumu).
+ *   • `isAd` (V12) — video metotları reklamı, reklam metotları videoyu görmez.
+ *     Reklamın `queuePosition`ı hep null; ayrım olmasa her reklam "kuyruk
+ *     dışı video" listesine düşer, video yollarıyla silinip taşınabilirdi.
  *
  * Karar değiştiren her yol koşullu `updateMany` kullanır; `false`/`0` dönüşü
  * route'ta 409'a çevrilir (CLAUDE.md yarış koruması).
@@ -62,6 +71,8 @@ const EDITABLE_PUBLISH = { in: ["idle" as const, "failed" as const] };
  * an Instagram'a gidiyor, öteki canlıda ve geçmişte iz olarak kalmalı.
  */
 export const DELETABLE_OUTSIDE = {
+  // V12: reklamın `queuePosition`ı da null — bu tanım "kuyruk dışı VİDEO".
+  isAd: false,
   queuePosition: null,
   status: { in: ["pending" as const, "approved" as const, "rejected" as const] },
   publishStatus: EDITABLE_PUBLISH,
@@ -165,7 +176,8 @@ export function findClientAppForLoginScreen(clientId: string) {
 
 export function getClientScopedDb(session: ClientSession) {
   const { clientId } = session;
-  const scope = { clientId, source: "portal" as const };
+  const scope = { clientId, source: "portal" as const, isAd: false };
+  const adScope = { clientId, source: "portal" as const, isAd: true };
 
   return {
     clientId,
@@ -642,6 +654,153 @@ export function getClientScopedDb(session: ClientSession) {
       },
     },
 
+    /**
+     * V12 — reklam havuzu (K36). Videodan ayrı yüzey: reklamın kuyruğu,
+     * caption üretimi ve kare çıkarma yok; tek görsel, sırası yükleme sırası.
+     */
+    ads: {
+      /**
+       * Dosya başına bir TASLAK reklam (`createDrafts`in görsel ikizi).
+       * `captionStatus` null: reklamın metni üretilmiyor, varsayılan metin ya
+       * da elle yazılan kullanılıyor — `pending` verilseydi caption hattı ve
+       * "takılı caption" kurtarması reklamı video sanıp kilitlemeye çalışırdı.
+       */
+      createDrafts: (files: { name?: string; size?: number }[]): Promise<{ id: string; imageKey: string }[]> =>
+        db.$transaction(async (tx) => {
+          const client = await tx.client.findUnique({
+            where: { id: clientId },
+            select: { agencyId: true },
+          });
+          if (!client) throw new Error("Müşteri bulunamadı");
+          const out: { id: string; imageKey: string }[] = [];
+          for (const file of files) {
+            const post = await tx.post.create({
+              data: {
+                agencyId: client.agencyId,
+                clientId,
+                source: "portal",
+                isAd: true,
+                status: "draft",
+                caption: "",
+                captionStatus: null,
+                queuePosition: null,
+                sourceSize: file.size ?? null,
+                sourceName: file.name ?? null,
+              },
+              select: { id: true },
+            });
+            const key = adImageKey(clientId, post.id);
+            await tx.post.updateMany({ where: { id: post.id, ...adScope }, data: { imageKey: key } });
+            out.push({ id: post.id, imageKey: key });
+          }
+          return out;
+        }),
+
+      /** 404 / 409 ayrımı ve yükleme durumu için; başka müşterinin reklamı `null`. */
+      findState: (id: string) =>
+        db.post.findFirst({
+          where: { id, ...adScope },
+          select: { id: true, status: true, publishStatus: true, imageKey: true },
+        }),
+
+      /** İmzalama patladıysa bu istekte doğan taslaklar geri alınır (video yolu deseni). */
+      deleteDrafts: async (ids: string[]): Promise<number> => {
+        const result = await db.post.deleteMany({
+          where: { id: { in: ids }, ...adScope, status: "draft" },
+        });
+        return result.count;
+      },
+
+      /** Yükleme doğrulandı: taslak → havuz. Aynı reklam iki kez tamamlanamaz. */
+      complete: async (id: string): Promise<boolean> => {
+        const result = await db.post.updateMany({
+          where: { id, ...adScope, status: "draft" },
+          data: { status: "pending" },
+        });
+        return result.count === 1;
+      },
+
+      /** Havuz + yayınlananlar; sıralama çağıranda (`compareAds`). */
+      list: () =>
+        db.post.findMany({
+          where: { ...adScope, status: { not: "draft" } },
+          select: {
+            id: true,
+            caption: true,
+            status: true,
+            publishStatus: true,
+            publishError: true,
+            igPermalink: true,
+            publishedAt: true,
+            imageKey: true,
+            sourceName: true,
+            createdAt: true,
+          },
+        }),
+
+      /**
+       * Reklama özel metin; boş = varsayılan metin. Yalnızca henüz yayına
+       * girmemiş reklamda (`publishing` kilitliyken hiçbir şey değişmez).
+       */
+      updateCaption: async (id: string, caption: string): Promise<boolean> => {
+        const result = await db.post.updateMany({
+          where: {
+            id,
+            ...adScope,
+            status: { in: ["pending", "approved"] },
+            publishStatus: EDITABLE_PUBLISH,
+          },
+          data: { caption },
+        });
+        return result.count === 1;
+      },
+
+      /**
+       * "Tekrar dene": hata → havuz. `slotAt` de boşalır, yoksa
+       * `claimAdForSlot` (`slotAt: null` şartı) reklamı bir daha seçemezdi.
+       */
+      retry: async (id: string): Promise<boolean> => {
+        const result = await db.post.updateMany({
+          where: { id, ...adScope, publishStatus: "failed" },
+          data: { publishStatus: "idle", publishError: null, slotAt: null },
+        });
+        return result.count === 1;
+      },
+
+      /**
+       * Yayınlanmamış reklamı kalıcı siler (taslak dahil). Yayınlanan reklam
+       * silinmez — Instagram'da canlı ve geçmişte iz olarak kalmalı;
+       * `publishing` şu an Instagram'a gidiyor. `deleteOutsideVideo` ile aynı
+       * desen: çocuk satırlar önce, karar son `deleteMany`nin koşulunda,
+       * R2 commit'ten SONRA (çağıran siler). `null` = silinmedi.
+       */
+      delete: async (id: string): Promise<{ imageKey: string | null } | null> => {
+        const where = { id, ...adScope, publishStatus: EDITABLE_PUBLISH };
+        try {
+          return await db.$transaction(async (tx) => {
+            const row = await tx.post.findFirst({ where, select: { imageKey: true } });
+            if (!row) return null;
+            await tx.slotRun.updateMany({ where: { postId: id, clientId }, data: { postId: null } });
+            await tx.approvalAudit.deleteMany({ where: { postId: id } });
+            const result = await tx.post.deleteMany({ where });
+            if (result.count !== 1) throw new DeleteRaceLostError();
+            return row;
+          });
+        } catch (error) {
+          if (error instanceof DeleteRaceLostError) return null;
+          // P2003: yarışan tick araya audit satırı soktu; reklam yerinde.
+          if ((error as { code?: string }).code === "P2003") return null;
+          throw error;
+        }
+      },
+
+      /** Son reklamdan beri yayınlanan video sayısı — tick'in sayacıyla aynı tanım. */
+      publishedVideosSince: (from: Date): Promise<number> =>
+        db.post.count({
+          where: { ...scope, publishStatus: "published", publishedAt: { gt: from } },
+        }),
+    },
+
     storage: {
       /** R2'de YALNIZCA bu müşterinin önekindeki kullanım (Ayarlar göstergesi). */
       usage: (): Promise<PrefixUsage> => prefixUsage(clientStoragePrefix(clientId)),
@@ -659,6 +818,18 @@ export function getClientScopedDb(session: ClientSession) {
           create: { clientId, ...input },
           update: input,
         }),
+
+      /**
+       * V12 — reklam ayarları. Video ayarından AYRI yazım: önbellekteki eski
+       * PWA'nın Ayarlar formu reklam alanlarını bilmiyor; ortak bir PUT onları
+       * ya sıfırlar ya da her alanı "gelmediyse koru" diye dallandırmak
+       * gerekirdi. Ayar satırı yoksa (yayın saatleri hiç kaydedilmemiş) `false`:
+       * reklam video takvimine bağlı, takvimsiz müşteride anlamı yok.
+       */
+      updateAds: async (input: AdSettingsInput): Promise<boolean> => {
+        const result = await db.publishSettings.updateMany({ where: { clientId }, data: input });
+        return result.count === 1;
+      },
     },
   };
 }

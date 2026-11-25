@@ -10,7 +10,10 @@ import {
   captionHead,
   portalUrl,
   queueDigestSubject,
+  queueFailedSubject,
+  queuePublishedSubject,
   queueRecipient,
+  renderAdPoolEmpty,
   renderQueueDigest,
   renderQueueFailed,
   renderQueuePublished,
@@ -152,5 +155,38 @@ describe("gönderim", () => {
       expect.objectContaining({ to: "c@x.test", subject: "Videon Instagram'da yayınlandı" }),
       "kuyruk yayını başarılı"
     );
+  });
+});
+
+describe("reklam metinleri (V12)", () => {
+  it("reklam yayını ve hatası 'video' demez, hata maili reklam ekranına götürür", () => {
+    const published = renderQueuePublished({
+      to: "a@b.c",
+      clientName: "Furkan",
+      caption: "Özel ders",
+      igPermalink: null,
+      isAd: true,
+    });
+    expect(published.text).toContain("Reklam havuzundaki sıradaki görsel");
+    expect(published.text).toContain("görsel profilinde görünüyor");
+    expect(queuePublishedSubject(true)).toBe("Reklam görselin Instagram'da yayınlandı");
+
+    const failed = renderQueueFailed({
+      to: "a@b.c",
+      clientName: "Furkan",
+      caption: "Özel ders",
+      reason: "IG down",
+      portalUrl: "https://app.example/portal",
+      isAd: true,
+    });
+    expect(failed.text).toContain("Videoların yayını etkilenmedi");
+    expect(failed.text).toContain("https://app.example/portal/reklamlar");
+    expect(queueFailedSubject(true)).toBe("Reklam görseli yayınlanamadı");
+  });
+
+  it("havuz boşaldı maili reklam yükleme ekranına götürür", () => {
+    const { text } = renderAdPoolEmpty({ to: "a@b.c", clientName: "Furkan", portalUrl: "https://app.example/portal" });
+    expect(text).toContain("son görsel de yayınlandı");
+    expect(text).toContain("https://app.example/portal/reklamlar");
   });
 });

@@ -64,6 +64,9 @@ export default async function DashboardPage() {
                 </div>
                 <div className="post-info">
                   <strong>{post.client.name}</strong>
+                  {/* V12: portalın reklam görseli — küçük resmi R2'de (imzalı), panel
+                      listesi onu göstermiyor; en azından ne olduğu belli olsun. */}
+                  {post.isAd && <span className="badge"> · Reklam görseli</span>}
                   <p className="post-caption">{post.caption}</p>
                   {post.status === "rejected" && post.rejectionReason && (
                     <p className="rejection-reason">

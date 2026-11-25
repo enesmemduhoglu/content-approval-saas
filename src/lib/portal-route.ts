@@ -69,3 +69,6 @@ export async function readJson(request: Request): Promise<unknown | undefined> {
 }
 
 export const notFound = () => NextResponse.json({ error: "Video bulunamadı" }, { status: 404 });
+
+/** V12 — reklam yüzeyinin 404'ü; başka müşterinin reklamı da bunu alır. */
+export const adNotFound = () => NextResponse.json({ error: "Reklam bulunamadı" }, { status: 404 });

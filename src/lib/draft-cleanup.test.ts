@@ -101,6 +101,24 @@ describe("cleanupStaleDrafts", () => {
     expect(sendAlert).toHaveBeenCalledWith("cron:draft-cleanup:failed", expect.any(String), expect.anything());
   });
 
+  it("yarım kalmış reklam taslağının görseli ve satırı gider (V12)", async () => {
+    const ad = await db.post.create({
+      data: {
+        agencyId,
+        clientId,
+        source: "portal",
+        isAd: true,
+        caption: "",
+        status: "draft",
+        imageKey: `clients/${clientId}/ads/yarim.jpg`,
+        createdAt: old,
+      },
+    });
+    await cleanupStaleDrafts(NOW);
+    expect(vi.mocked(deleteObject).mock.calls.map(([key]) => key)).toContain(ad.imageKey);
+    expect(await db.post.findUnique({ where: { id: ad.id } })).toBeNull();
+  });
+
   it("R2 yapılandırılmamışsa hiçbir şey silinmez", async () => {
     vi.mocked(r2Configured).mockReturnValue(false);
     const stale = await draft({ createdAt: old, uploadId: "r2-id" });
