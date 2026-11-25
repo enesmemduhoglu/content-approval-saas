@@ -108,6 +108,13 @@ export function frameKey(clientId: string, postId: string, index: number): strin
   return `clients/${clientId}/frames/${postId}/${index}.jpg`;
 }
 
+/** V12 — reklam görseli. Instagram `image_url` yalnızca JPEG kabul ediyor: uzantı sabit. */
+export function adImageKey(clientId: string, postId: string): string {
+  assertId(clientId, "clientId");
+  assertId(postId, "postId");
+  return `clients/${clientId}/ads/${postId}.jpg`;
+}
+
 /** Müşterinin bütün nesnelerinin öneki; depolama göstergesi bunu toplar. */
 /** Tüm müşterilerin nesneleri bunun altında — bucket geneli depolama tavanı buna bakar. */
 export const ALL_CLIENTS_PREFIX = "clients/";

@@ -166,6 +166,10 @@ seferlik QStash mesajıyla uyanır (`queue-wake.ts`, V11). Dördü de
 Kilit `status: "approved"` koşulunu da taşır: onaysız post hiçbir yoldan yayınlanmaz.
 Portal postunda müşteri onayı YOK (K33): o `approved`ı tick yayından hemen önce
 `autoApprovePost` ile kendisi yazar. Kilidi gevşetme; portala onay geri gelirse yeri tick.
+Reklam görseli (V12, K36) de tick'ten geçer: video slotlarından sonra, kendi
+reklam saatinde, `SlotRun(kind: ad)` ile. Reklamın `queuePosition`ı hep null.
+Portal video sorguları `isAd: false` ile kapsamlı (`client-scoped-db`), reklamı
+video kuyruğuna sokma.
 
 **Makine yolu (furi).** Ayrı bir repodaki bulut rutini `Authorization: Bearer FURI_API_KEY`
 ile post oluşturuyor ve `/api/clients/[id]/instagram-token`'dan token çekiyor. Anahtar

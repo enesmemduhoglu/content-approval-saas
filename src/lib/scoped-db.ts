@@ -685,6 +685,7 @@ export function getScopedDb(session: ScopedSession) {
             publishStatus: true,
             videoKey: true,
             frameKeys: true,
+            imageKey: true,
             images: { select: { url: true } },
           },
         });
@@ -707,7 +708,10 @@ export function getScopedDb(session: ScopedSession) {
           imageUrls,
           r2: {
             clientId: post.clientId,
-            keys: [post.videoKey, ...post.frameKeys].filter((key): key is string => !!key),
+            // V12: portal reklamının görseli de aynı yoldan (`imageKey`).
+            keys: [post.videoKey, ...post.frameKeys, post.imageKey].filter(
+              (key): key is string => !!key
+            ),
           },
         };
       },

@@ -1,4 +1,10 @@
-import { ALLOWED_VIDEO_TYPES, MAX_VIDEO_BYTES, validateVideoUpload } from "@/lib/validation";
+import { AD_GAP_MAX, AD_GAP_MIN } from "@/lib/ads";
+import {
+  ALLOWED_VIDEO_TYPES,
+  CAPTION_MAX_LENGTH,
+  MAX_VIDEO_BYTES,
+  validateVideoUpload,
+} from "@/lib/validation";
 
 /**
  * Video kuyruğu (V3) — portal isteklerinin doğrulaması.
@@ -453,4 +459,148 @@ export function validatePushSubscription(
     return { ok: false, error: "Geçersiz anahtar", field: "keys.auth" };
   }
   return { ok: true, value: { endpoint, p256dh, auth } };
+}
+
+// ─── Reklam (V12, K36) ──────────────────────────────────────────────────────
+
+/** Instagram'ın görsel tavanı 8 MB; daha büyüğünü seçici zaten JPEG'e yeniden kodluyor. */
+export const MAX_AD_BYTES = 8 * 1024 * 1024;
+/** Instagram `image_url` yalnızca JPEG kabul ediyor. */
+export const AD_CONTENT_TYPE = "image/jpeg";
+/** Instagram besleme oranı sınırları (en/boy): 4:5 dikey … 1.91:1 yatay. */
+export const AD_MIN_RATIO = 0.8;
+export const AD_MAX_RATIO = 1.91;
+/** Instagram 30'dan fazla hashtag'li caption'ı reddediyor. */
+export const MAX_AD_HASHTAGS = 30;
+
+/** Oran Instagram sınırında mı? Kayan nokta için binde birlik pay (2160×2700 = 0.8 tam). */
+export function adRatioOk(width: number, height: number): boolean {
+  if (width <= 0 || height <= 0) return false;
+  const ratio = width / height;
+  return ratio >= AD_MIN_RATIO - 0.001 && ratio <= AD_MAX_RATIO + 0.001;
+}
+
+/**
+ * Reklam metni (varsayılan ya da reklama özel). `required: false` iken boş
+ * metin geçerli ve `""` döner: reklama özel metin boşsa varsayılan kullanılır.
+ */
+export function validateAdCaption(
+  value: unknown,
+  opts: { required: boolean }
+): { ok: true; caption: string } | { ok: false; error: string } {
+  if (value === undefined || value === null) value = "";
+  if (typeof value !== "string") return { ok: false, error: "Metin geçersiz" };
+  const caption = value.trim();
+  if (!caption) {
+    return opts.required ? { ok: false, error: "Reklam metni boş olamaz" } : { ok: true, caption: "" };
+  }
+  if (caption.length > CAPTION_MAX_LENGTH) {
+    return { ok: false, error: `Metin en fazla ${CAPTION_MAX_LENGTH} karakter olabilir` };
+  }
+  const hashtags = caption.match(/#[^\s#]+/g)?.length ?? 0;
+  if (hashtags > MAX_AD_HASHTAGS) {
+    return { ok: false, error: `Instagram en fazla ${MAX_AD_HASHTAGS} hashtag kabul ediyor` };
+  }
+  return { ok: true, caption };
+}
+
+export type AdSettingsFields = {
+  adsEnabled: boolean;
+  adSlot: string;
+  adMinGap: number;
+  adMaxGap: number;
+  adCaption: string | null;
+};
+
+/** Yazılan satır: kullanıcının alanları + route'un hesapladığı sayaç (`counterOnSave`). */
+export type AdSettingsInput = AdSettingsFields & { adNextAfter?: number; adCountFrom?: Date };
+
+/**
+ * Reklam ayarları. Sabit mod ("her 5 videoda bir") istemcide min = max olarak
+ * gelir; sunucu için iki mod yok, yalnızca aralık. `videoSlots` kayıtlı video
+ * saatleri: reklam saati onlardan biriyle aynı olamaz — teknik olarak çalışırdı
+ * (SlotRun `kind` ayırıyor) ama aynı dakikada iki post profilde spam gibi durur.
+ */
+export function validateAdSettings(
+  body: unknown,
+  videoSlots: string[]
+): { ok: true; value: AdSettingsFields } | ({ ok: false } & FieldError) {
+  const input = (body ?? {}) as Record<string, unknown>;
+
+  if (typeof input.adsEnabled !== "boolean") {
+    return { ok: false, field: "adsEnabled", error: "Reklam açık ya da kapalı olmalı" };
+  }
+  const { adSlot } = input;
+  if (typeof adSlot !== "string" || !SLOT_RE.test(adSlot)) {
+    return { ok: false, field: "adSlot", error: "Geçersiz reklam saati (SS:DD olmalı)" };
+  }
+  if (videoSlots.includes(adSlot)) {
+    return { ok: false, field: "adSlot", error: "Reklam saati video yayın saatlerinden farklı olmalı" };
+  }
+  const gap = (value: unknown) =>
+    typeof value === "number" && Number.isInteger(value) && value >= AD_GAP_MIN && value <= AD_GAP_MAX;
+  if (!gap(input.adMinGap) || !gap(input.adMaxGap)) {
+    return {
+      ok: false,
+      field: "adMinGap",
+      error: `Video sayısı ${AD_GAP_MIN} ile ${AD_GAP_MAX} arasında olmalı`,
+    };
+  }
+  if ((input.adMinGap as number) > (input.adMaxGap as number)) {
+    return { ok: false, field: "adMaxGap", error: "Üst sınır alt sınırdan küçük olamaz" };
+  }
+  // Kapalıyken metin boş bırakılabilir; açılırken şart — yoksa yayın anında
+  // `prepareAdForPublish` metinsiz reklamı reddeder ve reklam hiç çıkmaz.
+  const caption = validateAdCaption(input.adCaption, { required: input.adsEnabled });
+  if (!caption.ok) return { ok: false, field: "adCaption", error: caption.error };
+
+  return {
+    ok: true,
+    value: {
+      adsEnabled: input.adsEnabled,
+      adSlot,
+      adMinGap: input.adMinGap as number,
+      adMaxGap: input.adMaxGap as number,
+      adCaption: caption.caption || null,
+    },
+  };
+}
+
+export type AdUploadFileInput = { size: number; name?: string };
+
+/**
+ * Reklam yükleme başlatma: `[{ contentType, size, name? }]`. Tip ve boyut
+ * burada istemcinin beyanı; gerçek kontrol `complete`te HEAD + JPEG başlığıyla.
+ */
+export function validateAdUploadFiles(
+  body: unknown
+): { ok: true; files: AdUploadFileInput[] } | ({ ok: false } & FieldError) {
+  const files = (body as { files?: unknown } | null)?.files;
+  if (!Array.isArray(files) || files.length === 0) {
+    return { ok: false, field: "files", error: "En az bir görsel seç" };
+  }
+  if (files.length > MAX_FILES_PER_UPLOAD) {
+    return {
+      ok: false,
+      field: "files",
+      error: `Tek seferde en fazla ${MAX_FILES_PER_UPLOAD} görsel yüklenebilir`,
+    };
+  }
+  const out: AdUploadFileInput[] = [];
+  for (const file of files) {
+    const { contentType, size, name } = (file ?? {}) as Record<string, unknown>;
+    if (contentType !== AD_CONTENT_TYPE) {
+      return { ok: false, field: "files", error: "Reklam görseli JPEG olmalı" };
+    }
+    if (typeof size !== "number" || !Number.isInteger(size) || size <= 0 || size > MAX_AD_BYTES) {
+      return {
+        ok: false,
+        field: "files",
+        error: `Görsel en fazla ${MAX_AD_BYTES / (1024 * 1024)} MB olabilir`,
+      };
+    }
+    const source = sourceName(name);
+    out.push({ size, ...(source ? { name: source } : {}) });
+  }
+  return { ok: true, files: out };
 }

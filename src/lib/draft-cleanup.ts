@@ -62,7 +62,7 @@ export async function cleanupStaleDrafts(now: Date = new Date()): Promise<DraftC
       },
       orderBy: { createdAt: "asc" },
       take: RUN_LIMIT,
-      select: { id: true, clientId: true, videoKey: true, uploadId: true },
+      select: { id: true, clientId: true, videoKey: true, imageKey: true, uploadId: true },
     });
     stats.checked = drafts.length;
 
@@ -86,6 +86,10 @@ export async function cleanupStaleDrafts(now: Date = new Date()): Promise<DraftC
               deleteObject(frameKey(draft.clientId, draft.id, i))
             ),
           ]);
+        }
+        // V12 — yarım kalmış reklam yüklemesi: tek görsel, kare yok.
+        if (draft.imageKey && keyBelongsToClient(draft.imageKey, draft.clientId)) {
+          await deleteObject(draft.imageKey);
         }
         const removed = await db.post.deleteMany({
           where: { id: draft.id, source: "portal", status: "draft" },

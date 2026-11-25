@@ -3,6 +3,7 @@ import {
   FOLLOW_UP_DEFERRED_SEC,
   FOLLOW_UP_PUBLISHING_SEC,
   WAKE_HORIZON_MS,
+  adWakeSlot,
   desiredWakeTimes,
   followUpDecision,
   parseWakeKind,
@@ -119,5 +120,28 @@ describe("parseWakeKind", () => {
     expect(parseWakeKind("{bozuk")).toBe("slot");
     expect(parseWakeKind(JSON.stringify({ kind: "baska" }))).toBe("slot");
     expect(parseWakeKind("null")).toBe("slot");
+  });
+});
+
+describe("reklam saati uyandırması (V12)", () => {
+  it("reklam saati video günlerinde ek uyandırma olarak kurulur", () => {
+    const times = desiredWakeTimes(
+      [{ slots: ["10:00"], timezone: IST, days: [1], adSlot: "21:00" }],
+      NOW
+    );
+    expect(iso(times)).toEqual(["2026-11-02T07:00:00.000Z", "2026-11-02T18:00:00.000Z"]);
+  });
+
+  it("adSlot null ise yalnızca video slotları", () => {
+    const times = desiredWakeTimes([{ slots: ["10:00"], timezone: IST, days: [1], adSlot: null }], NOW);
+    expect(iso(times)).toEqual(["2026-11-02T07:00:00.000Z"]);
+  });
+
+  it("açık + duraklatılmamış + havuzda reklam varsa kurulur; aksi hâlde kurulmaz", () => {
+    const on = { adsEnabled: true, paused: false, adSlot: "21:00" };
+    expect(adWakeSlot(on, 3)).toBe("21:00");
+    expect(adWakeSlot(on, 0)).toBeNull();
+    expect(adWakeSlot({ ...on, adsEnabled: false }, 3)).toBeNull();
+    expect(adWakeSlot({ ...on, paused: true }, 3)).toBeNull();
   });
 });

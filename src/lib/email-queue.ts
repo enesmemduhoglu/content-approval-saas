@@ -105,25 +105,33 @@ export type QueuePublishedInput = {
   clientName: string;
   caption: string;
   igPermalink: string | null;
+  /** V12 — reklam görseli: metin "video" demesin, kullanıcı neyin çıktığını bilsin. */
+  isAd?: boolean;
 };
 
-export function queuePublishedSubject(): string {
-  return "Videon Instagram'da yayınlandı";
+export function queuePublishedSubject(isAd = false): string {
+  return isAd ? "Reklam görselin Instagram'da yayınlandı" : "Videon Instagram'da yayınlandı";
 }
 
 export function renderQueuePublished(input: QueuePublishedInput) {
   const lines = [
     `Merhaba ${input.clientName},`,
-    "Kuyruğundaki sıradaki video Instagram'a yayınlandı.",
+    input.isAd
+      ? "Reklam havuzundaki sıradaki görsel Instagram'a yayınlandı."
+      : "Kuyruğundaki sıradaki video Instagram'a yayınlandı.",
     `“${captionHead(input.caption)}”`,
   ];
-  if (!input.igPermalink) lines.push("Instagram bağlantısı alınamadı; video profilinde görünüyor.");
+  if (!input.igPermalink) {
+    lines.push(
+      `Instagram bağlantısı alınamadı; ${input.isAd ? "görsel" : "video"} profilinde görünüyor.`
+    );
+  }
   return render(lines, input.igPermalink ? { label: "Instagram'da gör", url: input.igPermalink } : null);
 }
 
 export function sendQueuePublishedEmail(input: QueuePublishedInput): Promise<EmailResult> {
   return sendRawEmail(
-    { to: input.to, subject: queuePublishedSubject(), ...renderQueuePublished(input) },
+    { to: input.to, subject: queuePublishedSubject(input.isAd), ...renderQueuePublished(input) },
     "kuyruk yayını başarılı"
   );
 }
@@ -137,13 +145,29 @@ export type QueueFailedInput = {
   /** Ham `publishError`; şablon kendisi `safeReason`dan geçirir. */
   reason: string | null;
   portalUrl: string | null;
+  /** V12 — reklam görseli; bkz. `QueuePublishedInput.isAd`. */
+  isAd?: boolean;
 };
 
-export function queueFailedSubject(): string {
-  return "Video yayınlanamadı";
+export function queueFailedSubject(isAd = false): string {
+  return isAd ? "Reklam görseli yayınlanamadı" : "Video yayınlanamadı";
 }
 
 export function renderQueueFailed(input: QueueFailedInput) {
+  if (input.isAd) {
+    const lines = [
+      `Merhaba ${input.clientName},`,
+      "Sırası gelen reklam görseli Instagram'a yayınlanamadı:",
+      `“${captionHead(input.caption)}”`,
+      `Neden: ${safeReason(input.reason)}`,
+      // Videoların etkilenmediğini söylemek önemli: reklam ek paylaşım, video
+      // takvimi ondan bağımsız sürüyor.
+      "Videoların yayını etkilenmedi. Görsel reklam havuzunda hata işaretiyle bekliyor; " +
+        "portaldan tekrar deneyebilirsin.",
+    ];
+    const url = input.portalUrl ? `${input.portalUrl}/reklamlar` : null;
+    return render(lines, url ? { label: "Reklamlara git", url } : null);
+  }
   const lines = [
     `Merhaba ${input.clientName},`,
     "Sırası gelen video Instagram'a yayınlanamadı:",
@@ -159,8 +183,40 @@ export function renderQueueFailed(input: QueueFailedInput) {
 
 export function sendQueueFailedEmail(input: QueueFailedInput): Promise<EmailResult> {
   return sendRawEmail(
-    { to: input.to, subject: queueFailedSubject(), ...renderQueueFailed(input) },
+    { to: input.to, subject: queueFailedSubject(input.isAd), ...renderQueueFailed(input) },
     "kuyruk yayını başarısız"
+  );
+}
+
+// ─── Reklam havuzu boşaldı (V12) ───────────────────────────────────────────
+
+export type AdPoolEmptyInput = {
+  to: string;
+  clientName: string;
+  portalUrl: string | null;
+};
+
+export const AD_POOL_EMPTY_SUBJECT = "Reklam havuzun boşaldı";
+
+/**
+ * Son reklam yayınlandığında BİR kez gider (tetik o geçiş, bkz. tick). Her
+ * reklam saatinde "havuz boş" demek gürültü olurdu: reklam ek paylaşım,
+ * eksikliği hiçbir şeyi durdurmuyor.
+ */
+export function renderAdPoolEmpty(input: AdPoolEmptyInput) {
+  const lines = [
+    `Merhaba ${input.clientName},`,
+    "Reklam havuzundaki son görsel de yayınlandı.",
+    "Videolar her zamanki gibi yayınlanmaya devam ediyor. Reklamların sürmesi için portala yeni görsel yükleyebilirsin.",
+  ];
+  const url = input.portalUrl ? `${input.portalUrl}/reklamlar` : null;
+  return render(lines, url ? { label: "Reklam yükle", url } : null);
+}
+
+export function sendAdPoolEmptyEmail(input: AdPoolEmptyInput): Promise<EmailResult> {
+  return sendRawEmail(
+    { to: input.to, subject: AD_POOL_EMPTY_SUBJECT, ...renderAdPoolEmpty(input) },
+    "reklam havuzu boşaldı"
   );
 }
 

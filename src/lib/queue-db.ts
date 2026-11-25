@@ -1,4 +1,4 @@
-import { Prisma, type SlotOutcome } from "@prisma/client";
+import { Prisma, type SlotKind, type SlotOutcome } from "@prisma/client";
 import { db } from "@/lib/db";
 import { SLOT_WINDOW_MS } from "@/lib/queue";
 import { ORPHAN_SLOT_DETAIL, orphanSlotRunAction } from "@/lib/publish-recovery";
@@ -37,10 +37,18 @@ export function findQueueClients() {
 
 export type QueueClient = Awaited<ReturnType<typeof findQueueClients>>[number];
 
-/** Müşterinin `since`den sonraki SlotRun anları — `dueSlots`un "kaydı var" filtresi. */
-export async function recentSlotRunTimes(clientId: string, since: Date): Promise<Date[]> {
+/**
+ * Müşterinin `since`den sonraki SlotRun anları — `dueSlots`un "kaydı var"
+ * filtresi. `kind` ŞART (V12): reklam saatinin satırı video slotunu "işlendi"
+ * göstermesin, ya da tersi.
+ */
+export async function recentSlotRunTimes(
+  clientId: string,
+  since: Date,
+  kind: SlotKind = "video"
+): Promise<Date[]> {
   const runs = await db.slotRun.findMany({
-    where: { clientId, slotAt: { gte: since } },
+    where: { clientId, slotAt: { gte: since }, kind },
     select: { slotAt: true },
   });
   return runs.map((run) => run.slotAt);
@@ -57,11 +65,17 @@ export async function recentSlotRunTimes(clientId: string, since: Date): Promise
 export async function claimSlotRun(
   clientId: string,
   slotAt: Date,
-  init: { outcome?: SlotOutcome; detail?: string } = {}
+  init: { outcome?: SlotOutcome; detail?: string; kind?: SlotKind } = {}
 ): Promise<boolean> {
   try {
     await db.slotRun.create({
-      data: { clientId, slotAt, outcome: init.outcome ?? null, detail: init.detail ?? null },
+      data: {
+        clientId,
+        slotAt,
+        kind: init.kind ?? "video",
+        outcome: init.outcome ?? null,
+        detail: init.detail ?? null,
+      },
     });
     return true;
   } catch (error) {
@@ -76,9 +90,10 @@ export async function claimSlotRun(
 export async function attachPostToSlotRun(
   clientId: string,
   slotAt: Date,
-  postId: string
+  postId: string,
+  kind: SlotKind = "video"
 ): Promise<void> {
-  await db.slotRun.updateMany({ where: { clientId, slotAt }, data: { postId } });
+  await db.slotRun.updateMany({ where: { clientId, slotAt, kind }, data: { postId } });
 }
 
 /**
@@ -90,10 +105,11 @@ export async function attachPostToSlotRun(
 export async function finishSlotRun(
   clientId: string,
   slotAt: Date,
-  data: { outcome: SlotOutcome; postId?: string | null; detail?: string | null }
+  data: { outcome: SlotOutcome; postId?: string | null; detail?: string | null },
+  kind: SlotKind = "video"
 ): Promise<void> {
   await db.slotRun.updateMany({
-    where: { clientId, slotAt, outcome: null },
+    where: { clientId, slotAt, kind, outcome: null },
     data: {
       outcome: data.outcome,
       ...(data.postId !== undefined ? { postId: data.postId } : {}),
@@ -284,7 +300,17 @@ export async function publishingContainerTimes(): Promise<Date[]> {
  * `desiredWakeTimes`).
  */
 export function findQueueSchedules() {
-  return db.publishSettings.findMany({ select: { slots: true, timezone: true, days: true } });
+  return db.publishSettings.findMany({
+    select: {
+      clientId: true,
+      slots: true,
+      timezone: true,
+      days: true,
+      paused: true,
+      adsEnabled: true,
+      adSlot: true,
+    },
+  });
 }
 
 /** `from` ve sonrasındaki kurulmuş uyandırmalar. */
@@ -334,5 +360,159 @@ export function findPortalPublishingPosts(take: number, openedBefore: Date) {
     orderBy: { containerAt: "asc" },
     take,
     select: { id: true },
+  });
+}
+
+// ─── V12: reklam görselleri (K36) ───────────────────────────────────────────
+//
+// Reklam `isAd: true` + `queuePosition: null` bir portal postu; video
+// kuyruğunun sorgularına (yukarıdakiler `queuePosition`a bakıyor) girmez.
+// Kapsam yine `clientId` ile AÇIK (dosya başındaki gerekçe).
+
+/** Reklam havuzu — `pickNextAd`in baktığı alanlar. Taslaklar dahil değil. */
+export function loadAdPool(clientId: string) {
+  return db.post.findMany({
+    where: { clientId, source: "portal", isAd: true, status: { not: "draft" } },
+    select: {
+      id: true,
+      status: true,
+      publishStatus: true,
+      createdAt: true,
+      sourceName: true,
+    },
+  });
+}
+
+/**
+ * Yayına seçilebilir reklam sayısı, müşteri başına — uyandırma senkronunun
+ * "bu müşterinin reklam saatini kurayım mı" sorusu. Havuzu boş müşteri için
+ * günlük reklam uyandırması kurmak Neon compute'unu boşuna açardı (K32).
+ * Kural `isAdEligible` ile aynı (idle + pending/approved).
+ */
+export async function eligibleAdCounts(): Promise<Map<string, number>> {
+  const rows = await db.post.groupBy({
+    by: ["clientId"],
+    where: {
+      source: "portal",
+      isAd: true,
+      publishStatus: "idle",
+      status: { in: ["pending", "approved"] },
+    },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((row) => [row.clientId, row._count._all]));
+}
+
+/**
+ * Son reklamdan beri yayınlanan portal VİDEOSU sayısı. `publishedAt`
+ * üzerinden: yayın anı, sıralaması değişebilen kuyruktan bağımsız tek gerçek.
+ */
+export function countPublishedVideosSince(clientId: string, from: Date): Promise<number> {
+  return db.post.count({
+    where: {
+      clientId,
+      source: "portal",
+      isAd: false,
+      publishStatus: "published",
+      publishedAt: { gt: from },
+    },
+  });
+}
+
+/**
+ * Reklamı bu reklam saatine sahiplen — `claimPostForSlot`un reklam ikizi.
+ * `SlotRun(kind: ad)` aynı reklam saatinin iki kez işlenmesini, bu da aynı
+ * reklamın iki FARKLI saatte (ör. ayar değişikliği günü) birlikte
+ * sahiplenilmesini engeller. Reklam tek seferlik olduğu için bayatlama eşiği
+ * yok: `slotAt` dolu reklam bir daha sahiplenilmez; "tekrar dene" onu boşaltır.
+ */
+export async function claimAdForSlot(input: {
+  clientId: string;
+  postId: string;
+  slotAt: Date;
+}): Promise<boolean> {
+  const result = await db.post.updateMany({
+    where: {
+      id: input.postId,
+      clientId: input.clientId,
+      source: "portal",
+      isAd: true,
+      publishStatus: "idle",
+      slotAt: null,
+    },
+    data: { slotAt: input.slotAt },
+  });
+  return result.count === 1;
+}
+
+/**
+ * Reklamı yayına hazırlar, tek transaction'da: boş caption'a varsayılan metin
+ * ve `pending → approved` + `ApprovalAudit(auto_approved)` (K33 deseni —
+ * yayın kilidi `status: approved` şart koşuyor). Caption yayından ÖNCE
+ * yazılıyor ki geçmişte ve e-postada gerçekten yayınlanan metin görünsün;
+ * varsayılan metin sonradan değişse de.
+ *
+ * `false` = yayınlanmamalı: reklam silinmiş/durumu değişmiş ya da elde hiç
+ * metin yok (açılış doğrulaması bunu engelliyor, ama elle bozulmuş satır
+ * Instagram'a boş caption'la gitmesin).
+ */
+export async function prepareAdForPublish(
+  clientId: string,
+  postId: string,
+  defaultCaption: string | null
+): Promise<boolean> {
+  return db.$transaction(async (tx) => {
+    const post = await tx.post.findFirst({
+      where: { id: postId, clientId, isAd: true, publishStatus: "idle" },
+      select: { caption: true, status: true },
+    });
+    if (!post || (post.status !== "pending" && post.status !== "approved")) return false;
+    const caption = post.caption.trim() || defaultCaption?.trim() || "";
+    if (!caption) return false;
+
+    // Koşul okunan durumu taşıyor: arada değiştiyse yazım tutmaz.
+    const result = await tx.post.updateMany({
+      where: { id: postId, clientId, status: post.status, publishStatus: "idle" },
+      data: { caption, status: "approved" },
+    });
+    if (result.count === 0) return false;
+    if (post.status === "pending") {
+      await tx.approvalAudit.create({
+        data: { postId, action: "auto_approved", ip: AUTO_APPROVAL_IP },
+      });
+    }
+    return true;
+  });
+}
+
+/**
+ * Sayacı yeni tura alır (reklam yayınlandı ya da sayaç hiç kurulmamıştı).
+ * Koşullu: beklenen `adCountFrom` hâlâ yerindeyse yazar — iki yazım
+ * (eşzamanlı tick, aynı anda ayar kaydı) yarışırsa hedef iki kez çekilmez,
+ * sayaç iki kez sıfırlanmaz.
+ */
+export async function advanceAdCounter(input: {
+  clientId: string;
+  expectedFrom: Date | null;
+  now: Date;
+  nextAfter: number;
+}): Promise<boolean> {
+  const result = await db.publishSettings.updateMany({
+    where: { clientId: input.clientId, adCountFrom: input.expectedFrom },
+    data: { adCountFrom: input.now, adNextAfter: input.nextAfter },
+  });
+  return result.count === 1;
+}
+
+/**
+ * Yayına hiç girmemiş reklamın sahiplenmesini geri bırakır. `claimAdForSlot`
+ * `slotAt: null` şart koştuğu için bırakılmayan reklam havuzda "sırada"
+ * görünüp bir daha hiçbir reklam saatine seçilemezdi. Yalnızca bu saatin
+ * sahiplenmesi ve hâlâ `idle` ise (yayın kilidine girmiş reklama dokunulmaz).
+ */
+export async function releaseAdClaim(clientId: string, postId: string, slotAt: Date): Promise<void> {
+  await db.post.updateMany({
+    where: { id: postId, clientId, isAd: true, slotAt, publishStatus: "idle" },
+    data: { slotAt: null },
   });
 }

@@ -4,6 +4,7 @@ import { slotInstants, type QueueSettings } from "@/lib/queue";
 import {
   claimWake,
   deleteWake,
+  eligibleAdCounts,
   findQueueSchedules,
   listWakesFrom,
   pruneWakesBefore,
@@ -90,13 +91,21 @@ export function parseWakeKind(rawBody: string): WakeKind {
  * olmasaydı satır yazılmaz, duraklatma kalkınca slot `skipped` görünürdü.
  */
 export function desiredWakeTimes(
-  settingsList: Pick<QueueSettings, "slots" | "timezone" | "days">[],
+  settingsList: (Pick<QueueSettings, "slots" | "timezone" | "days"> & {
+    /**
+     * V12 — kurulacak reklam saati ya da `null`. Çağıran yalnızca reklamı
+     * gerçekten çıkabilecek müşteride verir (bkz. `adWakeSlot`); reklam saati
+     * video günlerini paylaşır, o yüzden ayrı takvim değil ek bir saat.
+     */
+    adSlot?: string | null;
+  })[],
   now: Date
 ): Date[] {
   const range = { from: now, to: new Date(now.getTime() + WAKE_HORIZON_MS) };
   const seen = new Set<number>();
   for (const settings of settingsList) {
-    for (const instant of slotInstants(settings, range)) {
+    const slots = settings.adSlot ? [...settings.slots, settings.adSlot] : settings.slots;
+    for (const instant of slotInstants({ ...settings, slots }, range)) {
       seen.add(Math.floor(instant.getTime() / 1000) * 1000);
     }
   }
@@ -120,6 +129,21 @@ export function followUpDecision(
   );
   if (fresh) options.push(FOLLOW_UP_PUBLISHING_SEC);
   return options.length > 0 ? Math.min(...options) : null;
+}
+
+/**
+ * V12 — bu müşteri için reklam saati uyandırması kurulmalı mı? Videonun
+ * aksine duraklatılmış müşteriye KURULMAZ (reklam saatine "paused" satırı
+ * yazılmıyor, uyanmanın işi yok) ve havuzu boşsa kurulmaz: yayınlanacak
+ * reklamı olmayan bir günlük uyanma yalnızca Neon compute'unu açar (K32).
+ * Sayaç (kaç video kaldı) bilerek bakılmıyor — o, uyanmanın kendisinde
+ * çözülüyor; tahmine göre kurmak her video yayınında yeniden senkron isterdi.
+ */
+export function adWakeSlot(
+  schedule: { paused: boolean; adsEnabled: boolean; adSlot: string },
+  eligibleAds: number
+): string | null {
+  return schedule.adsEnabled && !schedule.paused && eligibleAds > 0 ? schedule.adSlot : null;
 }
 
 export type WakeSyncResult = {
@@ -157,7 +181,14 @@ export async function syncQueueWakes(now: Date = new Date()): Promise<WakeSyncRe
   // sayılıp iptal edilmesin. Satırın `createdAt`ı DB saatinde; fark ms düzeyi.
   const startedAt = new Date();
   try {
-    const desired = desiredWakeTimes(await findQueueSchedules(), now);
+    const [schedules, adCounts] = await Promise.all([findQueueSchedules(), eligibleAdCounts()]);
+    const desired = desiredWakeTimes(
+      schedules.map((schedule) => ({
+        ...schedule,
+        adSlot: adWakeSlot(schedule, adCounts.get(schedule.clientId) ?? 0),
+      })),
+      now
+    );
     const desiredMs = new Set(desired.map((at) => at.getTime()));
     const existing = await listWakesFrom(now);
     const existingMs = new Set<number>();

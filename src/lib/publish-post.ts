@@ -237,12 +237,19 @@ async function publishApprovedPostInner(postId: string): Promise<PublishOutcome>
       });
     }
 
+    // V12 — portal reklam görseli: Blob'da değil gizli R2'de, tek görsel. URL
+    // video ile aynı gerekçeyle burada ve azami ömürle imzalanıyor; görsel
+    // container'ı istek içinde (~8.5 sn) kurulduğu için iki fazlı yol yok.
+    const imageUrls = post.imageKey
+      ? [await signOwnedImage(post.imageKey, post.clientId)]
+      : post.images.map((image) => image.url);
+
     const result = await publishToInstagram({
       igUserId: client.instagramUserId,
       accessToken,
-      imageUrls: post.images.map((image) => image.url),
+      imageUrls,
       caption: post.caption,
-      altTexts: post.images.map((image) => image.altText),
+      altTexts: post.imageKey ? [null] : post.images.map((image) => image.altText),
     });
 
     return markPublished(postId, result.mediaId, result.permalink);
@@ -251,6 +258,18 @@ async function publishApprovedPostInner(postId: string): Promise<PublishOutcome>
       error instanceof IGError ? error.report() : (error as Error)?.message ?? "bilinmeyen hata";
     return markFailed(postId, detail);
   }
+}
+
+/**
+ * Reklam görselinin imzalı URL'i. Anahtar DB'den geliyor ama imza bir
+ * müşterinin dosyasına kapı açıyor: önek bu postun müşterisine ait değilse
+ * imzalanmaz (video dalıyla aynı kural, storage-r2.ts).
+ */
+async function signOwnedImage(imageKey: string, clientId: string): Promise<string> {
+  if (!keyBelongsToClient(imageKey, clientId)) {
+    throw new Error("Görsel anahtarı bu müşteriye ait değil");
+  }
+  return signGetUrl(imageKey, MAX_GET_URL_TTL_SECONDS);
 }
 
 /**
@@ -568,6 +587,7 @@ async function notifyPortalOutcome(
       where: { id: postId },
       select: {
         source: true,
+        isAd: true,
         caption: true,
         igPermalink: true,
         agencyId: true,
@@ -595,6 +615,7 @@ async function notifyPortalOutcome(
             clientName: post.client.name,
             caption: post.caption,
             igPermalink: post.igPermalink,
+            isAd: post.isAd,
           })
         : await sendQueueFailedEmail({
             to,
@@ -602,6 +623,7 @@ async function notifyPortalOutcome(
             caption: post.caption,
             reason,
             portalUrl: portalUrl(),
+            isAd: post.isAd,
           });
     if (!result.sent) {
       console.error(`[publish] kuyruk sonuç e-postası gitmedi: post=${postId} (${result.reason})`);
@@ -613,8 +635,8 @@ async function notifyPortalOutcome(
     await notifyClientUsers(
       post.clientId,
       outcome === "published"
-        ? publishedPush({ caption: post.caption, igPermalink: post.igPermalink })
-        : failedPush({ postId, reason })
+        ? publishedPush({ caption: post.caption, igPermalink: post.igPermalink, isAd: post.isAd })
+        : failedPush({ postId, reason, isAd: post.isAd })
     );
 
     if (outcome === "failed") {

@@ -250,6 +250,27 @@ describe("DELETE /api/posts/[id]", () => {
     );
   });
 
+  it("panelden silinen portal reklamının görseli de silinir (V12)", async () => {
+    const agency = await createAgency();
+    const client = await createClient(agency.id);
+    const ad = await db.post.create({
+      data: {
+        agencyId: agency.id,
+        clientId: client.id,
+        source: "portal",
+        isAd: true,
+        caption: "",
+        status: "pending",
+        imageKey: `clients/${client.id}/ads/reklam.jpg`,
+      },
+    });
+    mockAuth.mockResolvedValue({ agencyId: agency.id } as never);
+
+    const res = await DELETE(deleteRequest(), params(ad.id));
+    expect(res.status).toBe(200);
+    expect(deleteOwnedObjects).toHaveBeenCalledWith(client.id, [ad.imageKey], "posts:delete");
+  });
+
   it("yayınlanmış postu SİLMEZ (409)", async () => {
     const agency = await createAgency();
     const client = await createClient(agency.id);

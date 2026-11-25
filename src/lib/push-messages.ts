@@ -15,9 +15,13 @@ function formatTime(at: Date, timeZone: string): string {
   return at.toLocaleTimeString("tr-TR", { timeZone, hour: "2-digit", minute: "2-digit" });
 }
 
-export function publishedPush(input: { caption: string; igPermalink: string | null }): PushPayload {
+export function publishedPush(input: {
+  caption: string;
+  igPermalink: string | null;
+  isAd?: boolean;
+}): PushPayload {
   return {
-    title: "Videon yayınlandı",
+    title: input.isAd ? "Reklam görselin yayınlandı" : "Videon yayınlandı",
     body: captionHead(input.caption, 90) || "Instagram'da görmek için dokun.",
     // Permalink yoksa (Instagram döndürmediyse) geçmiş sayfası.
     url: input.igPermalink ?? "/portal/gecmis",
@@ -26,12 +30,27 @@ export function publishedPush(input: { caption: string; igPermalink: string | nu
 }
 
 /** `reason` çağıranda `safeReason`'dan geçmiş olmalı (imzalı URL/token ayıklanmış). */
-export function failedPush(input: { postId: string; reason: string | null }): PushPayload {
+export function failedPush(input: {
+  postId: string;
+  reason: string | null;
+  isAd?: boolean;
+}): PushPayload {
   return {
-    title: "Video yayınlanamadı",
+    title: input.isAd ? "Reklam görseli yayınlanamadı" : "Video yayınlanamadı",
     body: input.reason ? `Neden: ${input.reason}` : "Ayrıntı için dokun.",
-    url: `/portal/video/${encodeURIComponent(input.postId)}`,
+    // Reklamın detay sayfası yok; hata kartı ve "tekrar dene" havuz ekranında.
+    url: input.isAd ? "/portal/reklamlar" : `/portal/video/${encodeURIComponent(input.postId)}`,
     tag: "yayin-sonucu",
+  };
+}
+
+/** V12 — son reklam yayınlandı; tetik ve tekillik tick'te (bkz. `renderAdPoolEmpty`). */
+export function adPoolEmptyPush(): PushPayload {
+  return {
+    title: "Reklam havuzun boşaldı",
+    body: "Son reklam görseli de yayınlandı. Videolar devam ediyor; yeni görsel yükleyebilirsin.",
+    url: "/portal/reklamlar",
+    tag: "reklam-havuzu",
   };
 }
 

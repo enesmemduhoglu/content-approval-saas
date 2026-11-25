@@ -219,8 +219,43 @@ model PublishSettings {
   /** Yayın sonucu e-postalarının adresi; boşsa `Client.email`. */
   notifyEmail     String?
 
+  // ─── V12 — reklam görselleri (K36) ──────────────────────────────────────
+  // Reklam video slotunu ALMAZ: kendi saatinde (`adSlot`, video ile aynı
+  // `days`) ek post olarak çıkar, ama yalnızca son reklamdan beri yeterince
+  // video yayınlandıysa. Hepsi varsayılanlı ya da nullable — göç toplayıcı,
+  // mevcut satırlarda reklam kapalı.
+  adsEnabled  Boolean @default(false)
+  /** "HH:MM", `timezone`a göre yerel; video `slots`undan farklı olmak zorunda. */
+  adSlot      String  @default("21:00")
+  /**
+   * "Her N–M videoda bir". Sabit mod (“her 5 videoda bir”) min = max demek:
+   * ayrı bir mod kolonu iki alanın çelişebileceği bir yer açardı.
+   */
+  adMinGap    Int     @default(5)
+  adMaxGap    Int     @default(10)
+  /**
+   * Bu turda kaç video sonra reklam çıkacağı — `[adMinGap, adMaxGap]`tan
+   * çekilip SAKLANIR. Her tick'te yeniden çekilseydi "5–10" aralığı fiilen
+   * "ilk şanslı tick"e dönüşür, ortalama 5'e yığılırdı.
+   */
+  adNextAfter Int?
+  /** Sayacın başladığı an: son reklamın yayını ya da reklamın açıldığı an. */
+  adCountFrom DateTime?
+  /** Reklamın varsayılan caption'ı; reklama özel metin yoksa bu kullanılır. */
+  adCaption   String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/**
+ * V12 — `SlotRun`un hangi takvime ait olduğu. Reklam saati video saatinden
+ * ayrı bir takvim; aynı ana düşseler bile (ayar değişikliği günü) birbirinin
+ * "bu slot işlendi" kaydını yememeli — UNIQUE bu yüzden `kind`i de içeriyor.
+ */
+enum SlotKind {
+  video
+  ad
 }
 
 enum SlotOutcome {
@@ -251,9 +286,11 @@ model SlotRun {
   /** Boş = satır alındı, sonuç henüz yazılmadı (tick yarıda kaldıysa görünür). */
   outcome  SlotOutcome?
   detail   String?
+  /** V12 — video slotu mu reklam saati mi. Eski satırlar ve eski kod `video`. */
+  kind     SlotKind @default(video)
   createdAt DateTime @default(now())
 
-  @@unique([clientId, slotAt])
+  @@unique([clientId, slotAt, kind])
 }
 
 /**
@@ -536,6 +573,21 @@ model Post {
    * üretimi ya da "yeniden üret" satırı değiştirip sayacı sıfırlardı.
    */
   outsideAt     DateTime?
+
+  /**
+   * V12 — reklam görseli (K36). Reklam video kuyruğuna GİRMEZ
+   * (`queuePosition` hep null): kuyruğun her sorgusu, sayacı ve temizliği
+   * `queuePosition`a bakıyor; reklamı oraya koymak her birine bir `isAd`
+   * filtresi eklemek, unutulan her yerde reklamı video gibi yayınlamak demekti.
+   * Havuz sırası yükleme sırası (`createdAt`, `sourceName`).
+   */
+  isAd          Boolean        @default(false)
+  /**
+   * R2 nesne anahtarı (`clients/<id>/ads/<postId>.jpg`). `PostImage.url` bir
+   * URL tutuyor (Blob, herkese açık); R2 bucket'ı gizli, URL yayın anında
+   * imzalanıyor — `videoKey` ile aynı gerekçe. Tek görsel: reklam karusel değil.
+   */
+  imageKey      String?
 
   @@index([agencyId])
   @@index([clientId])
