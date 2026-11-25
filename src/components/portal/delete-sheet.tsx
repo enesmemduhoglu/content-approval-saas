@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
 import { IconTrash } from "@/components/portal/icons";
-import { useScrollLock } from "@/components/portal/use-scroll-lock";
+import { Sheet } from "@/components/portal/sheet";
 
 export type DeleteSheetProps = {
   /** Hangi videonun silineceği: listeden açılınca kapak + caption başı gösterilir. */
@@ -21,25 +20,10 @@ export type DeleteSheetProps = {
  */
 export function DeleteSheet(props: DeleteSheetProps) {
   const { busy, onCancel } = props;
-  // V12c: açıkken arka sayfa kaymasın (iOS; bkz. use-scroll-lock).
-  useScrollLock();
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onCancel();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [busy, onCancel]);
 
   return (
-    <div className="p-sheet-layer">
-      <div className="p-sheet-backdrop" aria-hidden="true" onClick={busy ? undefined : onCancel} />
-      <div className="p-sheet" role="dialog" aria-modal="true" aria-labelledby="p-sheet-title">
-        <span className="p-sheet-handle" aria-hidden="true" />
-        <h2 className="p-sheet-title" id="p-sheet-title">
-          Video silinsin mi?
-        </h2>
+    // Kapatma yolları ve arka sayfa kilidi `Sheet`te (reklam sayfasıyla ortak).
+    <Sheet titleId="p-sheet-title" title="Video silinsin mi?" busy={busy} onClose={onCancel}>
         {props.caption !== undefined && (
           <div className="p-sheet-video">
             {props.coverUrl ? (
@@ -79,8 +63,7 @@ export function DeleteSheet(props: DeleteSheetProps) {
             {busy ? "Siliniyor…" : "Kalıcı olarak sil"}
           </button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
