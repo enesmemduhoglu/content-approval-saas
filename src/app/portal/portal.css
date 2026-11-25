@@ -2704,3 +2704,54 @@ body:has(.portal-root) {
   color: var(--p-body-2);
   text-decoration: none;
 }
+
+/* ─── Sheet kapatma (2026-11-25, iPhone: "kapatmak zor") ───────────────────
+ * iOS Safari `cursor: pointer` taşımayan `div`'e tıklama İLETMİYOR: arka
+ * plana dokunmak sayfayı kapatmıyordu. Üst blok (tutamaç + başlık) aşağı
+ * kaydırmanın tutma yeri; `touch-action: none` orada tarayıcının kendi
+ * kaydırmasını devreden çıkarır ki sürükleme parmağı izlesin. */
+.p-sheet-backdrop {
+  cursor: pointer;
+}
+
+.p-sheet {
+  overscroll-behavior: none;
+  will-change: transform;
+}
+
+.p-sheet-top {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  touch-action: none;
+}
+
+.p-sheet-headrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.p-sheet-headrow .p-sheet-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.portal-root .p-sheet-close {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--p-sand);
+  color: var(--p-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.portal-root .p-sheet-close:disabled {
+  opacity: 0.45;
+}

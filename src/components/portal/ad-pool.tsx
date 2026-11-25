@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -25,7 +25,7 @@ import { adPublishErrorTitle } from "@/lib/portal-publish-error";
 import { CAPTION_MAX_LENGTH } from "@/lib/validation";
 import { IconExternal, IconTrash } from "@/components/portal/icons";
 import { moveBody } from "@/components/portal/queue-board";
-import { useScrollLock } from "@/components/portal/use-scroll-lock";
+import { Sheet } from "@/components/portal/sheet";
 
 type CardView = Omit<AdCard, "publishedAt"> & { publishedLabel: string | null };
 
@@ -70,16 +70,6 @@ function AdSheet({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editable = card.state === "next" || card.state === "queued" || card.state === "failed";
-  // Sheet kendi içinde kayar, arka sayfa kıpırdamaz (bkz. use-scroll-lock).
-  useScrollLock();
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
 
   async function run(action: () => Promise<{ ok: true } | { ok: false; error: string }>) {
     setBusy(true);
@@ -101,13 +91,14 @@ function AdSheet({
   });
 
   return (
-    <div className="p-sheet-layer">
-      <div className="p-sheet-backdrop" aria-hidden="true" onClick={busy ? undefined : onClose} />
-      <div className="p-sheet" role="dialog" aria-modal="true" aria-labelledby="p-adsheet-title">
-        <span className="p-sheet-handle" aria-hidden="true" />
-        <h2 className="p-sheet-title" id="p-adsheet-title">
-          {confirmDelete ? "Reklam silinsin mi?" : (card.sourceName ?? "Reklam görseli")}
-        </h2>
+    // Çerçeve, kapatma yolları (arka plan, aşağı kaydırma, kapat düğmesi,
+    // Escape) ve arka sayfa kilidi `Sheet`te.
+    <Sheet
+      titleId="p-adsheet-title"
+      title={confirmDelete ? "Reklam silinsin mi?" : (card.sourceName ?? "Reklam görseli")}
+      busy={busy}
+      onClose={onClose}
+    >
         {card.coverUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={card.coverUrl} alt="" className="p-adsheet-img" />
@@ -227,8 +218,7 @@ function AdSheet({
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
