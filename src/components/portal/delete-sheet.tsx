@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { IconTrash } from "@/components/portal/icons";
+import { useScrollLock } from "@/components/portal/use-scroll-lock";
 
 export type DeleteSheetProps = {
   /** Hangi videonun silineceği: listeden açılınca kapak + caption başı gösterilir. */
@@ -20,6 +21,8 @@ export type DeleteSheetProps = {
  */
 export function DeleteSheet(props: DeleteSheetProps) {
   const { busy, onCancel } = props;
+  // V12c: açıkken arka sayfa kaymasın (iOS; bkz. use-scroll-lock).
+  useScrollLock();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

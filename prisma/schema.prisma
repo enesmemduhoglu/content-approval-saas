@@ -588,6 +588,14 @@ model Post {
    * imzalanıyor — `videoKey` ile aynı gerekçe. Tek görsel: reklam karusel değil.
    */
   imageKey      String?
+  /**
+   * V12c — havuz sırası (portalda basılı tutup sürükleyerek değişir).
+   * `queuePosition` ile aynı Float deseni (araya taşıma tek satır günceller)
+   * ama AYRI kolon: reklamı `queuePosition`a koymak onu video kuyruğunun her
+   * sorgusuna sokardı (yukarıdaki `isAd` notu). Boş = sıranın sonu, yükleme
+   * sırasıyla (`ads.ts > compareAds`).
+   */
+  adPosition    Float?
 
   @@index([agencyId])
   @@index([clientId])

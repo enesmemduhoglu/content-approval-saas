@@ -44,6 +44,7 @@ import { POST as uploadAds } from "./ads/upload/route";
 import { POST as completeAd } from "./ads/[id]/complete/route";
 import { DELETE as deleteAd, PATCH as patchAd } from "./ads/[id]/route";
 import { POST as retryAd } from "./ads/[id]/retry/route";
+import { POST as moveAd } from "./ads/[id]/move/route";
 import { PUT as putAdSettings } from "./ads/settings/route";
 import { DELETE as deleteVideo } from "./videos/[id]/route";
 import { GET as listVideos } from "./videos/route";
@@ -115,6 +116,18 @@ describe("POST /api/portal/ads/upload", () => {
     ]);
     expect(rows[0].imageKey).toBe(`clients/${clientId}/ads/${rows[0].id}.jpg`);
     expect(signPutUrl).toHaveBeenCalledWith(rows[0].imageKey, "image/jpeg");
+  });
+
+  it("yeni taslaklar havuzun sonuna, seçim sırasıyla konum alır (V12c)", async () => {
+    await createAdPost(agencyId, clientId, { adPosition: 5000 });
+    await uploadAds(
+      req("/api/portal/ads/upload", "POST", { files: [jpegFile({ name: "b.jpg" }), jpegFile({ name: "a.jpg" })] })
+    );
+    const drafts = await db.post.findMany({ where: { clientId, status: "draft" }, orderBy: { adPosition: "asc" } });
+    expect(drafts.map((d) => [d.sourceName, d.adPosition])).toEqual([
+      ["b.jpg", 5000 + 1024],
+      ["a.jpg", 5000 + 2048],
+    ]);
   });
 
   it("oturumsuz 401, yabancı Origin 403 — taslak doğmaz", async () => {
@@ -388,5 +401,99 @@ describe("PUT /api/portal/ads/settings", () => {
     await createPublishSettings(clientId, { slots: ["19:00"] });
     const res = await putAdSettings(req("/api/portal/ads/settings", "PUT", valid, { origin: "https://kotu.example" }));
     expect(res.status).toBe(403);
+  });
+});
+
+// ─── Sıralama (V12c) ──────────────────────────────────────────────────────
+
+describe("POST /api/portal/ads/[id]/move", () => {
+  async function pool(n: number) {
+    const ads = [];
+    for (let i = 1; i <= n; i += 1) {
+      ads.push(await createAdPost(agencyId, clientId, { adPosition: i * 1024, sourceName: `${i}.jpg` }));
+    }
+    return ads;
+  }
+  const order = async () =>
+    (
+      await db.post.findMany({
+        where: { clientId, isAd: true, publishStatus: { in: ["idle", "failed"] } },
+        orderBy: { adPosition: "asc" },
+        select: { sourceName: true },
+      })
+    ).map((p) => p.sourceName);
+  const move = (id: string, body: unknown, extra: { cookie?: string; origin?: string } = {}) =>
+    moveAd(req(`/api/portal/ads/${id}/move`, "POST", body, extra), idParams(id));
+
+  it("ortaya, başa ve sona taşır", async () => {
+    const [a, b, c, d] = await pool(4);
+    expect((await move(d.id, { afterId: a.id, beforeId: b.id })).status).toBe(200);
+    expect(await order()).toEqual(["1.jpg", "4.jpg", "2.jpg", "3.jpg"]);
+    expect((await move(c.id, { beforeId: a.id })).status).toBe(200);
+    expect(await order()).toEqual(["3.jpg", "1.jpg", "4.jpg", "2.jpg"]);
+    expect((await move(c.id, { afterId: b.id })).status).toBe(200);
+    expect(await order()).toEqual(["1.jpg", "4.jpg", "2.jpg", "3.jpg"]);
+  });
+
+  it("komşular artık yan yana değilse 409, sıra değişmez", async () => {
+    const [a, , c, d] = await pool(4);
+    expect((await move(d.id, { afterId: a.id, beforeId: c.id })).status).toBe(409);
+    expect(await order()).toEqual(["1.jpg", "2.jpg", "3.jpg", "4.jpg"]);
+  });
+
+  it("konumsuz (eski) reklam varken havuz tam yeniden numaralanır", async () => {
+    const [a, b] = await pool(2);
+    const legacy = await createAdPost(agencyId, clientId, { sourceName: "eski.jpg" });
+    expect((await move(legacy.id, { beforeId: a.id })).status).toBe(200);
+    expect(await order()).toEqual(["eski.jpg", "1.jpg", "2.jpg"]);
+    expect((await db.post.findUniqueOrThrow({ where: { id: b.id } })).adPosition).toBe(3072);
+  });
+
+  it("float çözünürlüğü tükenince yeniden numaralar", async () => {
+    const [a, b, c] = await pool(3);
+    await db.post.update({ where: { id: b.id }, data: { adPosition: 1024 + 1e-7 } });
+    expect((await move(c.id, { afterId: a.id, beforeId: b.id })).status).toBe(200);
+    expect(await order()).toEqual(["1.jpg", "3.jpg", "2.jpg"]);
+    const positions = (await db.post.findMany({ where: { clientId }, orderBy: { adPosition: "asc" } })).map(
+      (p) => p.adPosition
+    );
+    expect(positions).toEqual([1024, 2048, 3072]);
+  });
+
+  it("yayınlanmış ya da yayınlanmakta olan reklam taşınamaz (404), komşu da olamaz", async () => {
+    const [a] = await pool(2);
+    const live = await createAdPost(agencyId, clientId, { publishStatus: "published", adPosition: 100 });
+    const going = await createAdPost(agencyId, clientId, { publishStatus: "publishing", adPosition: 200 });
+    expect((await move(live.id, { beforeId: a.id })).status).toBe(404);
+    expect((await move(going.id, { beforeId: a.id })).status).toBe(404);
+    expect((await move(a.id, { beforeId: live.id })).status).toBe(409);
+  });
+
+  it("IDOR: B, A'nın reklamını taşıyamaz ve komşu yapamaz", async () => {
+    const [a, b] = await pool(2);
+    const foreign = await createAdPost(agencyId, otherClientId, { adPosition: 1 });
+    expect((await move(a.id, { afterId: b.id }, { cookie: otherCookie })).status).toBe(404);
+    expect((await move(a.id, { beforeId: foreign.id })).status).toBe(409);
+    expect(await order()).toEqual(["1.jpg", "2.jpg"]);
+  });
+
+  it("video bu uçtan taşınamaz (404)", async () => {
+    const [a] = await pool(1);
+    const video = await createQueuePost(agencyId, clientId);
+    expect((await move(video.id, { beforeId: a.id })).status).toBe(404);
+  });
+
+  it("kapılar: oturumsuz 401, yabancı Origin 403, geçersiz gövde 400, kendine 400", async () => {
+    const [a, b] = await pool(2);
+    expect((await move(a.id, { afterId: b.id }, { cookie: "" })).status).toBe(401);
+    expect((await move(a.id, { afterId: b.id }, { origin: "https://kotu.example" })).status).toBe(403);
+    expect((await move(a.id, {})).status).toBe(400);
+    expect((await move(a.id, { beforeId: a.id })).status).toBe(400);
+  });
+
+  it("hız sınırı 429", async () => {
+    const [a, b] = await pool(2);
+    for (let i = 0; i < PORTAL_RATE_LIMIT_MAX; i += 1) await move(a.id, {});
+    expect((await move(a.id, { afterId: b.id })).status).toBe(429);
   });
 });

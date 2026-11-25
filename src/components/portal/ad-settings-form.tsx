@@ -231,7 +231,8 @@ export function AdSettingsForm({
               </span>
               <span className="p-set-sub">Videolarla aynı günlerde, videodan ayrı bir saatte.</span>
             </div>
-            <span className="p-chip">
+            {/* `--solo`: kaldırma düğmesi yok, saat ortada ve çipin tamamı dokunulabilir. */}
+            <span className="p-chip p-chip--solo">
               <span className="p-chip-time" aria-hidden="true">
                 {slot || "--:--"}
               </span>
@@ -253,7 +254,8 @@ export function AdSettingsForm({
             <textarea
               id="reklam-metin"
               className="p-textarea"
-              rows={5}
+              // Varsayılan metin (7 satır) kaydırmadan tam görünsün.
+              rows={9}
               maxLength={CAPTION_MAX_LENGTH}
               value={caption}
               placeholder="Özel ders için DM'den yaz! İlk ders %50 indirimli. #ingilizce"

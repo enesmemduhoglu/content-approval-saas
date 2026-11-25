@@ -379,6 +379,7 @@ export function loadAdPool(clientId: string) {
       publishStatus: true,
       createdAt: true,
       sourceName: true,
+      adPosition: true,
     },
   });
 }

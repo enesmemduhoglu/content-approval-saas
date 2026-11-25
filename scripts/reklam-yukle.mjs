@@ -9,9 +9,10 @@
  * Portal üzerinden yüklemek müşterinin oturumunu (e-postasına giden kod)
  * gerektiriyor; bu betik ajansın elindeki görselleri toplu koymak için.
  *
- * Sıra: havuz `createdAt`, sonra `sourceName` ile sıralanır (`ads.ts >
- * compareAds`). Satırlar TEK TEK, sırayla yazıldığı için `createdAt` artan —
- * verilen sıra yayın sırası olur. `sourceName` "seri/01.jpg" biçiminde:
+ * Sıra: havuz `adPosition` ile sıralanır (`ads.ts > compareAds`, V12c). Her
+ * dosya havuzun SONUNA, verilen sırayla 1024'lük adımlarla konum alır
+ * (`client-scoped-db > ads.createDrafts` ile aynı kural); satırlar tek tek
+ * yazıldığı için `createdAt` da artan. `sourceName` "seri/01.jpg" biçiminde:
  * iki klasörde aynı adlı dosya ("1.jpg" / "01.jpg") portalda ayırt edilsin.
  *
  * Doğrulamalar portal yolundakiyle aynı (portal-validation.ts, jpeg-size.ts):
@@ -182,7 +183,13 @@ try {
     console.log('\nDRY-RUN — hiçbir şey yazılmadı. Yüklemek için: --apply');
   } else {
     let tamam = 0;
+    const agg = await db.post.aggregate({
+      where: { clientId, source: 'portal', isAd: true },
+      _max: { adPosition: true },
+    });
+    let konum = agg._max.adPosition ?? 0;
     for (const d of yuklenecek) {
+      konum += 1024; // queue.ts > POSITION_STEP
       // Satır önce: anahtar post id'sinden türüyor (storage-r2.ts > adImageKey).
       const post = await db.post.create({
         data: {
@@ -196,6 +203,7 @@ try {
           queuePosition: null,
           sourceSize: d.bayt.length,
           sourceName: d.ad,
+          adPosition: konum,
         },
         select: { id: true },
       });

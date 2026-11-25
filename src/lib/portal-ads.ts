@@ -19,13 +19,31 @@ export type AdSettingsView = {
   adCaption: string;
 };
 
+/**
+ * Kayıtlı metin yokken alana DOLU (placeholder değil) gelen reklam metni:
+ * kullanıcı değiştirmedikçe "Kaydet" bunu yazar. Yalnızca reklam
+ * görsellerinde geçen bilgiler — online / yüz yüze, her seviye, ilk ders
+ * %50 indirimli, DM'den "DERS" — uydurma bir vaat yok. Müşteriye özel
+ * (Furkan Hoca); ikinci bir reklam müşterisi gelince kendi metnini yazar,
+ * gerekirse bu sabit müşteri alanına taşınır.
+ */
+export const DEFAULT_AD_CAPTION = [
+  "Furkan Hoca ile birebir İngilizce özel ders 🎯",
+  "Online ya da yüz yüze · her seviyeye uygun · sana özel ders planı.",
+  "Ezber değil, gerçek hayatta konuşacağın İngilizce.",
+  "",
+  "İlk ders %50 indirimli! Yerini ayırtmak için DM'den \"DERS\" yaz 📩",
+  "",
+  "#ingilizce #ingilizceözelders #özelders #ingilizceöğren #onlineingilizce #ingilizcekonuşma #speakingpractice",
+].join("\n");
+
 /** Ayar satırı yoksa şema varsayılanları — reklam kapalı. */
 export const AD_SETTINGS_DEFAULTS: AdSettingsView = {
   adsEnabled: false,
   adSlot: "21:00",
   adMinGap: 5,
   adMaxGap: 10,
-  adCaption: "",
+  adCaption: DEFAULT_AD_CAPTION,
 };
 
 export function toAdSettingsView(settings: PublishSettings | null): AdSettingsView {
@@ -35,7 +53,8 @@ export function toAdSettingsView(settings: PublishSettings | null): AdSettingsVi
     adSlot: settings.adSlot,
     adMinGap: settings.adMinGap,
     adMaxGap: settings.adMaxGap,
-    adCaption: settings.adCaption ?? "",
+    // `null` = hiç kaydedilmedi → dolu varsayılan; kaydedilmiş metin aynen.
+    adCaption: settings.adCaption ?? DEFAULT_AD_CAPTION,
   };
 }
 

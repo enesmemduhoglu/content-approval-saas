@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }));
 
-import { AdPool, type AdCardView } from "./ad-pool";
+import { AdPool, withLocalNext, type AdCardView } from "./ad-pool";
 
 const fetchMock = vi.fn();
 
@@ -78,6 +78,21 @@ describe("AdPool", () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it("silme düğmesi kırmızı; sayfa açıkken arka sayfa kilitli, kapanınca serbest (V12c)", () => {
+    render(<AdPool pool={[card("01")]} published={[]} defaultCaption="" />);
+    fireEvent.click(screen.getByRole("button", { name: /1\. reklam/ }));
+    expect(screen.getByRole("button", { name: "Reklamı sil" }).className).toContain("p-btn--danger");
+    expect(document.body.style.position).toBe("fixed");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.style.position).toBe("");
+  });
+
+  it("ipucu basılı tutup sürüklemeyi söyler", () => {
+    render(<AdPool pool={[card("01"), card("02")]} published={[]} defaultCaption="" />);
+    expect(screen.getByText("Basılı tut, sürükleyerek sırala")).toBeTruthy();
+  });
+
   it("silme ayrı onay ister, onaydan sonra DELETE", async () => {
     fetchMock.mockResolvedValue(ok());
     render(<AdPool pool={[card("01")]} published={[]} defaultCaption="" />);
@@ -124,5 +139,22 @@ describe("AdPool", () => {
     expect(screen.getByRole("link", { name: "Instagram'da aç" }).getAttribute("href")).toBe(
       "https://instagram.com/p/1/"
     );
+  });
+});
+
+describe("withLocalNext — sıradaki rozeti yerel sıradan (V12c)", () => {
+  const s = (id: string, state: AdCardView["state"]) => ({ id, state });
+  it("ilk uygun kart sıradaki olur; hata ve yayınlanmakta olan korunur", () => {
+    expect(
+      withLocalNext([s("a", "failed"), s("b", "queued"), s("c", "next"), s("d", "publishing")]).map((c) => [
+        c.id,
+        c.state,
+      ])
+    ).toEqual([
+      ["a", "failed"],
+      ["b", "next"],
+      ["c", "queued"],
+      ["d", "publishing"],
+    ]);
   });
 });

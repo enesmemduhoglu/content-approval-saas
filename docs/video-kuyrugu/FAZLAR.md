@@ -7,7 +7,13 @@ Tasarım: [`README.md`](README.md) · Kararlar: [`KARARLAR.md`](KARARLAR.md)
 > Her oturum bu bölümü güncelleyerek biter. Yeni oturum buradan başlar.
 > Yalnızca GÜNCEL durum yazılır; kapanmış işlerin ayrıntısı PR'larda ve git geçmişinde.
 
-- **Son güncelleme:** 2026-11-25 (V12 Instagram görsel doğrulaması, K36)
+- **Son güncelleme:** 2026-11-25 (V12c reklam ekranı düzeltmeleri + havuz sıralama)
+- **2026-11-25 V12c (iPhone geri bildirimi).**
+  - Havuz basılı tutup sürükleyerek sıralanıyor (`adPosition`, göç `20261125180000_reklam_sirasi`; backfill mevcut sırayı koruyor).
+  - Reklam saati çipi ortalandı (`.p-chip--solo`).
+  - Varsayılan reklam metni alanda dolu geliyor (`portal-ads.ts > DEFAULT_AD_CAPTION`).
+  - Alttan açılan sayfalar kendi içinde kayıyor ve arka sayfayı kilitliyor (`use-scroll-lock`).
+  - Reklam sil düğmesi kırmızı.
 - **2026-11-25 V12 — reklam görselleri (K36).** V12a (#101) ve V12b (#102) merge
   edildi; göç prod'da, reklam varsayılan kapalı.
   **Instagram ← R2 görsel doğrulandı** (`scripts/ig-gorsel-dogrula.mjs --calistir`,
@@ -269,7 +275,10 @@ Tek sayfalık reklam görselleri videoların arasına ek paylaşım olarak çık
   - Uyandırmada `adWakeSlot`.
   - `/api/portal/ads/{upload,[id]/complete,[id],[id]/retry,settings}`.
   - Temizlik yolları: taslak, panel silme, `r2-denetim`.
-- **V12b — portal arayüzü (`feat/v12b-reklam-arayuzu`).**
+- **V12c — ekran düzeltmeleri + havuz sıralama (`feat/v12c-reklam-ekran-duzeltmeleri`).**
+  Reklam saati çipi, dolu varsayılan metin, sheet kaydırma/kilit, kırmızı sil,
+  havuzda basılı tut-sürükle (`ads.move`, `POST /api/portal/ads/[id]/move`).
+- **V12b — portal arayüzü (#102).**
   - `/portal/reklamlar`: "Sıradaki reklam" kartı, ayar formu (`ad-settings-form`:
     Sabit / Aralık, reklam saati, varsayılan metin), yükleyici (`ad-uploader` +
     `ad-image-client`: oran seçimde, JPEG değilse ya da 8 MB üstüyse canvas'tan

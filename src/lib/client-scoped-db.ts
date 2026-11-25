@@ -9,7 +9,8 @@ import {
   type PrefixUsage,
 } from "@/lib/storage-r2";
 import { planMove, positionAtEnd, type MoveTarget } from "@/lib/portal-order";
-import { renumberPositions } from "@/lib/queue";
+import { POSITION_STEP, renumberPositions } from "@/lib/queue";
+import { compareAds } from "@/lib/ads";
 import type { AdSettingsInput, PublishSettingsInput } from "@/lib/portal-validation";
 import { instagramHealth, type InstagramHealth } from "@/lib/portal-instagram";
 
@@ -142,6 +143,17 @@ export function isCaptionStuck(
   now: Date = new Date()
 ): boolean {
   return row.captionStatus === "pending" && row.updatedAt.getTime() < now.getTime() - STUCK_PENDING_MS;
+}
+
+/**
+ * `target`a göre yeni id sırası (`planMove` doğruladıktan SONRA çağrılır;
+ * komşular burada bulunur kabul edilir).
+ */
+function reorder(ids: string[], movingId: string, target: MoveTarget): string[] {
+  const rest = ids.filter((id) => id !== movingId);
+  const at = target.afterId ? rest.indexOf(target.afterId) + 1 : rest.indexOf(target.beforeId!);
+  rest.splice(at, 0, movingId);
+  return rest;
 }
 
 export type MoveResult =
@@ -672,14 +684,23 @@ export function getClientScopedDb(session: ClientSession) {
             select: { agencyId: true },
           });
           if (!client) throw new Error("Müşteri bulunamadı");
+          // V12c: konum TASLAKTA, seçim sırasıyla verilir. Yükleyici
+          // görselleri paralel tamamlıyor; konum tamamlanmada verilseydi
+          // havuz sırası "hangisi önce bitti"ye dönerdi. Taslaklar da sayılır:
+          // iki eşzamanlı seçim aynı konumu almasın (yarışta eşitlik `createdAt`
+          // ile bozulur, sıra yine kararlı).
+          const agg = await tx.post.aggregate({ where: adScope, _max: { adPosition: true } });
+          let position = agg._max.adPosition ?? 0;
           const out: { id: string; imageKey: string }[] = [];
           for (const file of files) {
+            position += POSITION_STEP;
             const post = await tx.post.create({
               data: {
                 agencyId: client.agencyId,
                 clientId,
                 source: "portal",
                 isAd: true,
+                adPosition: position,
                 status: "draft",
                 caption: "",
                 captionStatus: null,
@@ -735,6 +756,7 @@ export function getClientScopedDb(session: ClientSession) {
             imageKey: true,
             sourceName: true,
             createdAt: true,
+            adPosition: true,
           },
         }),
 
@@ -793,6 +815,65 @@ export function getClientScopedDb(session: ClientSession) {
           throw error;
         }
       },
+
+      /**
+       * V12c — havuzda taşıma (basılı tut, sürükle). `posts.move`un reklam
+       * ikizi: hesap aynı saf `planMove`, yalnızca konum kolonu `adPosition`.
+       * Yalnızca HAVUZDAKİ reklam taşınır ve komşu olabilir: yayınlanmış ya da
+       * şu an yayınlanan reklamın sırası artık anlamsız, taslak henüz havuzda
+       * değil. Komşu id'leri de bu kapsamlı listeden çözülür — başka müşterinin
+       * reklamı "komşu bulunamadı"ya düşer.
+       */
+      move: (id: string, target: MoveTarget): Promise<MoveResult> =>
+        db.$transaction(async (tx) => {
+          const rows = await tx.post.findMany({
+            where: { ...adScope, status: { not: "draft" }, publishStatus: EDITABLE_PUBLISH },
+            select: {
+              id: true,
+              status: true,
+              publishStatus: true,
+              createdAt: true,
+              sourceName: true,
+              adPosition: true,
+            },
+          });
+          // Ekrandaki sıra = tick'in sırası (`compareAds`); konumu olmayan
+          // satır varsa planın "single" dalı sonsuzla ortalama alamaz —
+          // önce bütün havuz o sırayla numaralanır.
+          const pool = [...rows].sort(compareAds);
+          if (!pool.some((row) => row.id === id)) return { ok: false, reason: "not_found" } as const;
+          const hasGap = pool.some((row) => row.adPosition === null);
+          const plan = planMove(
+            pool.map((row, index) => ({
+              id: row.id,
+              queuePosition: hasGap ? (index + 1) * POSITION_STEP : (row.adPosition as number),
+            })),
+            id,
+            target
+          );
+          if (plan.kind === "error") {
+            return {
+              ok: false,
+              reason: plan.reason === "not_in_queue" ? "not_found" : plan.reason,
+            } as const;
+          }
+          const writes =
+            plan.kind === "single" && !hasGap
+              ? [{ id, queuePosition: plan.position }]
+              : renumberPositions(
+                  plan.kind === "renumber"
+                    ? plan.order
+                    : // Boşluklu havuzda tek satır yazılamaz: yeni sıra tam yazılır.
+                      reorder(pool.map((row) => row.id), id, target)
+                );
+          for (const row of writes) {
+            await tx.post.updateMany({
+              where: { id: row.id, ...adScope, publishStatus: EDITABLE_PUBLISH },
+              data: { adPosition: row.queuePosition },
+            });
+          }
+          return { ok: true } as const;
+        }),
 
       /** Son reklamdan beri yayınlanan video sayısı — tick'in sayacıyla aynı tanım. */
       publishedVideosSince: (from: Date): Promise<number> =>
