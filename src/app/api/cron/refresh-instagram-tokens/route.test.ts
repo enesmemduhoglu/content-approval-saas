@@ -203,6 +203,22 @@ describe("kısmi hata dayanıklılığı", () => {
       "IGAA-2"
     );
     expect(await kayitliToken(last.id)).toBe("IGAA-3-yeni");
+    // 190 = Meta iptal etti: token yarın da yenilenemez, kuyruk ilk slotta video
+    // yakmasın diye bitiş tarihi "şimdi"ye çekilir. Diğerleri 60 güne uzar.
+    const brokenRow = await db.client.findUniqueOrThrow({ where: { id: broken.id } });
+    expect(brokenRow.instagramTokenExpiry!.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("190 OLMAYAN yenileme hatası bitiş tarihine dokunmaz (yarın yeniden denenir)", async () => {
+    const agency = await createAgency();
+    const client = await dueClient(agency.id, "IGAA-1");
+    mockRefresh.mockRejectedValue(
+      new IGError("Please retry", { error: { code: 2, type: "OAuthException" } })
+    );
+
+    expect(await (await GET(cronRequest())).json()).toMatchObject({ failed: 1 });
+    const row = await db.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(row.instagramTokenExpiry).toEqual(client.instagramTokenExpiry);
   });
 
   it("IGError olmayan beklenmedik hata da diğerlerini durdurmaz", async () => {

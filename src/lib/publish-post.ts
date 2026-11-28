@@ -8,8 +8,10 @@ import {
   checkMediaLiveness,
   createReelContainer,
   finalizeContainer,
+  isRevokedTokenError,
   publishToInstagram,
 } from "@/lib/instagram";
+import { expireRevokedToken } from "@/lib/instagram-revoked";
 import { isInstagramTokenExpired, isPublishTarget } from "@/lib/instagram-token";
 import { notifyAgencyTeam } from "@/lib/agency-notify";
 import {
@@ -41,6 +43,12 @@ export type PublishOutcome = {
   igPermalink?: string | null;
   /** Kullanıcıya gösterilebilir (ayrıntı içermeyen) hata metni. */
   publishError?: string | null;
+  /**
+   * Meta token'ı iptal etti (code=190) ve müşteri "süresi dolmuş" işaretlendi.
+   * Tick bunu aynı turdaki sonraki slotlara ve reklam saatine taşır: elindeki
+   * müşteri kaydı işaretten önce okunmuş, kapı onu göremez.
+   */
+  tokenRevoked?: boolean;
 };
 
 const GENERIC_ERROR = "Instagram'a yayınlanamadı. Tekrar deneyebilirsin.";
@@ -256,7 +264,7 @@ async function publishApprovedPostInner(postId: string): Promise<PublishOutcome>
   } catch (error) {
     const detail =
       error instanceof IGError ? error.report() : (error as Error)?.message ?? "bilinmeyen hata";
-    return markFailed(postId, detail);
+    return markFailedRevoking(postId, detail, error, client.id, client.instagramAccessToken);
   }
 }
 
@@ -357,7 +365,7 @@ async function resumePublishInner(postId: string): Promise<PublishOutcome> {
       where: { id: postId },
       data: { igContainerId: null, containerAt: null },
     });
-    return markFailed(postId, detail);
+    return markFailedRevoking(postId, detail, error, client.id, client.instagramAccessToken!);
   }
 }
 
@@ -757,6 +765,25 @@ async function markDuplicate(
  */
 async function markFailed(postId: string, detail: string): Promise<PublishOutcome> {
   return (await markFailedIf(postId, detail, {})).outcome;
+}
+
+/**
+ * {@link markFailed}; hata code=190 ise müşterinin token'ı da "süresi dolmuş"
+ * işaretlenir (gerekçe `instagram-revoked.ts`). İşaret `markFailed`ten ÖNCE:
+ * onun bildirimleri (ajans e-postası) gittiğinde panel ve portal zaten
+ * "yeniden bağla" demeli. `storedToken` DB'deki (şifreli) değer — koşullu
+ * yazma onunla eşleşir.
+ */
+async function markFailedRevoking(
+  postId: string,
+  detail: string,
+  error: unknown,
+  clientId: string,
+  storedToken: string
+): Promise<PublishOutcome> {
+  if (!isRevokedTokenError(error)) return markFailed(postId, detail);
+  await expireRevokedToken(clientId, storedToken);
+  return { ...(await markFailed(postId, detail)), tokenRevoked: true };
 }
 
 /**

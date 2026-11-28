@@ -3,7 +3,8 @@ import { reportCrash } from "@/lib/db-health";
 import { db } from "@/lib/db";
 import { bearerToken, secretsMatch } from "@/lib/api-key";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
-import { IGError, refreshInstagramToken } from "@/lib/instagram";
+import { IGError, isRevokedTokenError, refreshInstagramToken } from "@/lib/instagram";
+import { expireRevokedToken } from "@/lib/instagram-revoked";
 import {
   IG_TOKEN_REFRESH_DAYS,
   instagramTokenRefreshDecision,
@@ -132,6 +133,11 @@ export async function GET(request: Request) {
         `[cron:ig-token] ${client.id} (${client.name}) yenilenemedi:`,
         error instanceof IGError ? error.report() : error
       );
+      // 190: token iptal edilmiş, yarın yeniden denemek aynı cevabı alır. Yayın
+      // tarafı da ilk slotta video yakmasın diye kuyruk burada durdurulur.
+      if (isRevokedTokenError(error)) {
+        await expireRevokedToken(client.id, client.instagramAccessToken as string, now);
+      }
     }
   }
 

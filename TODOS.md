@@ -163,6 +163,18 @@ Buraya yalnızca sıradaki geliştirmeler düşülür.
 
 Hepsi bilerek bırakıldı; yeniden ele alınırsa notu oku.
 
+- [ ] **Meta'nın iptal ettiği token (code=190) "süresi dolmuş" olarak görünür.**
+      2026-11-28'de Furkan Teacher'ın token'ı şifre değişikliğiyle iptal edildi ve
+      kuyruk her slotta bir video daha yakıyordu. Artık 190 gelince
+      `instagram-revoked.ts` bitiş tarihini "şimdi"ye çekiyor; tick kapısı, portal
+      uyarısı, panel şeridi, furi'nin `expired`i ve cron bunu görüyor. Ayrı bir
+      "iptal edildi" kolonu bilinçli olarak eklenmedi: çaresi aynı (yeniden bağlamak)
+      ve kolon, bu yolların hepsini şema göçüyle yeniden yazmak demekti. Bedeli:
+      panel "süresi doldu" diyor, nedeni postun `publishError`ında (`code=190`).
+      190'ı alan İLK video `failed` kalır; yeniden bağlandıktan sonra elle "Tekrar
+      dene" ister. İzin hataları (10/200) hesabı kilitlemiyor: medya türüne özgü
+      olabilirler.
+
 - [ ] **V11: müşteri silinince uyandırmaları hemen iptal edilmiyor.** Kalan mesaj
       tick'te "vadesi gelen slot yok" deyip kapanır, ertesi günkü senkron satırı
       iptal eder. Kazanç birkaç boş uyanma; silme yoluna QStash bağımlılığı eklemeye değmez.

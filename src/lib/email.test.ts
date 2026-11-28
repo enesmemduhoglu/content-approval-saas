@@ -141,6 +141,22 @@ describe("ajans bildirimi", () => {
     expect(patladi).toContain("YAYINLANAMADI");
   });
 
+  it("queue_failed: 190'da 'sıradaki video yayınlanır' DEMEZ, yeniden bağlamayı söyler", () => {
+    const base = { ...notice, event: "queue_failed" as const, postRef: "Video" };
+    const revoked = renderAgencyNoticeText({
+      ...base,
+      publishError: "Error validating access token · type=OAuthException · code=190",
+    });
+    expect(revoked).toContain("yeniden bağlanana kadar");
+    expect(revoked).not.toContain("sıradaki video yayınlanır");
+
+    const other = renderAgencyNoticeText({
+      ...base,
+      publishError: "Video indirilemedi · code=9004",
+    });
+    expect(other).toContain("sıradaki video yayınlanır");
+  });
+
   it("müşteriye mail gitmediyse bunu açıkça yazar ve linki verir", () => {
     const text = renderAgencyNoticeText({
       ...notice,

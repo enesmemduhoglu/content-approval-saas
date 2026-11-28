@@ -39,6 +39,7 @@ import {
   publishToInstagram,
 } from "@/lib/instagram";
 import { signGetUrl } from "@/lib/storage-r2";
+import { expireRevokedToken } from "@/lib/instagram-revoked";
 import {
   createAgency,
   createInstagramClient,
@@ -336,5 +337,100 @@ describe("yayın sonucu telefon bildirimi (V7c — e-postaya EK kanal)", () => {
     });
     await publishApprovedPost(post.id);
     expect(mockPush).not.toHaveBeenCalled();
+  });
+});
+
+describe("code=190: Meta token'ı iptal etti", () => {
+  const revoked = () =>
+    new IGError("Error validating access token: The session has been invalidated", {
+      error: { type: "OAuthException", code: 190, fbtrace_id: "Afb" },
+    });
+
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("token 'süresi dolmuş' işaretlenir; sonraki yayın Instagram'a gitmeden düşer", async () => {
+    const { agency, client } = await seed();
+    const first = await createQueuePost(agency.id, client.id);
+    const second = await createQueuePost(agency.id, client.id);
+    mockCreateReel.mockRejectedValueOnce(revoked());
+
+    const outcome = await publishApprovedPost(first.id);
+    expect(outcome).toMatchObject({ publishStatus: "failed", tokenRevoked: true });
+    const saved = await db.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(saved.instagramTokenExpiry!.getTime()).toBeLessThanOrEqual(Date.now());
+    // Teşhis metni korunur: ajans "neden" sorusunun cevabını panelde görür.
+    const failedPost = await db.post.findUniqueOrThrow({ where: { id: first.id } });
+    expect(failedPost.publishError).toContain("code=190");
+
+    const next = await publishApprovedPost(second.id);
+    expect(next.publishStatus).toBe("failed");
+    expect(mockCreateReel).toHaveBeenCalledTimes(1);
+  });
+
+  it("devam eden videoda (resumePublish) 190 da işaretler", async () => {
+    const { agency, client } = await seed();
+    const post = await createQueuePost(agency.id, client.id);
+    await db.post.update({
+      where: { id: post.id },
+      data: {
+        status: "approved",
+        publishStatus: "publishing",
+        igContainerId: "reel-x",
+        containerAt: new Date(),
+      },
+    });
+    mockFinalize.mockRejectedValueOnce(revoked());
+
+    expect(await resumePublish(post.id)).toMatchObject({
+      publishStatus: "failed",
+      tokenRevoked: true,
+    });
+    const saved = await db.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(saved.instagramTokenExpiry!.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("190 OLMAYAN hata bitiş tarihine dokunmaz", async () => {
+    const { agency, client } = await seed();
+    const post = await createQueuePost(agency.id, client.id);
+    mockCreateReel.mockRejectedValueOnce(
+      new IGError("Video indirilemedi", { error: { code: 9004 } })
+    );
+
+    const outcome = await publishApprovedPost(post.id);
+    expect(outcome.publishStatus).toBe("failed");
+    expect(outcome.tokenRevoked).toBeUndefined();
+    const saved = await db.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(saved.instagramTokenExpiry).toEqual(client.instagramTokenExpiry);
+  });
+
+  it("yayın sürerken ajans YENİ token bağladıysa eski token'ın 190'ı yenisini kilitlemez", async () => {
+    const { agency, client } = await seed();
+    const post = await createQueuePost(agency.id, client.id);
+    const fresh = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+    mockCreateReel.mockImplementationOnce(async () => {
+      await db.client.update({
+        where: { id: client.id },
+        data: { instagramAccessToken: "IGAA-yeni-token", instagramTokenExpiry: fresh },
+      });
+      throw revoked();
+    });
+
+    await publishApprovedPost(post.id);
+    const saved = await db.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(saved.instagramTokenExpiry).toEqual(fresh);
+  });
+
+  it("zaten geçmiş bir bitiş tarihi ezilmez (gerçek tarih daha anlamlı)", async () => {
+    // Kapı geçmiş tarihi yayından önce yakalar; bu dal ancak okuma ile hata
+    // arasında tarih geçerse görünür. İşaretleyicinin koşulu doğrudan sınanıyor.
+    const { client } = await seed();
+    const past = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await db.client.update({ where: { id: client.id }, data: { instagramTokenExpiry: past } });
+
+    expect(await expireRevokedToken(client.id, "IGAA-test-token")).toBe(false);
+    const saved = await db.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(saved.instagramTokenExpiry).toEqual(past);
   });
 });

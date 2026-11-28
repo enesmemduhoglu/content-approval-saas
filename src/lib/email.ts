@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { errorCodes } from "@/lib/portal-publish-error";
 import { INVITE_TTL_DAYS } from "@/lib/tokens";
 
 export type ApprovalEmailInput = {
@@ -433,11 +434,22 @@ function agencyNoticeLines(input: AgencyNoticeInput): string[] {
   } else if (input.event === "queue_failed") {
     lines.push(`${input.clientName} kuyruğundaki video Instagram'a YAYINLANAMADI.`);
     if (input.publishError) lines.push(`Neden: ${input.publishError}`);
-    // Ajansın bilmesi gereken: kuyruk DURMADI. Tek hata ritmi bozmaz (README §5).
-    lines.push(
-      "Video kuyrukta hata rozetiyle bekliyor; sonraki slotta sıradaki video yayınlanır. " +
-        "Müşteriye de e-posta gitti."
-    );
+    if (input.publishError && errorCodes(input.publishError).includes(190)) {
+      // 190'da kuyruk BİLEREK duruyor (`instagram-revoked.ts`): "sıradaki video
+      // yayınlanır" demek yanlış olurdu, ajansın tek işi yeniden bağlamak.
+      lines.push(
+        "Instagram bağlantısını Meta iptal etti (hesabın şifresi değişmiş ya da oturum " +
+          "güvenlik nedeniyle kapatılmış). Kuyruk, hesap panelden yeniden bağlanana kadar " +
+          "bekliyor; sıradaki videolar harcanmıyor. Bağladıktan sonra bu videoda " +
+          "portaldan \"Tekrar dene\"ye bas. Müşteriye de e-posta gitti."
+      );
+    } else {
+      // Ajansın bilmesi gereken: kuyruk DURMADI. Tek hata ritmi bozmaz (README §5).
+      lines.push(
+        "Video kuyrukta hata rozetiyle bekliyor; sonraki slotta sıradaki video yayınlanır. " +
+          "Müşteriye de e-posta gitti."
+      );
+    }
   } else if (input.event === "link_expired") {
     // Müşteriye hatırlatma göndermenin anlamı yok: elindeki link çalışmıyor.
     // Yapabilecek tek kişi ajans, o yüzden ne yapması gerektiği açıkça yazıyor.
