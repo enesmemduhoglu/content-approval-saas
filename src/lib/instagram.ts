@@ -224,6 +224,20 @@ export async function checkMediaLiveness(
   }
 }
 
+/**
+ * Meta token'ı KALICI olarak geçersiz saydı mı (code=190, OAuthException)?
+ *
+ * Şifre değişikliği, Meta'nın güvenlik gerekçesiyle oturumu kapatması, iznin
+ * geri alınması — hepsi 190 döner ve hiçbiri kendiliğinden düzelmez: aynı
+ * token'la her yeni deneme aynı hatayı alır. Yalnızca 190: 10/200 izin hataları
+ * medya türüne özgü olabilir, onlarla bütün hesabı kilitlemek fazla sert olurdu.
+ */
+export function isRevokedTokenError(error: unknown): boolean {
+  if (!(error instanceof IGError)) return false;
+  const detail = error.detail.error as Record<string, unknown> | undefined;
+  return detail?.code === 190 || detail?.code === "190";
+}
+
 /** "Bu nesne yok" hatası mı, yoksa başka bir arıza mı? */
 function isMissingObjectError(error: IGError): boolean {
   if (error.http === 404) return true;

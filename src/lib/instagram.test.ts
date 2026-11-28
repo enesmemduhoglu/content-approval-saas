@@ -5,6 +5,7 @@ import {
   createReelContainer,
   fetchInstagramAccount,
   finalizeContainer,
+  isRevokedTokenError,
   publishToInstagram,
   refreshInstagramToken,
 } from "./instagram";
@@ -549,5 +550,17 @@ describe("checkMediaLiveness", () => {
     responses = [respond({})];
 
     await expect(checkMediaLiveness("media-1", "IGAA-test-token")).resolves.toBe("unknown");
+  });
+});
+
+describe("isRevokedTokenError", () => {
+  it("yalnızca code=190 (sayı ya da metin) iptal sayılır", () => {
+    expect(isRevokedTokenError(new IGError("x", { error: { code: 190 } }))).toBe(true);
+    expect(isRevokedTokenError(new IGError("x", { error: { code: "190" } }))).toBe(true);
+    // İzin hataları medya türüne özgü olabilir; bütün hesabı kilitlemez.
+    expect(isRevokedTokenError(new IGError("x", { error: { code: 10 } }))).toBe(false);
+    expect(isRevokedTokenError(new IGError("x", { error: { code: 200 } }))).toBe(false);
+    expect(isRevokedTokenError(new IGError("x"))).toBe(false);
+    expect(isRevokedTokenError(new Error("code=190"))).toBe(false);
   });
 });

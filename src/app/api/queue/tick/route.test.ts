@@ -445,6 +445,43 @@ describe("Instagram hazır değil", () => {
     expect(subjects()).toEqual(["Yayın yapılamadı: Instagram bağlantısı"]);
     expect(mockAgency).toHaveBeenCalledTimes(1);
   });
+
+  // 2026-11-28 canlıda: Meta token'ı iptal etti (şifre değişti), bitiş tarihi
+  // ileride göründüğü için kapı açıktı ve her slot bir video daha yakıyordu.
+  it("190 (token iptal) sonrası aynı turdaki ikinci slot video HARCAMAZ", async () => {
+    const { agency, client, slotAts } = await seed({ minutesAgo: [10, 5] });
+    const first = await createQueuePost(agency.id, client.id);
+    const second = await createQueuePost(agency.id, client.id);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockCreateReel.mockRejectedValueOnce(
+      new IGError("Error validating access token", {
+        error: { type: "OAuthException", code: 190, fbtrace_id: "Afb" },
+      })
+    );
+
+    const body = await (await POST(tickRequest())).json();
+    expect(body).toMatchObject({ published: 0, failed: 2 });
+    expect(mockCreateReel).toHaveBeenCalledTimes(1);
+
+    const a = await db.post.findUniqueOrThrow({ where: { id: first.id } });
+    const b = await db.post.findUniqueOrThrow({ where: { id: second.id } });
+    expect(a.publishStatus).toBe("failed");
+    expect(b.publishStatus).toBe("idle");
+    expect(b.slotAt).toBeNull();
+
+    const saved = await db.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(saved.instagramTokenExpiry!.getTime()).toBeLessThanOrEqual(Date.now());
+
+    const runs = await db.slotRun.findMany({
+      where: { clientId: client.id },
+      orderBy: { slotAt: "asc" },
+    });
+    expect(runs.map((r) => [r.slotAt, r.outcome, r.postId])).toEqual([
+      [slotAts[0], "failed", first.id],
+      [slotAts[1], "failed", null],
+    ]);
+    expect(runs[1].detail).toContain("yeniden bağlanmalı");
+  });
 });
 
 describe("çok turlu video yayını", () => {

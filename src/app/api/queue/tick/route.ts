@@ -366,6 +366,7 @@ async function processAdSlot(
     touched.add(next.id);
     const outcome = await publishApprovedPost(next.id);
     if (outcome.publishStatus !== "published") {
+      if (outcome.tokenRevoked) markRevokedInMemory(settings, now);
       // Sonuç e-postası/push'u ve SlotRun'ın kapanışı `publish-post`un
       // kancasında; buradaki yazım kanca patladıysa diye (koşullu, ezmez).
       // Sayaç İLERLEMEZ: reklam çıkmadı, sıradaki reklam saati yeniden dener.
@@ -422,6 +423,16 @@ async function notifyAdPoolEmpty(settings: QueueClient): Promise<void> {
   await notifyClientUsers(settings.clientId, adPoolEmptyPush());
 }
 
+/**
+ * Yayın 190 aldı: DB'de token "süresi dolmuş" işaretlendi, ama bu turun elindeki
+ * müşteri kaydı işaretten ÖNCE okundu. Aynı turda vadesi gelen ikinci slot ya da
+ * reklam saati kapıdan geçip bir video/reklam daha yakmasın diye kayıt burada
+ * da güncellenir. Sonraki tick zaten DB'den taze okur.
+ */
+function markRevokedInMemory(settings: QueueClient, now: Date): void {
+  settings.client.instagramTokenExpiry = now;
+}
+
 /** Sahiplenilmiş TEK bir slotu sonuçlandırır. */
 async function runSlot(
   settings: QueueClient,
@@ -439,7 +450,9 @@ async function runSlot(
   const blocked = !isPublishTarget(client)
     ? "Instagram hesabı bağlı değil"
     : isInstagramTokenExpired(client.instagramTokenExpiry)
-      ? "Instagram erişim izninin süresi dolmuş"
+      ? // 190 (Meta iptal etti) da buraya düşer: `instagram-revoked.ts` bitiş
+        // tarihini "şimdi"ye çekiyor. İkisinin çaresi aynı, metin ikisini de söyler.
+        "Instagram erişim izni geçersiz ya da süresi dolmuş — panelden yeniden bağlanmalı"
       : null;
   if (blocked) {
     await finishSlotRun(client.id, slotAt, { outcome: "failed", detail: blocked });
@@ -500,6 +513,7 @@ async function runSlot(
         outcome: "failed",
         detail: outcome.publishError ?? `Yayın durumu: ${outcome.publishStatus}`,
       });
+      if (outcome.tokenRevoked) markRevokedInMemory(settings, now);
     }
     return;
   }
